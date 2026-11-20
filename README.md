@@ -13,6 +13,7 @@ Guild Hall is a World of Warcraft guild addon for a shared roster, member profil
 - Crafting request board; requests expire after seven days and can be claimed by crafters.
 - Officer polls with public totals; voter names are not shown in the interface.
 - Shoutouts between guild members.
+- Stacking PvP reward popout and guild-wide level/profession milestone popups for members running Guild Hall.
 
 Officers (guild leader and rank 1) can create announcements, schedule raids and events, edit the guide, create or close polls, and start PvP seasons. Any guild member can edit their own profile, RSVP, vote, make or claim board requests, and post shoutouts.
 
@@ -44,6 +45,9 @@ Copy this folder into the client's `Interface/AddOns` directory, enable **Guild 
 - `/gh poll vote # option#` votes; `/gh poll close #` closes a poll (officer).
 - `/gh pvp season Season name` starts a PvP season (officer).
 - `/gh shout Player Name | Message` posts a shoutout.
+- `/gh popout pvp`, `/gh popout level10` (also 20/30/40/50/60), or `/gh popout profession150` (also 225/300) previews a popout.
+
+Personal Settings can turn Guild Hall popups on or off and optionally send a guild-chat “Ding!” for level milestones. Profession milestones never send guild chat messages.
 
 Date and time in event commands use the local time shown by the game client. Board item numbers refer to the current order shown in their tab.
 

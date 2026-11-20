@@ -11,6 +11,7 @@ Features/Announcements.lua
 Features/Events.lua
 Features/Shoutouts.lua
 Features/PvP.lua
+Features/Popouts.lua
 Features/Guide.lua
 Features/LookingFor.lua
 Features/Crafting.lua

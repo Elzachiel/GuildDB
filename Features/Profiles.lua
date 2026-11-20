@@ -134,7 +134,7 @@ function GH:GetPlayerProfessions()
     for _, profession in ipairs(professions) do
         display[#display + 1] = profession.name .. " " .. profession.rank
     end
-    return table.concat(display, ", ")
+    return table.concat(display, ", "), professions
 end
 
 function GH:RefreshPlayerProfessions()

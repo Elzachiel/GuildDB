@@ -101,6 +101,12 @@ local function recordKill(victim, victimLevel)
     local record = GH:NewRecord({ victim = victim, victimLevel = level, points = pointsForLevel(level) })
     record.id = tostring(time()) .. "-pvp-" .. tostring(math.random(100000, 999999))
     addLocalStat("kills", record.points)
+    if GH.ShowPvPPopup then
+        local player = UnitName and UnitName("player") or "Guild member"
+        local seasonStart = (GH.bucket.pvpSeason or {}).start or 0
+        local totals = GH.bucket.pvpTotals[totalsKey(seasonStart, player)]
+        GH:ShowPvPPopup(record.points, victim, level, totals and totals.points or record.points)
+    end
     GH:StoreRecord("pvpKills", record, "P", encodeKill(record))
 end
 
