@@ -176,6 +176,24 @@ GH:RegisterTab("Map", mapTabText)
 
 local mapMemberIcons = {}
 
+local function isInLocalGroup(memberName)
+    local wanted = normalizeMemberKey(memberName)
+    if wanted == "" or not UnitExists or not UnitName then return false end
+
+    -- Prefer raid unit tokens when in a raid; otherwise inspect the four
+    -- non-player party slots. These members already have Blizzard map markers.
+    local inRaid = IsInRaid and IsInRaid()
+    local prefix, limit = inRaid and "raid" or "party", inRaid and 40 or 4
+    for index = 1, limit do
+        local unit = prefix .. index
+        if UnitExists(unit) then
+            local name = UnitName(unit)
+            if name and normalizeMemberKey(name) == wanted then return true end
+        end
+    end
+    return false
+end
+
 local function getMapLibraries()
     if not LibStub then return end
     return LibStub("HereBeDragons-2.0", true), LibStub("HereBeDragons-Pins-2.0", true)
@@ -219,20 +237,22 @@ function GH:RefreshMapPins()
     local activeIcons = {}
     for _, report in ipairs(self:GetMapReports()) do
         local key = normalizeMemberKey(report.name)
-        local icon = mapMemberIcons[key] or createMemberIcon()
-        mapMemberIcons[key] = icon
-        icon.memberName, icon.zone = report.name, report.zone
-        icon.x, icon.y = report.x, report.y
-        icon.label:SetText((report.name:match("^([^-]+)") or report.name):sub(1, 12))
-        local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[report.class or ""]
-        if color then icon.dot:SetVertexColor(color.r, color.g, color.b, 1)
-        else icon.dot:SetVertexColor(0.8, 0.8, 0.8, 1) end
-        icon:Show()
+        if not isInLocalGroup(report.name) then
+            local icon = mapMemberIcons[key] or createMemberIcon()
+            mapMemberIcons[key] = icon
+            icon.memberName, icon.zone = report.name, report.zone
+            icon.x, icon.y = report.x, report.y
+            icon.label:SetText((report.name:match("^([^-]+)") or report.name):sub(1, 12))
+            local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[report.class or ""]
+            if color then icon.dot:SetVertexColor(color.r, color.g, color.b, 1)
+            else icon.dot:SetVertexColor(0.8, 0.8, 0.8, 1) end
+            icon:Show()
 
-        local added = HBDPins:AddWorldMapIconMap(
-            self, icon, report.mapID, report.x, report.y, HBD_PINS_WORLDMAP_SHOW_WORLD
-        )
-        if added then activeIcons[key] = true else icon:Hide() end
+            local added = HBDPins:AddWorldMapIconMap(
+                self, icon, report.mapID, report.x, report.y, HBD_PINS_WORLDMAP_SHOW_WORLD
+            )
+            if added then activeIcons[key] = true else icon:Hide() end
+        end
     end
     for key, icon in pairs(mapMemberIcons) do
         if not activeIcons[key] then icon:Hide() end
@@ -246,4 +266,6 @@ GH:RegisterEventHandler("WORLD_MAP_OPEN", function()
         refreshMapPins()
     end
 end)
+
+GH:RegisterEventHandler("GROUP_ROSTER_UPDATE", refreshMapPins)
 
