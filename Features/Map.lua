@@ -176,9 +176,13 @@ GH:RegisterTab("Map", mapTabText)
 
 local mapMemberIcons = {}
 
-local function isInLocalGroup(memberName)
-    local wanted = normalizeMemberKey(memberName)
-    if wanted == "" or not UnitExists then return false end
+local function isInLocalGroup(memberName, payloadAuthor)
+    local wanted = {
+        [normalizeMemberKey(memberName)] = true,
+        [normalizeMemberKey(payloadAuthor)] = true,
+    }
+    wanted[""] = nil
+    if not next(wanted) or not UnitExists then return false end
 
     -- Prefer raid unit tokens when in a raid; otherwise inspect the four
     -- non-player party slots. These members already have Blizzard map markers.
@@ -193,8 +197,8 @@ local function isInLocalGroup(memberName)
             elseif UnitName then
                 name, realm = UnitName(unit)
             end
-            if name and normalizeMemberKey(name) == wanted then return true end
-            if realm and normalizeMemberKey(name .. "-" .. realm) == wanted then return true end
+            if name and wanted[normalizeMemberKey(name)] then return true end
+            if name and realm and wanted[normalizeMemberKey(name .. "-" .. realm)] then return true end
         end
     end
     return false
@@ -243,7 +247,9 @@ function GH:RefreshMapPins()
     local activeIcons = {}
     for _, report in ipairs(self:GetMapReports()) do
         local key = normalizeMemberKey(report.name)
-        if not isInLocalGroup(report.name) then
+        -- The authenticated addon sender and payload author can differ in
+        -- name/realm formatting. Match either against the local group roster.
+        if not isInLocalGroup(report.name, report.author) then
             local icon = mapMemberIcons[key] or createMemberIcon()
             mapMemberIcons[key] = icon
             icon.memberName, icon.zone = report.name, report.zone
