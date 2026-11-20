@@ -184,6 +184,9 @@ local function isInLocalGroup(memberName, payloadAuthor)
     wanted[""] = nil
     if not next(wanted) or not UnitExists then return false end
 
+    local playerName = UnitName and UnitName("player")
+    if playerName and wanted[normalizeMemberKey(playerName)] then return true end
+
     -- Prefer raid unit tokens when in a raid; otherwise inspect the four
     -- non-player party slots. These members already have Blizzard map markers.
     local inRaid = IsInRaid and IsInRaid()
