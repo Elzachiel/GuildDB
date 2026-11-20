@@ -355,17 +355,18 @@ local function build()
         if self:HasFocus() then GH:RefreshUI() end
     end)
     frame.rosterOnlineOnly = true
+    if GH.GetSetting then frame.rosterOnlineOnly = GH:GetSetting("onlineOnly") ~= false end
     frame.rosterOnlineCheck = CreateFrame("CheckButton", nil, frame.listPanel, "UICheckButtonTemplate")
     frame.rosterOnlineCheck:SetSize(24, 24)
     frame.rosterOnlineCheck:SetPoint("LEFT", frame.rosterSearch, "RIGHT", 8, 0)
-    frame.rosterOnlineCheck:SetChecked(true)
+    frame.rosterOnlineCheck:SetChecked(frame.rosterOnlineOnly)
     frame.rosterOnlineCheck.label = frame.rosterOnlineCheck:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     frame.rosterOnlineCheck.label:SetPoint("LEFT", frame.rosterOnlineCheck, "RIGHT", -2, 0)
     frame.rosterOnlineCheck.label:SetText("Online")
     frame.rosterOnlineCheck.label:SetTextColor(CREAM[1], CREAM[2], CREAM[3])
     frame.rosterOnlineCheck:SetScript("OnClick", function(self)
-        frame.rosterOnlineOnly = self:GetChecked()
-        GH:RefreshUI()
+        frame.rosterOnlineOnly = not not self:GetChecked()
+        if GH.SetSetting then GH:SetSetting("onlineOnly", frame.rosterOnlineOnly) else GH:RefreshUI() end
     end)
     frame.rosterHeaders = {}
     for _, column in ipairs({ { "NAME", "name", 10, 130 }, { "GUILD", "guild", 145, 38 }, { "LVL", "level", 185, 28 }, { "RANK", "rank", 218, 82 }, { "ZONE", "zone", 304, 120 }, { "ROLE", "role", 428, 58 }, { "HQ", "hq", 490, 55 } }) do
@@ -1336,7 +1337,7 @@ local function rebuildRoster()
     local roster = {}
     for i = 1, GetNumGuildMembers() do
         local name, rankName, rankIndex, level, className, zone, _, _, online, _, classFile = GetGuildRosterInfo(i)
-        if name and (online or not GH.GetSetting or GH:GetSetting("onlineOnly") == false) then
+        if name then
             roster[#roster + 1] = { name = name, rank = rankName or "Member", rankIndex = rankIndex or 99, level = level, class = className, classFile = classFile, zone = zone, online = not not online }
         end
     end

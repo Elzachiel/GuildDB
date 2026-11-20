@@ -61,7 +61,13 @@ function GH:SetSetting(key, value)
         return
     end
     if key == "scale" and self.frame then self.frame:SetScale(value) end
-    if key == "onlineOnly" and self.RebuildRoster then self:RebuildRoster() end
+    if key == "onlineOnly" then
+        if self.frame and self.frame.rosterOnlineCheck then
+            self.frame.rosterOnlineOnly = value ~= false
+            self.frame.rosterOnlineCheck:SetChecked(self.frame.rosterOnlineOnly)
+        end
+        if self.RebuildRoster then self:RebuildRoster() end
+    end
     if self.RefreshUI then self:RefreshUI() end
 end
 
