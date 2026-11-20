@@ -791,9 +791,9 @@ function GH:RefreshUI()
     local online, usingAddon = 0, 0
     for _, member in ipairs(self.roster or {}) do
         if member.online then online = online + 1 end
-        if self:GetSetting("showAddonStatus") ~= false and self:GetAddonVersion(member.name) then usingAddon = usingAddon + 1 end
+        if self:GetAddonVersion(member.name) then usingAddon = usingAddon + 1 end
     end
-    local addonSummary = self:GetSetting("showAddonStatus") ~= false and ("    " .. usingAddon .. " using addon") or ""
+    local addonSummary = "    " .. usingAddon .. " using addon"
     frame.headerStatus:SetText((self.guildName and "|cff55cf9bGUILD CONNECTED|r    " or "|cffff6666NO GUILD|r    ") .. online .. " online" .. addonSummary)
     frame.logoText:SetText((self.guildName or "Guild") .. " Hall")
     frame.logoAbbreviation:SetText(guildAbbreviation(self.guildName or "Guild"))
@@ -915,7 +915,7 @@ function GH:RefreshUI()
             local profile = row.rosterName and self:GetProfile(row.rosterName)
             local summary = profile and table.concat({ profile.role or "", profile.spec or "" }, " · "):gsub("^ · ", ""):gsub(" · $", "")
             local version = row.rosterName and self:GetAddonVersion(row.rosterName)
-            local addonStatus = self:GetSetting("showAddonStatus") == false and "" or (version and ("Guild Hall v" .. version) or "No addon detected")
+            local addonStatus = version and ("Guild Hall v" .. version) or "No addon detected"
             local profileStatus = summary and summary ~= "" and summary or (profile and "Profile available" or "No profile yet")
             local rowMember = frame.rosterDisplay[index]
             local characterInfo = table.concat({
@@ -952,7 +952,7 @@ function GH:RefreshUI()
             row.columns[4]:SetText(self:Display(member.rank or "Member"))
             row.columns[5]:SetText(self:Display(member.zone or "-"))
             row.columns[6]:SetText(self:Display(profile.role or "-"))
-            row.columns[7]:SetText(self:GetSetting("showAddonStatus") == false and "-" or (version or "-"))
+            row.columns[7]:SetText(version or "-")
             for _, cell in ipairs(row.columns) do cell:Show() end
             row.label:Hide()
             row.meta:Hide()
@@ -1074,7 +1074,7 @@ function GH:RefreshUI()
         local zone = member and member.zone and member.zone ~= "" and self:Display(member.zone) or "Unknown"
         local profileName = profile and table.concat({ profile.firstName or "", profile.lastName or "" }, " "):gsub("^%s+", ""):gsub("%s+$", "") or ""
         if profileName == "" then profileName = "Not set" end
-        local addonLine = self:GetSetting("showAddonStatus") == false and "" or ("Guild Hall  " .. (version and ("v" .. version) or "Not detected") .. "\n\n")
+        local addonLine = "Guild Hall  " .. (version and ("v" .. version) or "Not detected") .. "\n\n"
         frame.detailBody:SetText(addonLine .. "Guild: " .. guild .. "\n\nName: " .. self:Display(profileName) .. "\n\nStatus: " .. status .. "  -  " .. zone .. "\n\nRole: " .. value("role") .. "\n\nProfessions: " .. value("professions") .. "\n\nSpecialization: " .. value("spec") .. "\n\nTime zone: " .. value("timezone") .. "\n\nAlts: " .. value("alts"))
     elseif active == "PvP" then
         self:HideSettingsControls()

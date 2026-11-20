@@ -1,7 +1,7 @@
 -- Personal preferences plus per-guild, officer-managed feature visibility.
 local _, GH = ...
 
-local defaults = { onlineOnly = true, showAddonStatus = true, scale = 1 }
+local defaults = { onlineOnly = true, scale = 1 }
 
 local function settings()
     if type(GuildHallDB) ~= "table" then GuildHallDB = {} end
@@ -133,17 +133,41 @@ end
 
 local function check(parent, text, key, x, y, list, officerOnly)
     local button = CreateFrame("Button", nil, parent)
-    button:SetSize(24, 24)
+    button:SetSize(22, 22)
     button:SetPoint("TOPLEFT", x, y)
-    button.mark = button:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    button.mark:SetAllPoints()
-    button.mark:SetJustifyH("CENTER")
-    button.text = label(parent, text, x + 28, y - 3, "GameFontNormal", list)
+    button:SetNormalTexture("Interface/Buttons/WHITE8X8")
+    button:SetPushedTexture("Interface/Buttons/WHITE8X8")
+    button:SetHighlightTexture("Interface/Buttons/WHITE8X8")
+    button:SetDisabledTexture("Interface/Buttons/WHITE8X8")
+    button:GetNormalTexture():SetAllPoints(button)
+    button:GetNormalTexture():SetVertexColor(0.075, 0.09, 0.12, 1)
+    button:GetPushedTexture():SetAllPoints(button)
+    button:GetPushedTexture():SetVertexColor(0.045, 0.06, 0.085, 1)
+    button:GetHighlightTexture():SetAllPoints(button)
+    button:GetHighlightTexture():SetVertexColor(0.22, 0.52, 0.78, 0.20)
+    button:GetDisabledTexture():SetAllPoints(button)
+    button:GetDisabledTexture():SetVertexColor(0.08, 0.09, 0.11, 0.65)
+    button.border = {}
+    for index = 1, 4 do
+        button.border[index] = button:CreateTexture(nil, "OVERLAY")
+        button.border[index]:SetColorTexture(0.16, 0.25, 0.34, 1)
+    end
+    button.border[1]:SetPoint("TOPLEFT"); button.border[1]:SetPoint("TOPRIGHT"); button.border[1]:SetHeight(1)
+    button.border[2]:SetPoint("BOTTOMLEFT"); button.border[2]:SetPoint("BOTTOMRIGHT"); button.border[2]:SetHeight(1)
+    button.border[3]:SetPoint("TOPLEFT"); button.border[3]:SetPoint("BOTTOMLEFT"); button.border[3]:SetWidth(1)
+    button.border[4]:SetPoint("TOPRIGHT"); button.border[4]:SetPoint("BOTTOMRIGHT"); button.border[4]:SetWidth(1)
+    button.mark = button:CreateTexture(nil, "OVERLAY")
+    button.mark:SetTexture("Interface/Buttons/UI-CheckBox-Check")
+    button.mark:SetSize(17, 17)
+    button.mark:SetPoint("CENTER")
+    button.mark:SetVertexColor(0.25, 0.68, 1, 1)
+    button.text = label(parent, text, x + 26, y - 2, "GameFontNormal", list)
     list[#list + 1] = button
     local function update()
         local enabled = GH:GetSetting(key)
-        button.mark:SetText(enabled and "[x]" or "[ ]")
-        button.mark:SetTextColor(enabled and 0.92 or 0.55, enabled and 0.70 or 0.58, enabled and 0.22 or 0.65)
+        button.mark:SetShown(enabled)
+        button:GetNormalTexture():SetVertexColor(0.075, 0.09, 0.12, 1)
+        for _, edge in ipairs(button.border) do edge:SetColorTexture(0.16, 0.25, 0.34, 1) end
         local permitted = not officerOnly or GH:CanManage()
         button:SetEnabled(permitted)
         button.text:SetTextColor(permitted and 0.88 or 0.38, permitted and 0.84 or 0.40, permitted and 0.73 or 0.45)
@@ -172,21 +196,21 @@ local function build(parent)
     GH.settingsControls = list
     label(parent, "Personal", 12, -10, "GameFontNormalLarge", list)
     check(parent, "Show online members only", "onlineOnly", 12, -42, list)
-    check(parent, "Show addon version and profile status", "showAddonStatus", 12, -74, list)
-
     label(parent, "Window scale", 12, -120, "GameFontNormal", list)
     local scaleText = label(parent, "", 105, -120, "GameFontHighlight", list)
     local function updateScale()
         scaleText:SetText(("%d%%"):format(math.floor((GH:GetSetting("scale") or 1) * 100 + 0.5)))
     end
-    makeButton(parent, "-", 32, 160, -112, function()
+    local scaleDown = makeButton(parent, "-", 32, 160, -112, function()
         GH:SetSetting("scale", math.max(0.8, math.floor(((GH:GetSetting("scale") or 1) - 0.1) * 10 + 0.5) / 10))
         updateScale()
     end, list)
-    makeButton(parent, "+", 32, 200, -112, function()
+    local scaleUp = makeButton(parent, "+", 32, 200, -112, function()
         GH:SetSetting("scale", math.min(1.2, math.floor(((GH:GetSetting("scale") or 1) + 0.1) * 10 + 0.5) / 10))
         updateScale()
     end, list)
+    scaleDown:GetFontString():SetFontObject("GameFontNormalLarge")
+    scaleUp:GetFontString():SetFontObject("GameFontNormalLarge")
     updateScale()
 
     label(parent, "Data", 12, -168, "GameFontNormalLarge", list)
