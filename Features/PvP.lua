@@ -6,6 +6,7 @@ GH:RegisterBucket("pvpTotals", function() return {} end)
 GH:RegisterBucket("pvpSeason", function() return { name = "All-time", start = 0, ts = 0 } end)
 GH:RegisterBucket("pvpReset", function() return { ts = 0 } end)
 GH:RegisterBucket("pvpSeasons", function() return {} end)
+GH:RegisterBucket("pvpSeasonDeletes", function() return {} end)
 local seenPlayers = {}
 local honorCredits = {}
 local creditScheduled = false
@@ -61,9 +62,40 @@ function GH:CanManagePvPSeason()
     return self.bucket ~= nil and guildLeader(playerName())
 end
 
+local function deleteSeason(start, stamp, author)
+    local key = tostring(start)
+    local previous = GH.bucket.pvpSeasonDeletes[key]
+    if previous and previous.ts >= stamp then return end
+    GH.bucket.pvpSeasonDeletes[key] = { ts = stamp, by = author }
+    GH.bucket.pvpSeasons[key] = nil
+    for id, totals in pairs(GH.bucket.pvpTotals) do
+        if totals.start == start then GH.bucket.pvpTotals[id] = nil end
+    end
+    if GH.bucket.pvpSeason.start == start then
+        GH.bucket.pvpSeason = { name = "All-time", start = 0, ts = stamp, by = author }
+    end
+    if GH.RefreshUI then GH:RefreshUI() end
+end
+
+function GH:DeletePvPSeason(start)
+    if not self:CanManagePvPSeason() then return false, "Only the guild master can delete seasons." end
+    start = tonumber(start)
+    if not start or start <= 0 then return false, "Select a season first. All-time cannot be deleted here." end
+    deleteSeason(start, time(), playerName())
+    self:SendRecord("PD", tostring(start), time(), playerName(), "")
+    return true, "Season deleted. All-time stats were kept."
+end
+
+GH:RegisterRecordHandler("PD", function(id, ts, author)
+    local start = tonumber(id)
+    if not start or start <= 0 or not guildLeader(author) or ts <= resetTime() or ts > time() + 60 then return end
+    deleteSeason(start, ts, author)
+end)
+
 local function applyReset(stamp, author)
     if stamp <= resetTime() then return end
     GH.bucket.pvpReset = { ts = stamp, by = author }
+    GH.bucket.pvpSeasonDeletes = {}
     GH.bucket.pvpKills, GH.bucket.pvpDeaths, GH.bucket.pvpTotals, GH.bucket.pvpSeasons = {}, {}, {}, {}
     GH.bucket.pvpSeason = { name = "All-time", start = 0, ts = stamp, by = author }
     honorCredits, seenPlayers = {}, {}
@@ -231,6 +263,7 @@ GH:RegisterRecordHandler("Y", function(id, ts, author, content)
     local name, start, ends = content:match("^(.-)\n(%d+)\n(%d+)$")
     if not name then name, start = content:match("^(.-)\n(%d+)$") end
     start = tonumber(start)
+    if start and GH.bucket.pvpSeasonDeletes[tostring(start)] then return end
     ends = tonumber(ends) or 0
     if not name or name == "" or #name > 80 or not start then return end
     if id ~= "season" and id ~= "season:" .. tostring(start) then return end
@@ -260,6 +293,7 @@ GH:RegisterRecordHandler("Z", function(id, ts, author, content)
     elseif resetTime() > 0 then return end
     local start, kills, points, deaths = content:match("^(%d+)\n(%d+)\n(%d+)\n(%d+)$")
     start, kills, points, deaths = tonumber(start), tonumber(kills), tonumber(points), tonumber(deaths)
+    if start and GH.bucket.pvpSeasonDeletes[tostring(start)] then return end
     if not start or not kills or not points or not deaths or #author > 100 then return end
     local key = totalsKey(start, author)
     local current = GH.bucket.pvpTotals[key]
@@ -392,6 +426,9 @@ end)
 GH:RegisterHistoryProvider(function()
     local reset = GH.bucket.pvpReset
     if reset and reset.ts > 0 then GH:SendRecord("PR", "wipe", reset.ts, reset.by, "") end
+    for start, deleted in pairs(GH.bucket.pvpSeasonDeletes) do
+        GH:SendRecord("PD", start, deleted.ts, deleted.by, "")
+    end
     local list = GH.bucket.pvpKills or {}
     for i = math.min(#list, GH.maxItems), 1, -1 do
         local record = list[i]
@@ -524,8 +561,9 @@ end)
 function GH:GetPvPSeasons()
     local bucket = self.bucket or {}
     local choices, known = {}, {}
+    for start in pairs(bucket.pvpSeasonDeletes or {}) do known[tonumber(start)] = true end
     local current = bucket.pvpSeason
-    if current and (current.start or 0) > 0 then
+    if current and (current.start or 0) > 0 and not known[current.start] then
         choices[#choices + 1], known[current.start] = current, true
     end
     for _, season in pairs(bucket.pvpSeasons or {}) do

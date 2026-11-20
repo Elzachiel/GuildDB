@@ -628,6 +628,9 @@ local function build()
     frame.pvpScopeButton:SetScript("OnClick", function()
         if seasonMenu:IsShown() then seasonMenu:Hide(); return end
         local choices = GH:GetPvPSeasons()
+        if GH:CanManagePvPSeason() then
+            choices[#choices + 1] = { name = "Delete selected season...", deleteSeason = true }
+        end
         choices[#choices + 1] = { name = "Tracking details", tracking = true }
         for index, choice in ipairs(choices) do
             local option = seasonMenu.buttons[index]
@@ -641,7 +644,29 @@ local function build()
             option:SetText(choice.name)
             local start = choice.start
             local tracking = choice.tracking
+            local deleting = choice.deleteSeason
             option:SetScript("OnClick", function()
+                if deleting then
+                    seasonMenu:Hide()
+                    local selected = GH:GetPvPLeaderboard(frame.pvpAllTime, frame.pvpSelectedStart)
+                    if not selected or (selected.start or 0) == 0 then
+                        print("Guild Hall: Select a season first. All-time cannot be deleted here.")
+                        return
+                    end
+                    showInputForm("Delete PvP season", {
+                        { label = "Season to delete (all-time stats are kept)", value = selected.name, readOnly = true },
+                        { label = "Type DELETE to permanently remove this season", value = "", max = 6 },
+                    }, function(values)
+                        if values[2] ~= "DELETE" then return false, "Type DELETE to confirm." end
+                        local ok, result = GH:DeletePvPSeason(selected.start)
+                        if ok then
+                            frame.pvpSelectedStart, frame.pvpAllTime = 0, true
+                            GH:RefreshUI()
+                        end
+                        return ok, result
+                    end, "Delete", true)
+                    return
+                end
                 if tracking then
                     seasonMenu:Hide()
                     showInputForm("PvP tracking details", {
