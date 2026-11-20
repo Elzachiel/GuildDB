@@ -438,7 +438,7 @@ local function build()
         if GH.SetSetting then GH:SetSetting("onlineOnly", frame.rosterOnlineOnly) else GH:RefreshUI() end
     end)
     frame.rosterHeaders = {}
-    for _, column in ipairs({ { "NAME", "name", 10, 130 }, { "GUILD", "guild", 145, 38 }, { "LVL", "level", 185, 28 }, { "RANK", "rank", 218, 82 }, { "ZONE", "zone", 304, 120 }, { "ROLE", "role", 428, 58 }, { "GH", "hq", 490, 55 } }) do
+    for _, column in ipairs({ { "NAME", "name", 10, 130 }, { "LEVEL", "level", 145, 36 }, { "RANK", "rank", 185, 82 }, { "ZONE", "zone", 270, 120 }, { "ROLE", "role", 395, 58 }, { "GH", "hq", 460, 55 } }) do
         local header = CreateFrame("Button", nil, frame.listPanel)
         header:SetSize(column[4], 20)
         header:SetPoint("TOPLEFT", column[3], -44)
@@ -957,7 +957,7 @@ function GH:RefreshUI()
             row.meta:SetJustifyV("BOTTOM")
             row.meta:SetWordWrap(true)
             row.columns = {}
-            for columnIndex, spec in ipairs({ { 10, 128, "LEFT" }, { 145, 36, "LEFT" }, { 185, 27, "LEFT" }, { 218, 82, "LEFT" }, { 304, 120, "LEFT" }, { 428, 58, "LEFT" }, { 490, 55, "LEFT" } }) do
+            for columnIndex, spec in ipairs({ { 10, 128, "LEFT" }, { 145, 36, "LEFT" }, { 185, 82, "LEFT" }, { 270, 120, "LEFT" }, { 395, 58, "LEFT" }, { 460, 55, "LEFT" } }) do
                 local cell = row:CreateFontString(nil, "OVERLAY", columnIndex == 1 and "GameFontNormal" or "GameFontNormalSmall")
                 cell:SetPoint("LEFT", spec[1], 0)
                 cell:SetWidth(spec[2])
@@ -1015,17 +1015,15 @@ function GH:RefreshUI()
             local profile = self:GetProfile(member.name)
             profile = profile or {}
             local version = self:GetAddonVersion(member.name)
-            local guildShort = (self.guildName or "-"):gsub("(%S)%S*", "%1"):upper():sub(1, 3)
             row.columns[1]:SetText(self:Display(member.name))
             local classColor = RAID_CLASS_COLORS and RAID_CLASS_COLORS[member.classFile]
             if classColor then row.columns[1]:SetTextColor(classColor.r, classColor.g, classColor.b)
             else row.columns[1]:SetTextColor(GOLD[1], GOLD[2], GOLD[3]) end
-            row.columns[2]:SetText(guildShort:sub(1, 7))
-            row.columns[3]:SetText(tostring(member.level or "-"))
-            row.columns[4]:SetText(self:Display(member.rank or "Member"))
-            row.columns[5]:SetText(self:Display(member.zone or "-"))
-            row.columns[6]:SetText(self:Display(profile.role or "-"))
-            row.columns[7]:SetText(version or "-")
+            row.columns[2]:SetText(tostring(member.level or "-"))
+            row.columns[3]:SetText(self:Display(member.rank or "Member"))
+            row.columns[4]:SetText(self:Display(member.zone or "-"))
+            row.columns[5]:SetText(self:Display(profile.role or "-"))
+            row.columns[6]:SetText(version or "-")
             for _, cell in ipairs(row.columns) do cell:Show() end
             row.label:Hide()
             row.meta:Hide()
@@ -1141,13 +1139,12 @@ function GH:RefreshUI()
         local classText = member and member.class or "Class unknown"
         frame.detailMeta:SetText(levelText .. "  -  " .. value("race") .. "  -  " .. self:Display(classText) .. "  -  " .. (member and self:Display(member.rank) or "Guild member"))
         frame.detailTitle:SetText(self:Display(name or "Roster"))
-        local guild = self:Display(self.guildName or "No guild")
         local status = member and (member.online and "Online" or "Offline") or "Unavailable"
         local zone = member and member.zone and member.zone ~= "" and self:Display(member.zone) or "Unknown"
         local profileName = profile and table.concat({ profile.firstName or "", profile.lastName or "" }, " "):gsub("^%s+", ""):gsub("%s+$", "") or ""
         if profileName == "" then profileName = "Not set" end
         local addonLine = "Guild Hall  " .. (version and ("v" .. version) or "Not detected") .. "\n\n"
-        frame.detailBody:SetText(addonLine .. "Guild: " .. guild .. "\n\nName: " .. self:Display(profileName) .. "\n\nStatus: " .. status .. "  -  " .. zone .. "\n\nRole: " .. value("role") .. "\n\nProfessions: " .. value("professions") .. "\n\nSpecialization: " .. value("spec") .. "\n\nTime zone: " .. value("timezone") .. "\n\nAlts: " .. value("alts"))
+        frame.detailBody:SetText(addonLine .. "Name: " .. self:Display(profileName) .. "\n\nStatus: " .. status .. "  -  " .. zone .. "\n\nRole: " .. value("role") .. "\n\nProfessions: " .. value("professions") .. "\n\nSpecialization: " .. value("spec") .. "\n\nTime zone: " .. value("timezone") .. "\n\nAlts: " .. value("alts"))
     elseif active == "PvP" then
         self:HideSettingsControls()
         frame.detailBody:Hide()
