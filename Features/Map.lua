@@ -2,7 +2,7 @@
 local _, GH = ...
 
 local REPORT_TTL = 45
-local SEND_INTERVAL = 15
+local SEND_INTERVAL = 4
 local lastSent = 0
 local elapsedSincePrune = 0
 local lastLocalStatus = "Waiting for a map position"
@@ -49,7 +49,10 @@ GH:RegisterRecordHandler("ML", function(id, timestamp, author, content, sender)
         GH.mapRejectReason = reason
     end
     if not GH.bucket or not sender then reject("no guild bucket or sender"); return end
-    local mapID, x, y, zone = content:match("^(%d+)|([%d%.]+)|([%d%.]+)|(.*)$")
+    local mapID, x, y, location = content:match("^(%d+)|([%d%.]+)|([%d%.]+)|(.*)$")
+    local zone, class
+    if location then zone, class = location:match("^(.-)|([A-Z]+)$") end
+    if not zone then zone, class = location, nil end -- Older GuildHall clients omit class.
     mapID, x, y = tonumber(mapID), tonumber(x), tonumber(y)
     if not mapID or not x or not y or not zone then reject("malformed location payload"); return end
     if x < 0 or x > 1 or y < 0 or y > 1 or #zone > 80 then reject("coordinates or zone out of range"); return end
@@ -60,7 +63,7 @@ GH:RegisterRecordHandler("ML", function(id, timestamp, author, content, sender)
     GH.mapValidReports = (GH.mapValidReports or 0) + 1
     GH.mapRejectReason = nil
     GH.mapReports[senderName] = {
-        name = sender, author = author, mapID = mapID, x = x, y = y, zone = zone,
+        name = sender, author = author, mapID = mapID, x = x, y = y, zone = zone, class = class,
         seen = GetTime and GetTime() or 0,
     }
     updateUI()
@@ -79,7 +82,7 @@ local function sendLocation()
     if author == "" then return end
     local payload = table.concat({
         "ML", "loc", time(), GH:Encode(author),
-        table.concat({ mapID, ("%.4f"):format(x), ("%.4f"):format(y), GH:Encode(zone) }, "|"),
+        table.concat({ mapID, ("%.4f"):format(x), ("%.4f"):format(y), GH:Encode(zone), select(2, UnitClass("player")) or "UNKNOWN" }, "|"),
     }, "|")
     GH:Enqueue(payload)
     lastSent = GetTime and GetTime() or 0
@@ -153,7 +156,7 @@ local function mapTabText()
             "Your sharing: " .. sharing .. "  ·  Your position: " .. positionText,
             sendText,
             inboundText,
-            "GuildHall pins update about every 15 seconds, expire after 45 seconds, and pause in instances.",
+            "GuildHall pins update about every 4 seconds, expire after 45 seconds, and pause in instances.",
         }, "\n\n")
     end
     local lines = { "Guild member locations (live pins; reports expire after 45 seconds):", "" }
@@ -166,7 +169,7 @@ local function mapTabText()
     lines[#lines + 1] = "Your sharing: " .. sharing .. "  ·  Your position: " .. positionText
     lines[#lines + 1] = sendText
     lines[#lines + 1] = inboundText
-    lines[#lines + 1] = "Pins update about every 15 seconds and can appear on zone and continent maps."
+    lines[#lines + 1] = "Pins update about every 4 seconds and can appear on zone and continent maps."
     return table.concat(lines, "\n")
 end
 GH:RegisterTab("Map", mapTabText)
@@ -180,8 +183,9 @@ local function attachMapProvider()
     GuildHallMapPinMixin.OnLoad = function(self)
         self:SetSize(22, 22)
         self.dot = self:CreateTexture(nil, "ARTWORK")
-        self.dot:SetAllPoints()
-        self.dot:SetTexture("Interface/TargetingFrame/UI-RaidTargetingIcon_1")
+        self.dot:SetSize(18, 18)
+        self.dot:SetPoint("CENTER")
+        self.dot:SetTexture("Interface\\Icons\\INV_Misc_GroupLooking")
         self.text = self:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         self.text:SetPoint("BOTTOM", self, "TOP", 0, 2)
         self.text:SetTextColor(1, 1, 1)
@@ -200,10 +204,24 @@ local function attachMapProvider()
         self.report = report
         self.memberName, self.zone = report.name, report.zone
         self.x, self.y = report.x, report.y
+        local classCoords = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[report.class or ""]
+        if classCoords then
+            self.dot:SetTexture("Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES")
+            self.dot:SetTexCoord(unpack(classCoords))
+        else
+            self.dot:SetTexture("Interface\\Icons\\INV_Misc_GroupLooking")
+            self.dot:SetTexCoord(0, 1, 0, 1)
+        end
         self.text:SetText((report.name:match("^([^-]+)") or report.name):sub(1, 12))
         self:SetPosition(report.x, report.y)
     end
     GH.mapDataProvider = CreateFromMixins(MapCanvasDataProviderMixin)
+    function GH.mapDataProvider:RemoveAllData()
+        local map = self:GetMap()
+        if map and map.RemoveAllPinsByTemplate then
+            map:RemoveAllPinsByTemplate("GuildHallMapPinTemplate")
+        end
+    end
     function GH.mapDataProvider:RefreshAllData()
         self:RemoveAllData()
         local map = self:GetMap()
@@ -224,7 +242,7 @@ local function attachMapProvider()
                 end
             end
             if x and y then
-                local pinReport = { name = report.name, zone = report.zone, mapID = mapID, x = x, y = y, seen = report.seen }
+                local pinReport = { name = report.name, zone = report.zone, class = report.class, mapID = mapID, x = x, y = y, seen = report.seen }
                 map:AcquirePin("GuildHallMapPinTemplate", pinReport)
             end
         end
