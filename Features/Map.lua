@@ -241,18 +241,26 @@ local function attachMapProvider()
     if GH.mapDataProvider then return end
     GuildHallMapPinMixin = CreateFromMixins(MapCanvasPinMixin)
     GuildHallMapPinMixin.OnLoad = function(self)
-        self:SetSize(12, 12)
-        self.dot = self:CreateTexture(nil, "ARTWORK")
-        self.dot:SetSize(10, 10)
-        self.dot:SetPoint("CENTER")
-        self.dot:SetTexture("Interface\\Buttons\\WHITE8X8")
-        self.dotMask = self:CreateMaskTexture()
-        self.dotMask:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
-        self.dotMask:SetAllPoints(self.dot)
-        self.dot:AddMaskTexture(self.dotMask)
+        self:SetSize(22, 22)
+        local function makeCircle(name, size, layer)
+            local texture = self:CreateTexture(nil, layer)
+            texture:SetSize(size, size)
+            texture:SetPoint("CENTER")
+            texture:SetTexture("Interface\\Buttons\\WHITE8X8")
+            local mask = self:CreateMaskTexture()
+            mask:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+            mask:SetAllPoints(texture)
+            texture:AddMaskTexture(mask)
+            return texture
+        end
+        self.halo = makeCircle(nil, 20, "BACKGROUND")
+        self.rim = makeCircle(nil, 14, "ARTWORK")
+        self.dot = makeCircle(nil, 10, "OVERLAY")
         self.text = self:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        self.text:SetPoint("BOTTOM", self, "TOP", 0, 2)
-        self.text:SetTextColor(1, 1, 1)
+        self.text:SetPoint("BOTTOM", self, "TOP", 0, 3)
+        self.text:SetTextColor(1, 1, 1, 1)
+        self.text:SetShadowColor(0, 0, 0, 1)
+        self.text:SetShadowOffset(1, -1)
         self:EnableMouse(true)
         self:SetScript("OnEnter", function(pin)
             GameTooltip:SetOwner(pin, "ANCHOR_RIGHT")
@@ -268,10 +276,12 @@ local function attachMapProvider()
         self.report = report
         self.memberName, self.zone = report.name, report.zone
         self.x, self.y = report.x, report.y
-        self.dot:SetTexCoord(0, 1, 0, 1)
         local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[report.class or ""]
-        if color then self.dot:SetVertexColor(color.r, color.g, color.b, 1)
-        else self.dot:SetVertexColor(0.8, 0.8, 0.8, 1) end
+        local r, g, b = 0.8, 0.8, 0.8
+        if color then r, g, b = color.r, color.g, color.b end
+        self.halo:SetVertexColor(r, g, b, 0.38)
+        self.rim:SetVertexColor(0.04, 0.05, 0.07, 1)
+        self.dot:SetVertexColor(r, g, b, 1)
         self.text:SetText((report.name:match("^([^-]+)") or report.name):sub(1, 12))
         self:SetPosition(report.x, report.y)
     end
