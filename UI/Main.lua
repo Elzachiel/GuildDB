@@ -1566,14 +1566,20 @@ GH:RegisterEventHandler("PLAYER_LOGIN", function() build(); rebuildRoster() end)
 GH:RegisterEventHandler("GUILD_ROSTER_UPDATE", function() build(); rebuildRoster() end)
 GH:RegisterEventHandler("PLAYER_GUILD_UPDATE", function() build(); rebuildRoster() end)
 
-function GH:IsSyncResponder()
+function GH:IsSyncResponder(requester)
     if not self.roster or #self.roster == 0 then return false end
+    local function syncNameKey(name)
+        name = tostring(name or "")
+        return (name:match("^([^-]+)") or name):lower():gsub("[%s%-]", "")
+    end
+    local excluded = syncNameKey(requester)
     local candidates = {}
     for _, member in ipairs(self.roster) do
         -- Sync can only be served by a client that is actually running Guild
         -- Hall. Limiting this to officers meant no one answered when the
         -- online leader/rank-1 member did not have the addon installed.
-        if member.online and self:GetAddonVersion(member.name) then candidates[#candidates + 1] = member end
+        local candidateName = syncNameKey(member.name)
+        if member.online and candidateName ~= excluded and self:GetAddonVersion(member.name) then candidates[#candidates + 1] = member end
     end
     table.sort(candidates, function(a, b)
         if a.rankIndex ~= b.rankIndex then return a.rankIndex < b.rankIndex end
@@ -1584,7 +1590,7 @@ function GH:IsSyncResponder()
     if UnitName then playerNames[#playerNames + 1] = (UnitName("player") or ""):match("^([^-]+)") end
     if GetUnitName then playerNames[#playerNames + 1] = (GetUnitName("player", false) or ""):match("^([^-]+)") end
     for _, name in ipairs(playerNames) do
-        if name and candidates[1].name:lower() == name:lower() then return true end
+        if name and syncNameKey(candidates[1].name) == syncNameKey(name) then return true end
     end
     return false
 end

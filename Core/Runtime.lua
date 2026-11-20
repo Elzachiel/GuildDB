@@ -2,7 +2,7 @@
 local ADDON, GH = ...
 _G.GuildHall = GH
 
-GH.version = "0.1.58"
+GH.version = "0.1.61"
 GH.prefix = "GHALL"
 GH.maxItems = 60
 GH.tabs = { "Roster" }
@@ -21,6 +21,9 @@ GH.sendTokenAt = 0
 GH.nextPresence = 0
 GH.nextPresenceCleanup = 0
 GH.addonPresence = {}
+GH.syncRequests = {}
+GH.syncOffers = {}
+GH.syncServed = {}
 
 function GH:Encode(value)
     return (tostring(value or ""):gsub("%%", "%%25"):gsub("|", "%%7C"):gsub("\r", "%%0D"):gsub("\n", "%%0A"))
@@ -105,13 +108,18 @@ function GH:CanManage()
     return rank == 0 or rank == 1
 end
 
+local function peerNameKey(name)
+    name = tostring(name or "")
+    name = name:match("^([^-]+)") or name
+    return name:lower():gsub("[%s%-]", "")
+end
+
 function GH:GetAddonVersion(name)
     if not name then return nil end
-    local wanted = (name:match("^([^-]+)") or name):lower()
+    local wanted = peerNameKey(name)
     local now = GetTime and GetTime() or 0
     for sender, status in pairs(self.addonPresence or {}) do
-        local senderName = (sender:match("^([^-]+)") or sender):lower()
-        if senderName == wanted and now - (status.seen or 0) <= 150 then return status.version end
+        if peerNameKey(sender) == wanted and now - (status.seen or 0) <= 150 then return status.version end
     end
 end
 
@@ -197,23 +205,118 @@ local function parseRecord(payload, sender)
     if handler then handler(id, timestamp, author, content, sender) end
 end
 
-local function sendHistory()
+local function sendHistory(requestId, requester)
     if not GH.bucket then return end
-    local responder = GH.IsSyncResponder and GH:IsSyncResponder()
+    local responder = GH.IsSyncResponder and GH:IsSyncResponder(requester)
     for _, provider in ipairs(GH.historyProviders) do
-        if not provider.responderOnly or responder then
+        if requestId or not provider.responderOnly or responder then
             GH.historySyncing = true
             local ok, err = pcall(provider.handler)
             GH.historySyncing = false
             if not ok then print("Guild Hall sync error: " .. tostring(err)) end
         end
     end
+    if requestId then GH:Enqueue("K|" .. requestId, true) end
+end
+
+local function after(seconds, callback)
+    if C_Timer and C_Timer.After then C_Timer.After(seconds, callback) else callback() end
+end
+
+local function baseName(name)
+    return (tostring(name or ""):match("^([^-]+)") or tostring(name or "")):lower():gsub("[%s%-]", "")
+end
+
+local function samePlayer(a, b)
+    local left, right = baseName(a), baseName(b)
+    return left ~= "" and left == right
+end
+
+local function localPlayerName()
+    return UnitName and UnitName("player") or ""
+end
+
+local function newSyncId()
+    return tostring(time()) .. "-" .. tostring(math.random(100000, 999999))
+end
+
+local function retrySync(request)
+    if request.done or request.rounds >= 3 then return end
+    request.rounds = request.rounds + 1
+    local id = newSyncId()
+    request.id, request.selected = id, nil
+    GH.syncRequests[id] = request
+    GH:Enqueue("Q|" .. id)
+    after(8, function()
+        if GH.syncRequests[id] ~= request or request.done then return end
+        if request.selected then
+            after(300, function()
+                if GH.syncRequests[id] == request and not request.done then
+                    GH.syncRequests[id] = nil
+                    retrySync(request)
+                end
+            end)
+        else
+            GH.syncRequests[id] = nil
+            retrySync(request)
+        end
+    end)
+end
+
+local function receiveSyncOffer(id, sender)
+    local offer = GH.syncOffers[id]
+    if offer then GH.syncOffers[id] = nil end -- first offer wins; others stand down
+    local request = GH.syncRequests[id]
+    if not request or request.done or request.selected then return end
+    request.selected = sender
+    GH:Enqueue("R|" .. id .. "|" .. GH:Encode(sender))
+end
+
+local function receiveSyncRequest(id, sender)
+    if samePlayer(sender, localPlayerName()) or GH.syncOffers[id] then return end
+    local offer = {}
+    GH.syncOffers[id] = offer
+    after(0.4 + math.random() * 2.5, function()
+        if GH.syncOffers[id] ~= offer then return end
+        GH.syncOffers[id] = nil
+        GH:Enqueue("O|" .. id .. "|" .. GH.version)
+    end)
+end
+
+local function receiveSyncGrant(id, target)
+    if not samePlayer(target, localPlayerName()) or GH.syncServed[id] then return end
+    GH.syncServed[id] = true
+    sendHistory(id)
+end
+
+local function receiveSyncComplete(id, sender)
+    local request = GH.syncRequests[id]
+    if not request or request.done or not request.selected or not samePlayer(request.selected, sender) then return end
+    request.done = true
+    GH.syncRequests[id] = nil
 end
 
 local function receivePayload(payload, sender)
     if payload == "Q" then
-        sendHistory()
+        -- Compatibility with clients that still use the original request packet.
+        if not samePlayer(sender, localPlayerName()) then sendHistory(nil, sender) end
     else
+        local requestId = payload:match("^Q|([^|]+)$")
+        local offerId, offerVersion = payload:match("^O|([^|]+)|([%w%.%-]+)$")
+        offerId = offerId or payload:match("^O|([^|]+)$")
+        local grantId, target = payload:match("^R|([^|]+)|([^|]+)$")
+        local completeId = payload:match("^K|([^|]+)$")
+        if requestId then receiveSyncRequest(requestId, sender); return end
+        if offerId then
+            if offerVersion and #offerVersion <= 32 then
+                GH.addonPresence[sender] = { version = offerVersion, seen = GetTime and GetTime() or 0 }
+                if GH.RefreshUI then GH:RefreshUI() end
+            end
+            receiveSyncOffer(offerId, sender)
+            return
+        end
+        if grantId then receiveSyncGrant(grantId, GH:Decode(target)); return end
+        if completeId then receiveSyncComplete(completeId, sender); return end
         local version = payload:match("^H|([%w%.%-]+)$")
         if version and #version <= 32 and sender and #sender <= 100 then
             GH.addonPresence[sender] = { version = version, seen = GetTime and GetTime() or 0 }
@@ -249,8 +352,8 @@ end
 
 function GH:RequestSync()
     if not self.bucket then return false, "Join a guild first." end
-    self:Enqueue("Q")
-    return true, "Asked online guild members for recent posts."
+    retrySync({ rounds = 0, done = false })
+    return true, "Requested an automatic sync from an online Guild Hall peer."
 end
 
 function GH:Open()
