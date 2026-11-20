@@ -259,13 +259,10 @@ local function attachMapProvider()
     GuildHallMapPinMixin = CreateFromMixins(MapCanvasPinMixin)
     GuildHallMapPinMixin.OnLoad = function(self)
         self:SetSize(22, 22)
-        self.dot = self:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-        self.dot:SetPoint("CENTER", self, "CENTER", 0, 0)
-        local font = self.dot:GetFont()
-        self.dot:SetFont(font, 17, "THICKOUTLINE")
-        self.dot:SetText("●")
-        self.dot:SetShadowColor(0, 0, 0, 1)
-        self.dot:SetShadowOffset(1, -1)
+        self.icon = self:CreateTexture(nil, "ARTWORK")
+        self.icon:SetSize(16, 16)
+        self.icon:SetPoint("CENTER")
+        self.icon:SetTexture("Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES")
         self.text = self:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         self.text:SetPoint("BOTTOM", self, "TOP", 0, 3)
         self.text:SetTextColor(1, 1, 1, 1)
@@ -287,9 +284,15 @@ local function attachMapProvider()
         self.memberName, self.zone = report.name, report.zone
         self.x, self.y = report.x, report.y
         local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[report.class or ""]
-        local r, g, b = 0.8, 0.8, 0.8
-        if color then r, g, b = color.r, color.g, color.b end
-        self.dot:SetTextColor(r, g, b, 1)
+        local classCoords = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[report.class or ""]
+        if classCoords then
+            self.icon:SetTexCoord(unpack(classCoords))
+        else
+            self.icon:SetTexture("Interface\\Icons\\INV_Misc_GroupLooking")
+            self.icon:SetTexCoord(0, 1, 0, 1)
+        end
+        if color then self.icon:SetVertexColor(color.r, color.g, color.b, 1)
+        else self.icon:SetVertexColor(1, 1, 1, 1) end
         self.text:SetText((report.name:match("^([^-]+)") or report.name):sub(1, 12))
         self:SetPosition(report.x, report.y)
     end
@@ -302,6 +305,15 @@ local function attachMapProvider()
     end
     function GH.mapDataProvider:OnMapChanged()
         self:RefreshAllData()
+        -- The map canvas changes its map ID before the map art/coordinate data
+        -- finishes loading. Refresh once more on the next frame for legacy clients.
+        if C_Timer and C_Timer.After then
+            C_Timer.After(0, function()
+                if GH.mapDataProvider == self and self:GetMap() == WorldMapFrame then
+                    self:RefreshAllData()
+                end
+            end)
+        end
     end
     function GH.mapDataProvider:RefreshAllData()
         self:RemoveAllData()
