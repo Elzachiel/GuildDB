@@ -1371,8 +1371,8 @@ function GH:RefreshUI()
                 row:SetHeight(190)
                 row.bg = row:CreateTexture(nil, "BACKGROUND")
                 row.bg:SetAllPoints()
-                row.title = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-                row.title:SetPoint("TOPLEFT", 12, -9)
+                row.title = row:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+                row.title:SetPoint("TOPLEFT", 16, -16)
                 row.title:SetWidth(360)
                 row.title:SetJustifyH("LEFT")
                 row.title:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
@@ -1384,10 +1384,38 @@ function GH:RefreshUI()
                 row.details:SetPoint("TOPLEFT", row.info, "BOTTOMLEFT", 0, -4)
                 row.details:SetWidth(360)
                 row.details:SetHeight(32)
-                row.counts = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-                row.counts:SetPoint("TOPLEFT", 400, -12)
-                row.counts:SetWidth(330)
-                row.counts:SetTextColor(CREAM[1], CREAM[2], CREAM[3])
+                row.accent = row:CreateTexture(nil, "ARTWORK")
+                row.accent:SetPoint("TOPLEFT", 0, 0)
+                row.accent:SetPoint("TOPRIGHT", 0, 0)
+                row.accent:SetHeight(2)
+                row.accent:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.7)
+                row.state = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                row.state:SetPoint("TOPRIGHT", -16, -18)
+                row.state:SetJustifyH("RIGHT")
+                row.statCards = {}
+                for index, label in ipairs({ "GOING", "TANKS", "HEALERS", "DPS", "MAYBE", "ABSENT", "INVITES" }) do
+                    local stat = CreateFrame("Frame", nil, row)
+                    stat.bg = stat:CreateTexture(nil, "BACKGROUND")
+                    stat.bg:SetAllPoints()
+                    stat.bg:SetColorTexture(0.035, 0.045, 0.062, 0.95)
+                    stat.value = stat:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+                    stat.value:SetPoint("TOP", 0, -8)
+                    stat.label = stat:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+                    stat.label:SetPoint("BOTTOM", 0, 7)
+                    stat.label:SetText(label)
+                    row.statCards[index] = stat
+                end
+                row.personalStatus = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                row.personalStatus:SetPoint("TOPLEFT", 16, -166)
+                row.personalStatus:SetJustifyH("LEFT")
+                row.rosterRule = row:CreateTexture(nil, "ARTWORK")
+                row.rosterRule:SetPoint("TOPLEFT", 14, -228)
+                row.rosterRule:SetPoint("TOPRIGHT", -14, -228)
+                row.rosterRule:SetHeight(1)
+                row.rosterRule:SetColorTexture(0.16, 0.23, 0.31, 1)
+                row.emptyRoster = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                row.emptyRoster:SetPoint("TOPLEFT", 18, -250)
+                row.emptyRoster:SetText("No signups yet. Be the first to join this raid.")
                 row.rosterHeaders = {}
                 for column, label in ipairs({ "PLAYER", "CLASS", "SPEC", "ROLE", "ATTENDANCE" }) do
                     local text = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -1396,14 +1424,14 @@ function GH:RefreshUI()
                     row.rosterHeaders[column] = text
                 end
                 row.inviteHeader = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-                row.inviteHeader:SetPoint("TOPLEFT", 10, -140)
-                row.inviteHeader:SetText("GM invite checkmarks")
+                row.inviteHeader:SetPoint("TOPLEFT", 16, -210)
+                row.inviteHeader:SetText("RAID ROSTER  |  Checked = selected for invite")
                 row.signupRows = {}
                 row.rsvpButtons = {}
                 row.calendarButton = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
                 GH:StyleButton(row.calendarButton)
                 row.calendarButton:SetSize(138, 22)
-                row.calendarButton:SetPoint("TOPLEFT", 8, -98)
+                row.calendarButton:SetPoint("TOPLEFT", 16, -184)
                 row.calendarButton:SetScript("OnClick", function(self)
                     local _, result = GH:AddEventToGameCalendar(self.eventId)
                     if result then print("Guild Hall: " .. result) end
@@ -1442,9 +1470,9 @@ function GH:RefreshUI()
                 end)
                 row.deleteButton = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
                 GH:StyleButton(row.deleteButton)
-                row.deleteButton:SetSize(64, 22)
+                row.deleteButton:SetSize(78, 22)
                 row.deleteButton:SetPoint("LEFT", row.editButton, "RIGHT", 6, 0)
-                row.deleteButton:SetText("Remove")
+                row.deleteButton:SetText("Delete raid")
                 row.deleteButton:SetScript("OnClick", function(self)
                     showInputForm("Remove guild event", {
                         { label = "Type REMOVE to confirm", value = "", max = 12 },
@@ -1457,9 +1485,9 @@ function GH:RefreshUI()
                 end)
                 row.withdrawButton = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
                 GH:StyleButton(row.withdrawButton)
-                row.withdrawButton:SetSize(142, 22)
-                row.withdrawButton:SetPoint("TOPRIGHT", -8, -126)
-                row.withdrawButton:SetText("Remove my signup")
+                row.withdrawButton:SetSize(112, 24)
+                row.withdrawButton:SetPoint("TOPRIGHT", -16, -184)
+                row.withdrawButton:SetText("Withdraw")
                 row.withdrawButton:SetScript("OnClick", function(button)
                     local _, result = GH:RemoveRaidSignup(button.eventId)
                     if result then print("Guild Hall: " .. result) end
@@ -1467,8 +1495,8 @@ function GH:RefreshUI()
                 for buttonIndex, state in ipairs({ { "Sign up / Change", "going" } }) do
                     local button = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
                     GH:StyleButton(button, "primary")
-                    button:SetSize(150, 22)
-                    button:SetPoint("TOPRIGHT", -8, -98)
+                    button:SetSize(138, 24)
+                    button:SetPoint("TOPRIGHT", -136, -184)
                     button:SetText(state[1])
                     button.status = state[2]
                     button:SetScript("OnClick", function(self)
@@ -1499,12 +1527,19 @@ function GH:RefreshUI()
             row:ClearAllPoints()
             row:SetPoint("TOPLEFT", 4, -eventY)
             row:SetPoint("RIGHT", frame.detailChild, "RIGHT", -4, 0)
-            row.title:SetText((event.eventType == "raid" and "RAID  -  " or "EVENT  -  ") .. self:Display(event.title))
+            row.title:SetText(self:Display(event.title))
+            row.title:SetWidth(math.max(180, frame.detailChild:GetWidth() - 200))
             local calendarSettings = event.calendarSettings or {}
             local category = calendarSettings.category or (event.eventType == "raid" and "Raid" or "Other")
-            local signupState = calendarSettings.locked and "Sign-ups locked" or "Sign-ups open"
-            row.info:SetText(date("%a, %b %d  -  %I:%M %p", event.at) .. "  -  " .. category .. "  -  " .. signupState .. "  -  Posted by " .. self:Display(event.by))
-            row.details:SetText(self:Display(event.details or ""))
+            row.info:SetWidth(math.max(180, frame.detailChild:GetWidth() - 48))
+            row.info:SetHeight(16)
+            row.info:SetText(date("%a, %b %d  |  %I:%M %p", event.at) .. " local  |  " .. category .. "  |  Led by " .. self:Display(event.by))
+            row.state:SetText(calendarSettings.locked and "SIGNUPS LOCKED" or "SIGNUPS OPEN")
+            if calendarSettings.locked then row.state:SetTextColor(0.92, 0.65, 0.28)
+            else row.state:SetTextColor(0.35, 0.85, 0.58) end
+            row.details:SetWidth(math.max(180, frame.detailChild:GetWidth() - 48))
+            row.details:SetHeight(42)
+            row.details:SetText(self:Display(event.details ~= "" and event.details or "No additional raid notes."))
             row.calendarButton.eventId = event.id
             row.calendarButton:SetShown(event.by == player)
             row.editButton.eventId = event.id
@@ -1512,6 +1547,9 @@ function GH:RefreshUI()
             local canManageEvent = self:CanManage()
             row.editButton:SetShown(canManageEvent)
             row.deleteButton:SetShown(canManageEvent)
+            local actionX = event.by == player and 160 or 16
+            row.editButton:ClearAllPoints()
+            row.editButton:SetPoint("TOPLEFT", row, "TOPLEFT", actionX, -184)
             local calendarExports = GuildHallDB and GuildHallDB.calendarExports
             if calendarExports and calendarExports[event.id] then
                 row.calendarButton:SetText("In game calendar")
@@ -1523,20 +1561,46 @@ function GH:RefreshUI()
             local counts = self:GetRaidSignupSummary(event)
             local mine = event.rsvps and event.rsvps[player]
             local myStatus = type(mine) == "table" and mine.status or mine
-            row.counts:SetText(("ATTENDANCE  Going %d / Maybe %d / Absent %d\nATTENDING  Tanks %d / Healers %d / DPS %d\nUnassigned %d  |  GM selected %d / %d\nYour status: %s"):format(counts.going, counts.tentative, counts.absent, counts.Tank, counts.Healer, counts.DPS, counts.unassigned, counts.selected, calendarSettings.raidSize or 40, myStatus or "Not signed up"))
+            local totals = { counts.going, counts.Tank, counts.Healer, counts.DPS, counts.tentative, counts.absent, counts.selected .. "/" .. (calendarSettings.raidSize or 40) }
+            local statColors = { {0.35, 0.85, 0.58}, {0.45, 0.70, 1}, {0.35, 0.85, 0.65}, {1, 0.65, 0.38}, {1, 0.78, 0.35}, {0.85, 0.48, 0.48}, GOLD }
+            local statWidth = (math.max(350, frame.detailChild:GetWidth() - 40) - 36) / 7
+            for index, stat in ipairs(row.statCards) do
+                stat:ClearAllPoints()
+                stat:SetPoint("TOPLEFT", 16 + (index - 1) * (statWidth + 6), -100)
+                stat:SetSize(statWidth, 54)
+                stat.value:SetText(totals[index])
+                stat.value:SetTextColor(unpack(statColors[index]))
+            end
+            local statusLabel = myStatus == "going" and "Going" or myStatus == "tentative" and "Maybe" or myStatus == "absent" and "Absent" or "Not signed up"
+            row.personalStatus:SetWidth(math.max(180, frame.detailChild:GetWidth() - 48))
+            row.personalStatus:SetText("Your signup: " .. statusLabel .. (counts.unassigned > 0 and ("  |  " .. counts.unassigned .. " attending without a role") or ""))
             row.withdrawButton.eventId = event.id
             row.withdrawButton:SetShown(mine ~= nil)
             local widths = { 0.24, 0.18, 0.25, 0.14, 0.19 }
-            local available, headerX = math.max(300, frame.detailChild:GetWidth() - 120), 40
+            local available, headerX = math.max(300, frame.detailChild:GetWidth() - 128), 44
             for column, text in ipairs(row.rosterHeaders) do
                 text:ClearAllPoints()
-                text:SetPoint("TOPLEFT", row, "TOPLEFT", headerX, -160)
+                text:SetPoint("TOPLEFT", row, "TOPLEFT", headerX, -237)
                 text:SetWidth(available * widths[column] - 6)
                 headerX = headerX + available * widths[column]
             end
             local names = {}
             for name in pairs(event.rsvps or {}) do names[#names + 1] = name end
-            table.sort(names)
+            local function sortRank(name)
+                local response = event.rsvps[name]
+                response = type(response) == "table" and response or { status = response }
+                if response.status == "absent" then return 6 end
+                if response.status == "tentative" then return 5 end
+                local selected = event.selections and event.selections[name]
+                if selected and selected.selected then return 0 end
+                return response.role == "Tank" and 1 or response.role == "Healer" and 2 or response.role == "DPS" and 3 or 4
+            end
+            table.sort(names, function(left, right)
+                local a, b = sortRank(left), sortRank(right)
+                if a ~= b then return a < b end
+                return left:lower() < right:lower()
+            end)
+            row.emptyRoster:SetShown(#names == 0)
 
             for index, name in ipairs(names) do
                 local response = event.rsvps[name]
@@ -1548,6 +1612,9 @@ function GH:RefreshUI()
                 if not signup then
                     signup = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
                     signup:SetSize(24, 24)
+                    signup.band = signup:CreateTexture(nil, "BACKGROUND")
+                    signup.band:SetPoint("TOPLEFT", -4, 5)
+                    signup.band:SetHeight(42)
                     signup.columns = {}
                     for column = 1, 5 do
                         local text = signup:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -1575,7 +1642,9 @@ function GH:RefreshUI()
                     end)
                     row.signupRows[index] = signup
                 end
-                signup:SetPoint("TOPLEFT", 10, -182 - (index - 1) * 44)
+                signup:SetPoint("TOPLEFT", 14, -260 - (index - 1) * 44)
+                signup.band:SetWidth(math.max(300, frame.detailChild:GetWidth() - 36))
+                signup.band:SetColorTexture(index % 2 == 1 and 0.075 or 0.05, index % 2 == 1 and 0.095 or 0.065, index % 2 == 1 and 0.125 or 0.09, 1)
                 signup.eventId, signup.player = event.id, name
                 signup:SetChecked(response.status == "going" and selection and selection.selected or false)
                 signup:SetEnabled(GH:IsRaidGM() and response.status == "going")
@@ -1583,7 +1652,7 @@ function GH:RefreshUI()
                 local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
                 local values = { GH:Display(name), GH:Display(className), GH:Display(response.spec ~= "" and response.spec or "Not set"), response.role or "Not set", response.status == "going" and "Going" or response.status == "tentative" and "Maybe" or "Absent" }
                 local widths = { 0.24, 0.18, 0.25, 0.14, 0.19 }
-                local available, x = math.max(300, frame.detailChild:GetWidth() - 120), 6
+                local available, x = math.max(300, frame.detailChild:GetWidth() - 128), 6
                 for column, text in ipairs(signup.columns) do
                     text:ClearAllPoints()
                     text:SetPoint("TOPLEFT", signup, "TOPRIGHT", x, -3)
@@ -1591,22 +1660,32 @@ function GH:RefreshUI()
                     text:SetText(values[column])
                     text:SetTextColor(CREAM[1], CREAM[2], CREAM[3])
                     if column <= 2 and color then text:SetTextColor(color.r, color.g, color.b) end
+                    if column == 5 then
+                        if response.status == "going" then text:SetTextColor(0.35, 0.85, 0.58)
+                        elseif response.status == "tentative" then text:SetTextColor(1, 0.78, 0.35)
+                        else text:SetTextColor(0.85, 0.48, 0.48) end
+                    end
                     x = x + available * widths[column]
                 end
                 signup.note:SetWidth(available)
                 signup.note:SetText(GH:Display(response.note or ""))
-                signup.remove:SetPoint("TOPRIGHT", row, "TOPRIGHT", -8, -184 - (index - 1) * 44)
+                signup.tooltipText = GH:Display(className) .. " - " .. GH:Display(response.spec or "Spec not set") .. "\n" .. (response.role or "Role not set") .. " - " .. values[5] .. ((response.note or "") ~= "" and ("\n" .. GH:Display(response.note)) or "")
+                if response.status == "going" and selection and selection.selected then signup.band:SetColorTexture(0.07, 0.16, 0.22, 1) end
+                signup.remove:SetPoint("TOPRIGHT", row, "TOPRIGHT", -16, -262 - (index - 1) * 44)
                 signup.remove.eventId, signup.remove.player = event.id, name
                 signup.remove:SetShown(GH:IsRaidGM() or name == player)
                 signup:Show()
             end
             for index = #names + 1, #row.signupRows do row.signupRows[index]:Hide(); row.signupRows[index].remove:Hide() end
-            local rowHeight = 224 + #names * 44
+            local rowHeight = 276 + math.max(1, #names) * 44
             row:SetHeight(rowHeight)
-            eventY = eventY + rowHeight + 12
+            eventY = eventY + rowHeight + 20
             row.bg:SetColorTexture(i % 2 == 1 and PANEL_ALT[1] or PANEL[1], i % 2 == 1 and PANEL_ALT[2] or PANEL[2], i % 2 == 1 and PANEL_ALT[3] or PANEL[3], 1)
             for _, button in ipairs(row.rsvpButtons) do
                 button.eventId = event.id
+                button:SetText(mine and "Edit my signup" or "Sign up")
+                button:ClearAllPoints()
+                button:SetPoint("TOPRIGHT", mine and -136 or -16, -184)
                 if calendarSettings.locked and not mine then button:Disable() else button:Enable() end
             end
             row:Show()
