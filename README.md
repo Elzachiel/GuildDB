@@ -14,7 +14,7 @@ Guild Hall is a World of Warcraft guild addon for a shared roster, member profil
 - Crafting request board; requests expire after seven days and can be claimed by crafters.
 - Officer polls with public totals; voter names are not shown in the interface.
 - Shoutouts between guild members.
-- Pop-up notifications for new guild announcements, stacking PvP rewards, and guild-wide level/profession milestones for members running Guild Hall.
+- Pop-up notifications for new guild announcements and events, stacking PvP rewards, and guild-wide level/profession milestones for members running Guild Hall.
 
 Officers (guild leader and rank 1) can create announcements, schedule raids and events, edit the guide, create or close polls, and start PvP seasons. Any guild member can edit their own profile, RSVP, vote, make or claim board requests, and post shoutouts.
 
@@ -47,7 +47,8 @@ Copy this folder into the client's `Interface/AddOns` directory, enable **Guild 
 - `/gh pvp season Season name` starts a PvP season (officer).
 - `/gh shout Player Name | Message` posts a shoutout.
 - `/gh map waypoint CharacterName` sets a waypoint to a member's latest shared location; `/gh map clear` clears it.
-- `/gh popout pvp`, `/gh popout level10` (also 20/30/40/50/60), or `/gh popout profession150` (also 225/300) previews a popout.
+- `/gh popout pvp`, `/gh popout level10` (also 20/30/40/50/60), or `/gh popout profession150` (also 225/300) previews a popout locally.
+- `/gh testpopout level` or `/gh testpopout profession` sends a milestone popup test to online Guild Hall users (guild leader/rank 1).
 
 Personal Settings can turn Guild Hall popups on or off, optionally share your map location with Guild Hall members, and optionally send a guild-chat “Ding!” for level milestones. Map sharing is off by default, pauses in instances, and reports expire after 45 seconds. Profession milestones never send guild chat messages.
 

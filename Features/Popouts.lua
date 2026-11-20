@@ -195,45 +195,53 @@ local function iconForProfession(profession)
     return "Interface/Icons/Trade_BlackSmithing"
 end
 
-local function milestoneToast(kind, value, author, profession)
+local function milestoneToast(kind, value, author, profession, isTest)
     if kind == "L" then
-        GH:ShowPopout("Level milestone", "Level " .. value .. " reached!", author .. " reached level " .. value .. ".", "Interface/Icons/Achievement_Level_" .. value, nil, 8, true)
+        GH:ShowPopout(isTest and "Level milestone test" or "Level milestone", isTest and "Level " .. value .. " test" or "Level " .. value .. " reached!", isTest and ("Guild Hall test popup for " .. author .. ".") or (author .. " reached level " .. value .. "."), "Interface/Icons/Achievement_Level_" .. value, nil, 8, true)
     elseif kind == "P" then
-        GH:ShowPopout("Profession milestone", profession .. " " .. value .. "!", author .. " reached " .. value .. " in " .. profession .. ".", iconForProfession(profession), nil, 8, true)
+        GH:ShowPopout(isTest and "Profession milestone test" or "Profession milestone", isTest and (profession .. " " .. value .. " test") or (profession .. " " .. value .. "!"), isTest and ("Guild Hall test popup for " .. author .. ".") or (author .. " reached " .. value .. " in " .. profession .. "."), iconForProfession(profession), nil, 8, true)
     end
 end
 
-local function broadcastMilestone(kind, value, profession)
+local function broadcastMilestone(kind, value, profession, isTest)
     if not GH.bucket then return end
-    local author = UnitName and UnitName("player") or "Guild member"
-    local content = kind == "L" and ("L\n" .. value) or ("P\n" .. profession .. "\n" .. value)
-    local id = "milestone:" .. tostring(time()) .. ":" .. tostring(math.random(100000, 999999))
+    local author = GH:PlayerName()
+    local wireKind = isTest and ("T" .. kind) or kind
+    local content = kind == "L" and (wireKind .. "\n" .. value) or (wireKind .. "\n" .. profession .. "\n" .. value)
+    local id = (isTest and "milestone-test:" or "milestone:") .. tostring(time()) .. ":" .. tostring(math.random(100000, 999999))
     seenMilestones[id] = true
     GH:SendRecord("MP", id, time(), author, content)
-    milestoneToast(kind, value, author, profession)
+    milestoneToast(kind, value, author, profession, isTest)
+end
+
+local function samePlayerName(left, right)
+    local function key(name)
+        name = tostring(name or ""):match("^([^-]+)") or tostring(name or "")
+        return name:lower():gsub("[%s%-]", "")
+    end
+    return key(left) ~= "" and key(left) == key(right)
 end
 
 GH:RegisterRecordHandler("MP", function(id, ts, author, content, sender)
     if not GH.bucket or seenMilestones[id] then return end
-    local senderName = tostring(sender or ""):match("^([^-]+)") or tostring(sender or "")
-    local authorName = tostring(author or ""):match("^([^-]+)") or tostring(author or "")
-    if senderName:lower() ~= authorName:lower() then return end
+    if not samePlayerName(sender, author) then return end
 
-    local kind, first, second = content:match("^(L)\n(%d+)$")
+    local kind, first = content:match("^(T?L)\n(%d+)$")
     if kind then
         local level = tonumber(first)
         if level ~= 10 and level ~= 20 and level ~= 30 and level ~= 40 and level ~= 50 and level ~= 60 then return end
         seenMilestones[id] = true
-        milestoneToast("L", level, author)
+        milestoneToast("L", level, author, nil, kind == "TL")
         return
     end
 
-    kind, first, second = content:match("^(P)\n(.-)\n(%d+)$")
+    local second
+    kind, first, second = content:match("^(T?P)\n(.-)\n(%d+)$")
     if not kind or first == "" or #first > 60 then return end
     local rank = tonumber(second)
     if rank ~= 150 and rank ~= 225 and rank ~= 300 then return end
     seenMilestones[id] = true
-    milestoneToast("P", rank, author, first)
+    milestoneToast("P", rank, author, first, kind == "TP")
 end)
 
 local levelMilestones = { [10] = true, [20] = true, [30] = true, [40] = true, [50] = true, [60] = true }
@@ -313,7 +321,7 @@ GH:RegisterCommand("popout", function(rest)
     if (action == "level" or action == "profession") and milestone ~= "" then
         selected = action .. milestone
     end
-    local player = UnitName and UnitName("player") or "Your character"
+    local player = GH:PlayerName()
     selected = (selected or ""):gsub("%s+", "")
     if selected == "pvp" then
         local playerPoints = 0
@@ -351,4 +359,21 @@ GH:RegisterCommand("popout", function(rest)
     end
 
     print("Guild Hall: use /gh popout guild, /gh popout pvp, /gh popout level10/20/30/40/50/60, or /gh popout profession150/225/300.")
+end)
+
+GH:RegisterCommand("testpopout", function(rest)
+    if not GH:CanManage() then
+        print("Guild Hall: Only the guild leader or rank 1 can broadcast milestone popup tests.")
+        return
+    end
+    local kind = tostring(rest or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
+    if kind == "level" then
+        broadcastMilestone("L", 60, nil, true)
+        print("Guild Hall: Level milestone popup test sent to online Guild Hall users.")
+    elseif kind == "profession" then
+        broadcastMilestone("P", 300, "Alchemy", true)
+        print("Guild Hall: Profession milestone popup test sent to online Guild Hall users.")
+    else
+        print("Guild Hall: use /gh testpopout level or /gh testpopout profession.")
+    end
 end)

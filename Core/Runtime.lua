@@ -2,7 +2,7 @@
 local ADDON, GH = ...
 _G.GuildHall = GH
 
-GH.version = "0.1.69"
+GH.version = "0.1.70"
 GH.prefix = "GHALL"
 GH.maxItems = 60
 GH.tabs = { "Roster" }
@@ -390,7 +390,7 @@ local function slashCommand(message)
     end
     local handler = GH.commands[command]
     if handler then handler(rest or "") else
-        print("Guild Hall commands: /gh sync, /gh profile, /gh map, /gh guide, /gh looking, /gh craft, /gh poll, /gh pvp, /gh raid, /gh event, /gh rsvp, /gh post, /gh shout")
+        print("Guild Hall commands: /gh sync, /gh profile, /gh map, /gh guide, /gh looking, /gh craft, /gh poll, /gh pvp, /gh raid, /gh event, /gh rsvp, /gh post, /gh shout, /gh testpopout")
     end
 end
 

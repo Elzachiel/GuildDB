@@ -51,7 +51,26 @@ local function isOfficer(name)
     return false
 end
 
-local function storeEvent(id, ts, author, content, eventType)
+local function samePlayerName(left, right)
+    local function key(name)
+        name = tostring(name or ""):match("^([^-]+)") or tostring(name or "")
+        return name:lower():gsub("[%s%-]", "")
+    end
+    return key(left) ~= "" and key(left) == key(right)
+end
+
+local function showEventPopout(event)
+    if not GH.ShowPopout then return end
+    local eventType = event.eventType == "raid" and "raid" or "event"
+    local when = date("%a %b %d, %I:%M %p", event.at)
+    local message = (event.by or "A guild officer") .. " scheduled " .. when
+    if event.details and event.details ~= "" then message = message .. "\n" .. event.details end
+    GH:ShowPopout(eventType == "raid" and "New guild raid" or "New guild event", event.title, message,
+        eventType == "raid" and "Interface/Icons/INV_Misc_GroupLooking" or "Interface/Icons/INV_Misc_Note_01",
+        function() GH.activeTab = "Events"; GH:Open() end, 8)
+end
+
+local function storeEvent(id, ts, author, content, eventType, sender)
     if #id > 100 or #author > 100 or #content > 900 then return end
     if not isOfficer(author) or eventDeleteTimestamp(id) >= ts then return end
     local at, title, remainder = content:match("^(.-)\n(.-)\n(.*)$")
@@ -73,10 +92,12 @@ local function storeEvent(id, ts, author, content, eventType)
     if not details or #title > 100 or #details > 300 then return end
     local current, index = findEvent(id)
     if current and (current.ts or 0) >= ts then return end
+    local isNew = current == nil
     local event = { id = id, ts = ts, by = author, at = at, title = title, details = details,
         eventType = eventType, calendarSettings = settings, rsvps = current and current.rsvps or {} }
     if current then GH.bucket.events[index] = event else table.insert(GH.bucket.events, 1, event) end
     if GH.RefreshUI then GH:RefreshUI() end
+    if isNew and sender and samePlayerName(sender, author) then showEventPopout(event) end
 end
 
 local function normalizeCalendarSettings(settings, eventType)
@@ -170,11 +191,12 @@ function GH:PostEvent(at, title, details, eventType, calendarSettings)
     local record = self:NewRecord({ at = at, title = title:sub(1, 100), details = (details or ""):sub(1, 300), eventType = eventType, calendarSettings = settings, rsvps = {} })
     local kind = eventType == "raid" and "D" or "E"
     self:StoreRecord("events", record, kind, encodeEvent(record))
+    showEventPopout(record)
     return true, (eventType == "raid" and "Raid" or "Event") .. " saved and sent to online Guild Hall users."
 end
 
-local function onEventRecord(kind, id, ts, author, content)
-    storeEvent(id, ts, author, content, kind == "D" and "raid" or "event")
+local function onEventRecord(kind, id, ts, author, content, sender)
+    storeEvent(id, ts, author, content, kind == "D" and "raid" or "event", sender)
 end
 GH:RegisterRecordHandler("E", function(...) onEventRecord("E", ...) end)
 GH:RegisterRecordHandler("D", function(...) onEventRecord("D", ...) end)
@@ -194,7 +216,7 @@ function GH:EditEvent(eventId, at, title, details, calendarSettings)
     if not event then return false, "That event is no longer available." end
     if not at or not title or title == "" then return false, "Enter a valid date, time, and event title." end
 
-    local player = UnitName and UnitName("player") or "Guild officer"
+    local player = self:PlayerName()
     local settings = normalizeCalendarSettings(calendarSettings or event.calendarSettings, event.eventType)
     local calendarUpdated, calendarMessage = self:UpdateGameCalendarEvent(event, at, title, details, settings)
 
@@ -220,7 +242,7 @@ function GH:DeleteEvent(eventId)
     if not self:CanManage() then return false, "Only the guild leader or rank 1 can remove events." end
     local event, index = findEvent(eventId)
     if not event then return false, "That event is no longer available." end
-    local player = UnitName and UnitName("player") or "Guild officer"
+    local player = self:PlayerName()
     local removedCalendarEntry, calendarMessage = self:RemoveGameCalendarEvent(event)
     if removedCalendarEntry and GuildHallDB and GuildHallDB.calendarExports then
         GuildHallDB.calendarExports[eventId] = nil
