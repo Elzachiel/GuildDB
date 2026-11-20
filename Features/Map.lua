@@ -199,6 +199,23 @@ end
 
 local function convertMapPosition(sourceID, x, y, targetID)
     if sourceID == targetID then return x, y end
+    -- Use Blizzard's world-coordinate conversion first. It handles zone maps whose
+    -- map hierarchy rectangles are incomplete (common on older continent maps).
+    if C_Map and C_Map.GetWorldPosFromMapPos and C_Map.GetMapPosFromWorldPos then
+        local sourcePosition = CreateVector2D and CreateVector2D(x, y) or { x = x, y = y }
+        local continentID, worldPosition = C_Map.GetWorldPosFromMapPos(sourceID, sourcePosition)
+        if continentID and worldPosition then
+            local convertedID, mapPosition = C_Map.GetMapPosFromWorldPos(continentID, worldPosition, targetID)
+            if mapPosition and (convertedID == targetID or convertedID == nil) then
+                local mapX, mapY
+                if mapPosition.GetXY then mapX, mapY = mapPosition:GetXY()
+                else mapX, mapY = mapPosition.x, mapPosition.y end
+                if mapX and mapY and mapX >= 0 and mapX <= 1 and mapY >= 0 and mapY <= 1 then
+                    return mapX, mapY
+                end
+            end
+        end
+    end
     local sourceChain, targetChain = mapAncestors(sourceID), mapAncestors(targetID)
     local targetSet = {}
     for _, id in ipairs(targetChain) do targetSet[id] = true end
@@ -242,16 +259,13 @@ local function attachMapProvider()
     GuildHallMapPinMixin = CreateFromMixins(MapCanvasPinMixin)
     GuildHallMapPinMixin.OnLoad = function(self)
         self:SetSize(22, 22)
-        local function makeCircle(size, layer)
-            local texture = self:CreateTexture(nil, layer)
-            texture:SetSize(size, size)
-            texture:SetPoint("CENTER")
-            texture:SetTexture("Interface\\Minimap\\Ping\\ping4")
-            return texture
-        end
-        self.halo = makeCircle(20, "BACKGROUND")
-        self.rim = makeCircle(14, "ARTWORK")
-        self.dot = makeCircle(10, "OVERLAY")
+        self.dot = self:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        self.dot:SetPoint("CENTER", self, "CENTER", 0, 0)
+        local font = self.dot:GetFont()
+        self.dot:SetFont(font, 17, "THICKOUTLINE")
+        self.dot:SetText("●")
+        self.dot:SetShadowColor(0, 0, 0, 1)
+        self.dot:SetShadowOffset(1, -1)
         self.text = self:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         self.text:SetPoint("BOTTOM", self, "TOP", 0, 3)
         self.text:SetTextColor(1, 1, 1, 1)
@@ -275,9 +289,7 @@ local function attachMapProvider()
         local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[report.class or ""]
         local r, g, b = 0.8, 0.8, 0.8
         if color then r, g, b = color.r, color.g, color.b end
-        self.halo:SetVertexColor(r, g, b, 0.38)
-        self.rim:SetVertexColor(0.04, 0.05, 0.07, 1)
-        self.dot:SetVertexColor(r, g, b, 1)
+        self.dot:SetTextColor(r, g, b, 1)
         self.text:SetText((report.name:match("^([^-]+)") or report.name):sub(1, 12))
         self:SetPosition(report.x, report.y)
     end
