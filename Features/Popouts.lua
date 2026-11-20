@@ -78,6 +78,15 @@ local function nextToast()
     toast:SetPoint("TOP", UIParent, "TOP", 0, -140)
     toast.title:SetText(item.title)
     toast.body:SetText(item.message)
+    if item.largeText then
+        toast.body:SetFontObject("GameFontHighlightLarge")
+        local font, size, flags = toast.body:GetFont()
+        if font then toast.body:SetFont(font, math.max(18, size or 12), flags or "") end
+        toast.body:SetTextColor(0.78, 0.84, 0.9)
+    else
+        toast.body:SetFontObject("GameFontHighlight")
+        toast.body:SetTextColor(0.78, 0.84, 0.9)
+    end
     fitTextHeight(toast, HEIGHT, 10, 4, 10)
     toast.icon:SetTexture(item.icon or "Interface/Icons/INV_Misc_Note_01")
     toast.duration = math.max(2, tonumber(item.duration) or DEFAULT_DURATION)
@@ -87,7 +96,7 @@ local function nextToast()
     toast:Show()
 end
 
-function GH:ShowPopout(category, title, message, icon, onClick, duration)
+function GH:ShowPopout(category, title, message, icon, onClick, duration, largeText)
     if self.GetSetting and self:GetSetting("popups") == false then return false end
     queue[#queue + 1] = {
         title = tostring(title or category or "Guild Hall"),
@@ -95,6 +104,7 @@ function GH:ShowPopout(category, title, message, icon, onClick, duration)
         icon = icon,
         onClick = onClick,
         duration = duration,
+        largeText = largeText,
     }
     while #queue > MAX_QUEUE do table.remove(queue, 1) end
     nextToast()
@@ -187,9 +197,9 @@ end
 
 local function milestoneToast(kind, value, author, profession)
     if kind == "L" then
-        GH:ShowPopout("Level milestone", "Level " .. value .. " reached!", author .. " reached level " .. value .. ".", "Interface/Icons/Achievement_Level_" .. value)
+        GH:ShowPopout("Level milestone", "Level " .. value .. " reached!", author .. " reached level " .. value .. ".", "Interface/Icons/Achievement_Level_" .. value, nil, 8, true)
     elseif kind == "P" then
-        GH:ShowPopout("Profession milestone", profession .. " " .. value .. "!", author .. " reached " .. value .. " in " .. profession .. ".", iconForProfession(profession))
+        GH:ShowPopout("Profession milestone", profession .. " " .. value .. "!", author .. " reached " .. value .. " in " .. profession .. ".", iconForProfession(profession), nil, 8, true)
     end
 end
 
