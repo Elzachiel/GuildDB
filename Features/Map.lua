@@ -39,13 +39,19 @@ local function updateUI()
 end
 
 GH:RegisterRecordHandler("ML", function(id, timestamp, author, content, sender)
-    if not GH.bucket or not sender then return end
+    local function reject(reason)
+        GH.mapRejectReason = reason
+    end
+    if not GH.bucket or not sender then reject("no guild bucket or sender"); return end
     local mapID, x, y, zone = content:match("^(%d+)|([%d%.]+)|([%d%.]+)|(.*)$")
     mapID, x, y = tonumber(mapID), tonumber(x), tonumber(y)
-    if not mapID or not x or not y or x < 0 or x > 1 or y < 0 or y > 1 or #zone > 80 then return end
+    if not mapID or not x or not y or not zone then reject("malformed location payload"); return end
+    if x < 0 or x > 1 or y < 0 or y > 1 or #zone > 80 then reject("coordinates or zone out of range"); return end
     local senderName = (sender:match("^([^-]+)") or sender):lower()
     local authorName = (author:match("^([^-]+)") or author):lower()
-    if senderName ~= authorName then return end
+    if senderName ~= authorName then reject("sender name did not match payload author"); return end
+    GH.mapValidReports = (GH.mapValidReports or 0) + 1
+    GH.mapRejectReason = nil
     GH.mapReports[senderName] = {
         name = sender, mapID = mapID, x = x, y = y, zone = zone,
         seen = GetTime and GetTime() or 0,
@@ -148,12 +154,20 @@ local function mapTabText()
             tostring(lastSend.kind), lastSend.succeeded and "accepted" or "failed",
             tostring(lastSend.error or lastSend.result or "unknown"), age)
     end
+    local inboundAge = GH.mapLastInboundAt and math.max(0, math.floor((GetTime and GetTime() or 0) - GH.mapLastInboundAt))
+    local inboundText = ("Location packets received: %d; valid reports: %d"):format(
+        GH.mapInboundPackets or 0, GH.mapValidReports or 0)
+    if inboundAge then
+        inboundText = inboundText .. ("; last from %s, %ds ago"):format(tostring(GH.mapLastInboundSender or "unknown"), inboundAge)
+    end
+    if GH.mapRejectReason then inboundText = inboundText .. "; last rejected: " .. GH.mapRejectReason end
     if #reports == 0 then
         return table.concat({
             "Guild member map", "",
             "No fresh reports from other GuildHall users.",
             "Your sharing: " .. sharing .. "  ·  Your position: " .. positionText,
             sendText,
+            inboundText,
             "Reports expire after 45 seconds and pause in instances.",
         }, "\n\n")
     end
@@ -166,6 +180,7 @@ local function mapTabText()
     lines[#lines + 1] = ""
     lines[#lines + 1] = "Your sharing: " .. sharing .. "  ·  Your position: " .. positionText
     lines[#lines + 1] = sendText
+    lines[#lines + 1] = inboundText
     lines[#lines + 1] = "Set a navigation waypoint: /gh map waypoint CharacterName"
     return table.concat(lines, "\n")
 end

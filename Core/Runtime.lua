@@ -219,7 +219,13 @@ local function receivePayload(payload, sender)
             GH.addonPresence[sender] = { version = version, seen = GetTime and GetTime() or 0 }
             if GH.RefreshUI then GH:RefreshUI() end
         else
+            if payload:match("^ML|") then
+                GH.mapInboundPackets = (GH.mapInboundPackets or 0) + 1
+                GH.mapLastInboundAt = GetTime and GetTime() or 0
+                GH.mapLastInboundSender = sender
+            end
             parseRecord(payload, sender)
+            if payload:match("^ML|") and GH.activeTab == "Map" and GH.RefreshUI then GH:RefreshUI() end
         end
     end
 end
