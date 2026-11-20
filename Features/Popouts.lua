@@ -6,6 +6,15 @@ local DEFAULT_DURATION, FADE_DURATION, MAX_QUEUE = 6, 0.7, 6
 local queue, toast = {}, nil
 local pvpPopup
 
+local function fitTextHeight(frame, minimum, topPadding, gap, bottomPadding)
+    local titleHeight = frame.title:GetStringHeight() or 18
+    local bodyHeight = frame.body:GetStringHeight() or 0
+    local contentHeight = math.ceil(topPadding + titleHeight + gap + bodyHeight + bottomPadding)
+    local screenHeight = UIParent and UIParent.GetHeight and UIParent:GetHeight() or 768
+    local maximum = math.max(minimum, screenHeight - 160)
+    frame:SetHeight(math.min(maximum, math.max(minimum, contentHeight)))
+end
+
 local function nextToast()
     if not toast then
         toast = CreateFrame("Frame", "GuildHallAnnouncementPopout", UIParent, "BackdropTemplate")
@@ -31,6 +40,7 @@ local function nextToast()
         toast.title:SetPoint("TOPLEFT", 56, -10)
         toast.title:SetPoint("RIGHT", -12, 0)
         toast.title:SetJustifyH("LEFT")
+        toast.title:SetWordWrap(true)
         toast.title:SetTextColor(0.92, 0.96, 1)
         toast.body = toast:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         toast.body:SetPoint("TOPLEFT", toast.title, "BOTTOMLEFT", 0, -4)
@@ -68,6 +78,7 @@ local function nextToast()
     toast:SetPoint("TOP", UIParent, "TOP", 0, -140)
     toast.title:SetText(item.title)
     toast.body:SetText(item.message)
+    fitTextHeight(toast, HEIGHT, 10, 4, 10)
     toast.icon:SetTexture(item.icon or "Interface/Icons/INV_Misc_Note_01")
     toast.duration = math.max(2, tonumber(item.duration) or DEFAULT_DURATION)
     toast.elapsed = 0
@@ -114,6 +125,9 @@ function GH:ShowPvPPopup(points, victim, level, totalPoints)
         pvpPopup.icon:SetPoint("LEFT", 13, 0)
         pvpPopup.title = pvpPopup:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
         pvpPopup.title:SetPoint("TOPLEFT", 68, -11)
+        pvpPopup.title:SetPoint("RIGHT", -12, 0)
+        pvpPopup.title:SetJustifyH("LEFT")
+        pvpPopup.title:SetWordWrap(true)
         pvpPopup.title:SetTextColor(0.92, 0.96, 1)
         pvpPopup.body = pvpPopup:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         pvpPopup.body:SetPoint("TOPLEFT", pvpPopup.title, "BOTTOMLEFT", 0, -4)
@@ -139,6 +153,7 @@ function GH:ShowPvPPopup(points, victim, level, totalPoints)
     local levelText = tonumber(level) and tonumber(level) > 0 and tostring(level) or "?"
     pvpPopup.body:SetText(tostring(victim or "Unknown") .. " · lvl " .. levelText .. " · " .. tostring(totalPoints or 0) .. " pts")
     pvpPopup.left = 3
+    fitTextHeight(pvpPopup, 78, 11, 4, 10)
     pvpPopup:ClearAllPoints()
     pvpPopup:SetPoint("TOP", UIParent, "TOP", 0, -216)
     pvpPopup:SetAlpha(1)

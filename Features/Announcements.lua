@@ -49,15 +49,31 @@ local function findPost(id)
     end
 end
 
-local function storePost(id, ts, author, title, text)
+local function popAnnouncement(author, title, text)
+    if not GH.ShowPopout then return end
+    local summary = tostring(text or ""):gsub("%s+", " ")
+    local displayTitle = title ~= "" and title or "New guild announcement"
+    local message = tostring(author or "Guild officer")
+    if summary ~= "" then message = message .. ": " .. summary end
+    GH:ShowPopout("Guild announcement", displayTitle, message, "Interface/Icons/INV_Misc_Note_01", function()
+        GH.activeTab = "Announcements"
+        GH:Open()
+    end, 8)
+end
+
+local function storePost(id, ts, author, title, text, showPopup)
     if #id > 100 or #author > 100 or #title > 120 or #text > 600 then return end
     if not isOfficer(author) then return end
     if deleteTimestamp(id) >= ts then return end
     local current, index = findPost(id)
     if current and (current.ts or 0) >= ts then return end
     local post = { id = id, ts = ts, by = author, title = title, text = text }
+    local isNew = current == nil
     if current then GH.bucket.announcements[index] = post else table.insert(GH.bucket.announcements, 1, post) end
     if GH.RefreshUI then GH:RefreshUI() end
+    if showPopup and isNew and ts <= time() + 5 and time() - ts <= 30 then
+        popAnnouncement(author, title, text)
+    end
 end
 
 function GH:PostAnnouncement(title, text)
@@ -69,6 +85,7 @@ function GH:PostAnnouncement(title, text)
     local record = self:NewRecord({ title = title, text = text })
     self:StoreRecord("announcements", record)
     self:SendRecord("AN", record.id, record.ts, record.by, encodePost(title, text))
+    popAnnouncement(record.by, title, text)
     return true, "Announcement saved and sent to online Guild Hall users."
 end
 
@@ -105,7 +122,7 @@ end)
 
 GH:RegisterRecordHandler("AN", function(id, ts, author, content)
     local title, text = decodePost(content)
-    storePost(id, ts, author, title, text)
+    storePost(id, ts, author, title, text, true)
 end)
 
 GH:RegisterRecordHandler("AE", function(id, ts, author, content)
