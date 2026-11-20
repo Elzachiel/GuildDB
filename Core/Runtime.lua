@@ -2,7 +2,7 @@
 local ADDON, GH = ...
 _G.GuildHall = GH
 
-GH.version = "0.1.49"
+GH.version = "0.1.50"
 GH.prefix = "GHALL"
 GH.maxItems = 60
 GH.tabs = { "Roster" }
@@ -243,7 +243,7 @@ local function slashCommand(message)
     end
     local handler = GH.commands[command]
     if handler then handler(rest or "") else
-        print("Guild Hall commands: /gh sync, /gh profile, /gh guide, /gh looking, /gh craft, /gh poll, /gh pvp, /gh raid, /gh event, /gh rsvp, /gh post, /gh shout")
+        print("Guild Hall commands: /gh sync, /gh profile, /gh map, /gh guide, /gh looking, /gh craft, /gh poll, /gh pvp, /gh raid, /gh event, /gh rsvp, /gh post, /gh shout")
     end
 end
 
@@ -253,13 +253,13 @@ SlashCmdList.GUILDHALL = slashCommand
 
 local frame = CreateFrame("Frame")
 GH.eventFrame = frame
-for _, event in ipairs({ "ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_GUILD_UPDATE", "GUILD_ROSTER_UPDATE", "CHAT_MSG_ADDON", "CHAT_MSG_COMBAT_HONOR_GAIN", "PARTY_KILL", "NAME_PLATE_UNIT_ADDED", "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT", "SKILL_LINES_CHANGED", "TRADE_SKILL_UPDATE", "PLAYER_LEVEL_UP" }) do
+for _, event in ipairs({ "ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_GUILD_UPDATE", "GUILD_ROSTER_UPDATE", "CHAT_MSG_ADDON", "CHAT_MSG_COMBAT_HONOR_GAIN", "PARTY_KILL", "NAME_PLATE_UNIT_ADDED", "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT", "SKILL_LINES_CHANGED", "TRADE_SKILL_UPDATE", "PLAYER_LEVEL_UP", "WORLD_MAP_OPEN" }) do
     -- Some Forever builds omit optional retail/classic events. One unavailable
     -- event must not abort runtime setup and prevent /gh from opening.
     pcall(frame.RegisterEvent, frame, event)
 end
 
-frame:SetScript("OnUpdate", function()
+frame:SetScript("OnUpdate", function(_, elapsed)
     local now = GetTime()
     cleanupPresence(now)
     if GH.bucket and now >= GH.nextPresence then
@@ -270,6 +270,7 @@ frame:SetScript("OnUpdate", function()
         sendRaw(table.remove(GH.sendQueue, 1))
         GH.nextSend = now + 0.4
     end
+    if GH.MapUpdate then GH:MapUpdate(now, elapsed) end
 end)
 
 frame:SetScript("OnEvent", function(_, event, ...)

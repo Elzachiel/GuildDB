@@ -1,7 +1,7 @@
 -- Personal preferences plus per-guild, officer-managed feature visibility.
 local _, GH = ...
 
-local defaults = { onlineOnly = true, scale = 1, popups = true, levelGuildChat = false }
+local defaults = { onlineOnly = true, scale = 1, popups = true, levelGuildChat = false, shareMapLocation = false }
 
 local function settings()
     if type(GuildHallDB) ~= "table" then GuildHallDB = {} end
@@ -198,16 +198,17 @@ local function build(parent)
     check(parent, "Show online members only", "onlineOnly", 12, -42, list)
     check(parent, "Show Guild Hall popups", "popups", 12, -72, list)
     check(parent, "Guild chat ding for level milestones", "levelGuildChat", 12, -102, list)
-    label(parent, "Window scale", 12, -148, "GameFontNormal", list)
-    local scaleText = label(parent, "", 105, -148, "GameFontHighlight", list)
+    check(parent, "Share my location with Guild Hall members", "shareMapLocation", 12, -132, list)
+    label(parent, "Window scale", 12, -178, "GameFontNormal", list)
+    local scaleText = label(parent, "", 105, -178, "GameFontHighlight", list)
     local function updateScale()
         scaleText:SetText(("%d%%"):format(math.floor((GH:GetSetting("scale") or 1) * 100 + 0.5)))
     end
-    local scaleDown = makeButton(parent, "-", 32, 160, -140, function()
+    local scaleDown = makeButton(parent, "-", 32, 160, -170, function()
         GH:SetSetting("scale", math.max(0.8, math.floor(((GH:GetSetting("scale") or 1) - 0.1) * 10 + 0.5) / 10))
         updateScale()
     end, list)
-    local scaleUp = makeButton(parent, "+", 32, 200, -140, function()
+    local scaleUp = makeButton(parent, "+", 32, 200, -170, function()
         GH:SetSetting("scale", math.min(1.2, math.floor(((GH:GetSetting("scale") or 1) + 0.1) * 10 + 0.5) / 10))
         updateScale()
     end, list)
@@ -215,8 +216,8 @@ local function build(parent)
     scaleUp:GetFontString():SetFontObject("GameFontNormalLarge")
     updateScale()
 
-    label(parent, "Data", 12, -190, "GameFontNormalLarge", list)
-    makeButton(parent, "Re-sync now", 120, 12, -220, function()
+    label(parent, "Data", 12, -220, "GameFontNormalLarge", list)
+    makeButton(parent, "Re-sync now", 120, 12, -250, function()
         local _, message = GH:RequestSync()
         print("Guild Hall: " .. tostring(message))
     end, list)
@@ -226,7 +227,7 @@ local function build(parent)
             for _ in pairs(bucket) do records = records + 1 end
         end
     end
-    label(parent, ("Stored records: %d"):format(records), 12, -260, "GameFontDisableSmall", list)
+    label(parent, ("Stored records: %d"):format(records), 12, -290, "GameFontDisableSmall", list)
 
     label(parent, "Officer settings", 350, -10, "GameFontNormalLarge", list)
     label(parent, "Feature switches (guild-wide; GM or rank 1)", 350, -38, "GameFontDisableSmall", list)
@@ -242,7 +243,7 @@ local function build(parent)
     end
     label(parent, GH:CanManage() and "Online users update now; offline users on next sync." or "Only the guild leader or rank 1 can change these switches.", 350, -70 - (split + 1) * 30, "GameFontDisableSmall", list)
 
-    makeButton(parent, "Reset personal settings", 172, 12, -300, function()
+    makeButton(parent, "Reset personal settings", 172, 12, -330, function()
         for key, value in pairs(defaults) do GH:SetSetting(key, value) end
         updateScale()
         GH:RefreshUI()

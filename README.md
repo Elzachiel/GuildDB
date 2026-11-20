@@ -5,6 +5,7 @@ Guild Hall is a World of Warcraft guild addon for a shared roster, member profil
 ## Features
 
 - Online-only guild roster with Guild Hall presence and reported addon version.
+- Opt-in guild member location sharing with fresh reports, World Map pins, and waypoint navigation.
 - Member profiles for role, specialization, time zone, alts, and listed professions or recipes.
 - Officer announcements and a guild guide for rules and loot rules.
 - Raid and event calendar with Going, Tentative, and Absent RSVPs.
@@ -45,9 +46,10 @@ Copy this folder into the client's `Interface/AddOns` directory, enable **Guild 
 - `/gh poll vote # option#` votes; `/gh poll close #` closes a poll (officer).
 - `/gh pvp season Season name` starts a PvP season (officer).
 - `/gh shout Player Name | Message` posts a shoutout.
+- `/gh map waypoint CharacterName` sets a waypoint to a member's latest shared location; `/gh map clear` clears it.
 - `/gh popout pvp`, `/gh popout level10` (also 20/30/40/50/60), or `/gh popout profession150` (also 225/300) previews a popout.
 
-Personal Settings can turn Guild Hall popups on or off and optionally send a guild-chat “Ding!” for level milestones. Profession milestones never send guild chat messages.
+Personal Settings can turn Guild Hall popups on or off, optionally share your map location with Guild Hall members, and optionally send a guild-chat “Ding!” for level milestones. Map sharing is off by default, pauses in instances, and reports expire after 45 seconds. Profession milestones never send guild chat messages.
 
 Date and time in event commands use the local time shown by the game client. Board item numbers refer to the current order shown in their tab.
 
