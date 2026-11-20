@@ -176,16 +176,80 @@ GH:RegisterTab("Map", mapTabText)
 
 GuildHallMapPinMixin = {}
 
+-- Convert a point between map levels using the map hierarchy. GetMapPosFromWorldPos
+-- is inconsistent for some legacy/continent maps, while map rectangles are available
+-- for both the source and the map currently shown by the canvas.
+local function mapAncestors(mapID)
+    local chain, seen = {}, {}
+    while mapID and not seen[mapID] do
+        chain[#chain + 1] = mapID
+        seen[mapID] = true
+        local info = C_Map and C_Map.GetMapInfo and C_Map.GetMapInfo(mapID)
+        mapID = info and info.parentMapID
+    end
+    return chain
+end
+
+local function mapRect(childID, parentID)
+    if not C_Map or not C_Map.GetMapRectOnMap then return end
+    local left, right, top, bottom = C_Map.GetMapRectOnMap(childID, parentID)
+    if left == nil or right == nil or top == nil or bottom == nil then return end
+    return left, right, top, bottom
+end
+
+local function convertMapPosition(sourceID, x, y, targetID)
+    if sourceID == targetID then return x, y end
+    local sourceChain, targetChain = mapAncestors(sourceID), mapAncestors(targetID)
+    local targetSet = {}
+    for _, id in ipairs(targetChain) do targetSet[id] = true end
+    local common
+    for _, id in ipairs(sourceChain) do
+        if targetSet[id] then common = id; break end
+    end
+    if not common then return end
+
+    local mapID = sourceID
+    while mapID ~= common do
+        local info = C_Map.GetMapInfo(mapID)
+        local parentID = info and info.parentMapID
+        local left, right, top, bottom = mapRect(mapID, parentID)
+        if not left or not parentID then return end
+        x, y = left + (right - left) * x, top + (bottom - top) * y
+        mapID = parentID
+    end
+
+    local targetPath = {}
+    mapID = targetID
+    while mapID ~= common do
+        targetPath[#targetPath + 1] = mapID
+        local info = C_Map.GetMapInfo(mapID)
+        mapID = info and info.parentMapID
+        if not mapID then return end
+    end
+    for i = #targetPath, 1, -1 do
+        local childID = targetPath[i]
+        local left, right, top, bottom = mapRect(childID, C_Map.GetMapInfo(childID).parentMapID)
+        if not left or right == left or bottom == top then return end
+        x, y = (x - left) / (right - left), (y - top) / (bottom - top)
+    end
+    if x < 0 or x > 1 or y < 0 or y > 1 then return end
+    return x, y
+end
+
 local function attachMapProvider()
     if not (MapCanvasDataProviderMixin and MapCanvasPinMixin and CreateFromMixins and WorldMapFrame and WorldMapFrame.AddDataProvider) then return end
     if GH.mapDataProvider then return end
     GuildHallMapPinMixin = CreateFromMixins(MapCanvasPinMixin)
     GuildHallMapPinMixin.OnLoad = function(self)
-        self:SetSize(22, 22)
+        self:SetSize(12, 12)
         self.dot = self:CreateTexture(nil, "ARTWORK")
-        self.dot:SetSize(18, 18)
+        self.dot:SetSize(10, 10)
         self.dot:SetPoint("CENTER")
-        self.dot:SetTexture("Interface\\Icons\\INV_Misc_GroupLooking")
+        self.dot:SetTexture("Interface\\Buttons\\WHITE8X8")
+        self.dotMask = self:CreateMaskTexture()
+        self.dotMask:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+        self.dotMask:SetAllPoints(self.dot)
+        self.dot:AddMaskTexture(self.dotMask)
         self.text = self:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         self.text:SetPoint("BOTTOM", self, "TOP", 0, 2)
         self.text:SetTextColor(1, 1, 1)
@@ -204,14 +268,10 @@ local function attachMapProvider()
         self.report = report
         self.memberName, self.zone = report.name, report.zone
         self.x, self.y = report.x, report.y
-        local classCoords = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[report.class or ""]
-        if classCoords then
-            self.dot:SetTexture("Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES")
-            self.dot:SetTexCoord(unpack(classCoords))
-        else
-            self.dot:SetTexture("Interface\\Icons\\INV_Misc_GroupLooking")
-            self.dot:SetTexCoord(0, 1, 0, 1)
-        end
+        self.dot:SetTexCoord(0, 1, 0, 1)
+        local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[report.class or ""]
+        if color then self.dot:SetVertexColor(color.r, color.g, color.b, 1)
+        else self.dot:SetVertexColor(0.8, 0.8, 0.8, 1) end
         self.text:SetText((report.name:match("^([^-]+)") or report.name):sub(1, 12))
         self:SetPosition(report.x, report.y)
     end
@@ -229,17 +289,8 @@ local function attachMapProvider()
         local mapID = map:GetMapID()
         for _, report in ipairs(GH:GetMapReports()) do
             local x, y
-            if report.mapID == mapID then
-                x, y = report.x, report.y
-            elseif C_Map and C_Map.GetWorldPosFromMapPos and C_Map.GetMapPosFromWorldPos then
-                local continentID, worldPosition = C_Map.GetWorldPosFromMapPos(report.mapID, { x = report.x, y = report.y })
-                if continentID and worldPosition then
-                    local convertedMapID, mapPosition = C_Map.GetMapPosFromWorldPos(continentID, worldPosition, mapID)
-                    if convertedMapID == mapID and mapPosition then
-                        if mapPosition.GetXY then x, y = mapPosition:GetXY() else x, y = mapPosition.x, mapPosition.y end
-                        if not x or not y or x < 0 or x > 1 or y < 0 or y > 1 then x, y = nil, nil end
-                    end
-                end
+            if C_Map and C_Map.GetMapInfo and C_Map.GetMapRectOnMap then
+                x, y = convertMapPosition(report.mapID, report.x, report.y, mapID)
             end
             if x and y then
                 local pinReport = { name = report.name, zone = report.zone, class = report.class, mapID = mapID, x = x, y = y, seen = report.seen }
