@@ -2,7 +2,7 @@
 local ADDON, GH = ...
 _G.GuildHall = GH
 
-GH.version = "0.1.67"
+GH.version = "0.1.68"
 GH.prefix = "GHALL"
 GH.maxItems = 60
 GH.tabs = { "Roster" }
@@ -185,6 +185,12 @@ local function sendRaw(message)
     GH.lastAddonSendByKind[GH.lastAddonSend.kind] = GH.lastAddonSend
     if GH.lastAddonSend.kind == "ML" and GH.activeTab == "Map" and GH.RefreshUI then GH:RefreshUI() end
     return ok and (result == nil or result == true or result == 0)
+end
+
+local function isChatMessagingLocked()
+    if not (C_ChatInfo and C_ChatInfo.InChatMessagingLockdown) then return false end
+    local ok, locked = pcall(C_ChatInfo.InChatMessagingLockdown)
+    return ok and locked == true
 end
 
 local function requestGuildRoster()
@@ -405,13 +411,17 @@ frame:SetScript("OnUpdate", function(_, elapsed)
         GH.nextPresence = now + 60
     end
     local queue = #GH.sendQueue > 0 and GH.sendQueue or GH.historyQueue
-    if #queue > 0 and GH.sendTokens >= 1 and now >= GH.nextSend then
+    -- Some clients silently reject addon messages during combat/instance
+    -- lockdown while returning nil (normally a successful send). Keep queued
+    -- records until the API says messaging is available again.
+    if #queue > 0 and GH.sendTokens >= 1 and now >= GH.nextSend and not isChatMessagingLocked() then
         if sendRaw(queue[1]) then
             table.remove(queue, 1)
             GH.sendTokens = GH.sendTokens - 1
         else
             -- Keep the unsent frame queued and retry after a short pause.
-            GH.nextSend = now + 0.5
+            local sendResult = GH.lastAddonSend and GH.lastAddonSend.result
+            GH.nextSend = now + (sendResult == 11 and 5 or 0.5)
         end
     end
     if GH.MapUpdate then GH:MapUpdate(now, elapsed) end
