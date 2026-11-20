@@ -195,7 +195,30 @@ local function showInputForm(title, fields, onAccept)
             input = CreateFrame("EditBox", nil, dialog, field.multiline and "BackdropTemplate" or "InputBoxTemplate")
             input:SetSize(370, height)
             input:SetPoint("TOPLEFT", 20, -offset - 16)
-            GH:StyleEditBox(input, field.multiline)
+            -- Keep popup EditBoxes on the client templates. Applying the
+            -- roster search styling here made popup EditBoxes lose reliable
+            -- mouse focus on the Forever client.
+            if field.multiline then
+                input:SetBackdrop({ bgFile = "Interface/Tooltips/UI-Tooltip-Background", edgeFile = "Interface/Tooltips/UI-Tooltip-Border", tile = true, tileSize = 16, edgeSize = 12, insets = { left = 4, right = 4, top = 4, bottom = 4 } })
+                input:SetBackdropColor(0.04, 0.05, 0.065, 1)
+                input:SetBackdropBorderColor(0.16, 0.25, 0.34, 1)
+                input:SetFontObject("GameFontHighlight")
+                input:SetTextInsets(8, 8, 6, 6)
+                input:SetMultiLine(true)
+                input:SetJustifyH("LEFT")
+                input:SetJustifyV("TOP")
+            end
+            -- Match the blue panels without replacing the EditBox template or
+            -- adding overlay border textures that can interfere with focus.
+            if not field.multiline then
+                input.guildHallFill = input:CreateTexture(nil, "BACKGROUND")
+                input.guildHallFill:SetPoint("TOPLEFT", 3, -3)
+                input.guildHallFill:SetPoint("BOTTOMRIGHT", -3, 3)
+                input.guildHallFill:SetColorTexture(PANEL_ALT[1], PANEL_ALT[2], PANEL_ALT[3], 1)
+                input:SetFontObject("GameFontHighlightSmall")
+                input:SetTextInsets(8, 8, 0, 0)
+            end
+            input:SetTextColor(CREAM[1], CREAM[2], CREAM[3])
         end
         if not field.options then
             input:SetAutoFocus(false)
@@ -236,7 +259,12 @@ local function showInputForm(title, fields, onAccept)
         for i = #UISpecialFrames, 1, -1 do if UISpecialFrames[i] == name then table.remove(UISpecialFrames, i) end end
     end)
     dialog:Show()
-    dialog.inputs[1]:SetFocus()
+    for index, input in ipairs(dialog.inputs) do
+        if not fields[index].readOnly and not fields[index].options then
+            input:SetFocus()
+            break
+        end
+    end
 end
 
 local function calendarSettingsFromForm(values, offset)
