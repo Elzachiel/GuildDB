@@ -63,6 +63,40 @@ function GH:StyleButton(button, variant)
     end
 end
 
+function GH:StyleEditBox(editBox, multiline)
+    if not editBox then return end
+    editBox:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8" })
+    editBox:SetBackdropColor(PANEL_ALT[1], PANEL_ALT[2], PANEL_ALT[3], 1)
+    editBox:SetFontObject(multiline and "GameFontHighlight" or "GameFontHighlightSmall")
+    editBox:SetTextInsets(8, 8, multiline and 6 or 0, multiline and 6 or 0)
+    editBox:SetTextColor(CREAM[1], CREAM[2], CREAM[3])
+    editBox.guildHallBorder = editBox.guildHallBorder or {}
+    for index = 1, 4 do
+        local edge = editBox.guildHallBorder[index]
+        if not edge then
+            edge = editBox:CreateTexture(nil, "OVERLAY")
+            editBox.guildHallBorder[index] = edge
+        end
+        edge:SetColorTexture(0.16, 0.25, 0.34, 1)
+    end
+    local border = editBox.guildHallBorder
+    border[1]:SetPoint("TOPLEFT"); border[1]:SetPoint("TOPRIGHT"); border[1]:SetHeight(1)
+    border[2]:SetPoint("BOTTOMLEFT"); border[2]:SetPoint("BOTTOMRIGHT"); border[2]:SetHeight(1)
+    border[3]:SetPoint("TOPLEFT"); border[3]:SetPoint("BOTTOMLEFT"); border[3]:SetWidth(1)
+    border[4]:SetPoint("TOPRIGHT"); border[4]:SetPoint("BOTTOMRIGHT"); border[4]:SetWidth(1)
+    function editBox:SetGuildHallFocusState(focused)
+        local color = focused and GOLD or { 0.16, 0.25, 0.34 }
+        for _, edge in ipairs(self.guildHallBorder) do edge:SetColorTexture(color[1], color[2], color[3], 1) end
+    end
+    editBox:HookScript("OnEditFocusGained", function(self) self:SetGuildHallFocusState(true) end)
+    editBox:HookScript("OnEditFocusLost", function(self) self:SetGuildHallFocusState(false) end)
+    if multiline then
+        editBox:SetMultiLine(true)
+        editBox:SetJustifyH("LEFT")
+        editBox:SetJustifyV("TOP")
+    end
+end
+
 local function guildAbbreviation(name)
     local words = {}
     for word in tostring(name or "Guild"):gmatch("%S+") do words[#words + 1] = word end
@@ -161,15 +195,7 @@ local function showInputForm(title, fields, onAccept)
             input = CreateFrame("EditBox", nil, dialog, field.multiline and "BackdropTemplate" or "InputBoxTemplate")
             input:SetSize(370, height)
             input:SetPoint("TOPLEFT", 20, -offset - 16)
-        end
-        if field.multiline then
-            input:SetBackdrop({ bgFile = "Interface/Tooltips/UI-Tooltip-Background", edgeFile = "Interface/Tooltips/UI-Tooltip-Border", tile = true, tileSize = 16, edgeSize = 12, insets = { left = 4, right = 4, top = 4, bottom = 4 } })
-            input:SetBackdropColor(0.04, 0.05, 0.065, 1)
-            input:SetFontObject("GameFontHighlight")
-            input:SetTextInsets(8, 8, 6, 6)
-            input:SetMultiLine(true)
-            input:SetJustifyH("LEFT")
-            input:SetJustifyV("TOP")
+            GH:StyleEditBox(input, field.multiline)
         end
         if not field.options then
             input:SetAutoFocus(false)
@@ -365,28 +391,16 @@ local function build()
     frame.rosterSearch:SetPoint("TOPLEFT", 12, -10)
     frame.rosterSearch:SetAutoFocus(false)
     frame.rosterSearch:SetMaxLetters(80)
-    frame.rosterSearch:SetFontObject("GameFontHighlightSmall")
-    frame.rosterSearch:SetTextInsets(8, 8, 0, 0)
-    frame.rosterSearch:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8" })
-    frame.rosterSearch:SetBackdropColor(0.075, 0.09, 0.12, 1)
-    frame.rosterSearch.border = {}
-    for index = 1, 4 do
-        frame.rosterSearch.border[index] = frame.rosterSearch:CreateTexture(nil, "OVERLAY")
-        frame.rosterSearch.border[index]:SetColorTexture(0.16, 0.25, 0.34, 1)
-    end
-    frame.rosterSearch.border[1]:SetPoint("TOPLEFT"); frame.rosterSearch.border[1]:SetPoint("TOPRIGHT"); frame.rosterSearch.border[1]:SetHeight(1)
-    frame.rosterSearch.border[2]:SetPoint("BOTTOMLEFT"); frame.rosterSearch.border[2]:SetPoint("BOTTOMRIGHT"); frame.rosterSearch.border[2]:SetHeight(1)
-    frame.rosterSearch.border[3]:SetPoint("TOPLEFT"); frame.rosterSearch.border[3]:SetPoint("BOTTOMLEFT"); frame.rosterSearch.border[3]:SetWidth(1)
-    frame.rosterSearch.border[4]:SetPoint("TOPRIGHT"); frame.rosterSearch.border[4]:SetPoint("BOTTOMRIGHT"); frame.rosterSearch.border[4]:SetWidth(1)
+    GH:StyleEditBox(frame.rosterSearch)
     frame.rosterSearch:SetText("Search...")
     frame.rosterSearch:SetTextColor(MUTED_GOLD[1], MUTED_GOLD[2], MUTED_GOLD[3])
     frame.rosterSearch:SetScript("OnEditFocusGained", function(self)
         if self:GetText() == "Search..." then self:SetText(""); self:SetTextColor(CREAM[1], CREAM[2], CREAM[3]) end
-        for _, edge in ipairs(self.border) do edge:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 1) end
+        self:SetGuildHallFocusState(true)
     end)
     frame.rosterSearch:SetScript("OnEditFocusLost", function(self)
         if self:GetText() == "" then self:SetText("Search..."); self:SetTextColor(MUTED_GOLD[1], MUTED_GOLD[2], MUTED_GOLD[3]) end
-        for _, edge in ipairs(self.border) do edge:SetColorTexture(0.16, 0.25, 0.34, 1) end
+        self:SetGuildHallFocusState(false)
     end)
     frame.rosterSearch:SetScript("OnTextChanged", function(self)
         if self:HasFocus() then GH:RefreshUI() end
