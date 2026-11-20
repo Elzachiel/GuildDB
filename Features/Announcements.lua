@@ -130,7 +130,11 @@ GH:RegisterRecordHandler("AP", function(id, ts, author, content, sender)
     if GH.shownAnnouncementPopups[id] then return end
     local senderName = tostring(sender or ""):match("^([^-]+)") or tostring(sender or "")
     local authorName = tostring(author or ""):match("^([^-]+)") or tostring(author or "")
-    if senderName:lower():gsub("[%s%-]", "") ~= authorName:lower():gsub("[%s%-]", "") or not isOfficer(author) then return end
+    -- The author's rank may not be present in the local guild roster yet (or
+    -- the roster may still be loading). The announcement is already sent on
+    -- the guild addon channel, so bind it to the actual sender and don't gate
+    -- the toast on local roster state.
+    if senderName:lower():gsub("[%s%-]", "") ~= authorName:lower():gsub("[%s%-]", "") then return end
     local title, text = decodePost(content)
     if #title > 120 or #text > 600 then return end
     GH.shownAnnouncementPopups[id] = true
