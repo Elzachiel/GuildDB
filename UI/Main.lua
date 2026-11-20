@@ -121,7 +121,7 @@ local function splitSections(text)
 end
 
 local dialogCounter = 0
-local function showInputForm(title, fields, onAccept, acceptLabel)
+local function showInputForm(title, fields, onAccept, acceptLabel, hideClose)
     dialogCounter = dialogCounter + 1
     local name = "GuildHallActionDialog" .. dialogCounter
     local dialog = CreateFrame("Frame", name, UIParent, "BackdropTemplate")
@@ -209,9 +209,11 @@ local function showInputForm(title, fields, onAccept, acceptLabel)
         dialog.inputs[i] = input
         offset = offset + (field.multiline and 116 or 56)
     end
-    local close = CreateFrame("Button", nil, dialog, "UIPanelCloseButton")
-    close:SetPoint("TOPRIGHT", -2, -2)
-    close:SetScript("OnClick", function() dialog:Hide() end)
+    if not hideClose then
+        local close = CreateFrame("Button", nil, dialog, "UIPanelCloseButton")
+        close:SetPoint("TOPRIGHT", -2, -2)
+        close:SetScript("OnClick", function() dialog:Hide() end)
+    end
     local cancel = CreateFrame("Button", nil, dialog, "UIPanelButtonTemplate")
     GH:StyleButton(cancel)
     cancel:SetSize(92, 26)
@@ -528,21 +530,29 @@ local function build()
         frame.detailBody:SetWidth(math.max(80, width - 24))
     end)
     frame.pvpTitleSeason = frame.detailPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    frame.pvpTitleSeason:SetPoint("LEFT", frame.detailTitle, "RIGHT", 14, -1)
+    frame.pvpTitleSeason:SetPoint("TOPLEFT", frame.detailPanel, "TOPLEFT", 18, -40)
+    frame.pvpTitleSeason:SetPoint("TOPRIGHT", frame.detailPanel, "TOPRIGHT", -18, -40)
+    frame.pvpTitleSeason:SetJustifyH("LEFT")
+    frame.pvpTitleSeason:SetHeight(38)
+    frame.pvpTitleSeason:SetWordWrap(true)
     frame.pvpTitleSeason:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
     frame.pvpSummary = frame.detailPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    frame.pvpSummary:SetPoint("TOPLEFT", 18, -62)
+    frame.pvpSummary:SetPoint("TOPLEFT", 18, -82)
     frame.pvpInfo = frame.detailPanel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    frame.pvpInfo:SetPoint("TOPLEFT", 18, -86)
+    frame.pvpInfo:SetPoint("TOPLEFT", 18, -106)
+    frame.pvpInfo:SetPoint("TOPRIGHT", -18, -106)
+    frame.pvpInfo:SetHeight(34)
+    frame.pvpInfo:SetWordWrap(true)
+    frame.pvpInfo:SetJustifyH("LEFT")
     frame.pvpTableRule = frame.detailPanel:CreateTexture(nil, "ARTWORK")
-    frame.pvpTableRule:SetPoint("TOPLEFT", 14, -132)
-    frame.pvpTableRule:SetPoint("TOPRIGHT", -14, -132)
+    frame.pvpTableRule:SetPoint("TOPLEFT", 14, -172)
+    frame.pvpTableRule:SetPoint("TOPRIGHT", -14, -172)
     frame.pvpTableRule:SetHeight(1)
     frame.pvpTableRule:SetColorTexture(0.12, 0.25, 0.37, 0.9)
     frame.pvpHeaders = {}
     local function addPvpHeader(text, x, width, justify)
         local header = frame.detailPanel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        header:SetPoint("TOPLEFT", x, -113)
+        header:SetPoint("TOPLEFT", x, -153)
         header:SetWidth(width)
         header:SetJustifyH(justify or "LEFT")
         header:SetText(text)
@@ -573,20 +583,58 @@ local function build()
     frame.pvpSeasonButton:SetPoint("LEFT", frame.pvpMyButton, "RIGHT", 8, 0)
     frame.pvpSeasonButton:SetText("New season")
     frame.pvpSeasonButton:SetScript("OnClick", function()
-        if not GH:CanManage() then return end
+        if not GH:CanManagePvPSeason() then return end
         local currentName = GH.bucket and GH.bucket.pvpSeason and GH.bucket.pvpSeason.name or ""
         local currentNumber = tonumber(currentName:match("(%d+)$")) or 0
         showInputForm("Start a PvP season", {
             { label = "Season name", value = "Season " .. tostring(currentNumber + 1), max = 80 },
-        }, function(values) return GH:StartPvPSeason(values[1]) end)
+            { label = "End date DD-MM-YYYY (local, inclusive)", value = date("%d-%m-%Y", time() + 30 * 86400), max = 10 },
+        }, function(values) return GH:StartPvPSeason(values[1], values[2]) end, "Create", true)
     end)
     frame.pvpScopeButton = CreateFrame("Button", nil, frame.detailPanel, "UIPanelButtonTemplate")
     GH:StyleButton(frame.pvpScopeButton)
     frame.pvpScopeButton:SetSize(116, 26)
     frame.pvpScopeButton:SetPoint("LEFT", frame.pvpSeasonButton, "RIGHT", 8, 0)
+    local seasonMenu = CreateFrame("ScrollFrame", nil, UIParent, "UIPanelScrollFrameTemplate,BackdropTemplate")
+    seasonMenu:SetSize(280, 220)
+    seasonMenu:SetPoint("TOPRIGHT", frame.pvpScopeButton, "BOTTOMRIGHT", -24, -4)
+    seasonMenu:SetFrameStrata("TOOLTIP")
+    seasonMenu:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8" })
+    seasonMenu:SetBackdropColor(0.025, 0.032, 0.043, 1)
+    local seasonOptions = CreateFrame("Frame", nil, seasonMenu)
+    seasonOptions:SetSize(280, 220)
+    seasonMenu:SetScrollChild(seasonOptions)
+    seasonMenu.buttons = {}
+    seasonMenu:Hide()
+    frame:HookScript("OnHide", function() seasonMenu:Hide() end)
+    frame.pvpScopeButton:HookScript("OnHide", function() seasonMenu:Hide() end)
     frame.pvpScopeButton:SetScript("OnClick", function()
-        frame.pvpAllTime = not frame.pvpAllTime
-        GH:RefreshUI()
+        if seasonMenu:IsShown() then seasonMenu:Hide(); return end
+        local choices = GH:GetPvPSeasons()
+        for index, choice in ipairs(choices) do
+            local option = seasonMenu.buttons[index]
+            if not option then
+                option = CreateFrame("Button", nil, seasonOptions, "UIPanelButtonTemplate")
+                GH:StyleButton(option)
+                option:SetSize(276, 28)
+                option:SetPoint("TOPLEFT", 2, -(index - 1) * 30)
+                seasonMenu.buttons[index] = option
+            end
+            option:SetText(choice.name)
+            local start = choice.start
+            option:SetScript("OnClick", function()
+                frame.pvpSelectedStart = start
+                frame.pvpAllTime = start == 0
+                seasonMenu:Hide()
+                GH:RefreshUI()
+            end)
+            option:Show()
+        end
+        for index = #choices + 1, #seasonMenu.buttons do seasonMenu.buttons[index]:Hide() end
+        seasonOptions:SetHeight(math.max(30, #choices * 30))
+        seasonMenu:SetHeight(math.min(220, #choices * 30))
+        seasonMenu:SetVerticalScroll(0)
+        seasonMenu:Show()
     end)
     frame.eventCreateButton = CreateFrame("Button", nil, frame.detailPanel, "UIPanelButtonTemplate")
     GH:StyleButton(frame.eventCreateButton, "primary")
@@ -1050,7 +1098,7 @@ function GH:RefreshUI()
     frame.detailMeta:SetShown(not isPvP and not isActionList)
     frame.detailScroll:ClearAllPoints()
     if isPvP then
-        frame.detailScroll:SetPoint("TOPLEFT", 10, -144)
+        frame.detailScroll:SetPoint("TOPLEFT", 10, -184)
         frame.detailScroll:SetPoint("BOTTOMRIGHT", -10, 12)
     else
         frame.detailScroll:SetPoint("TOPLEFT", 10, -66)
@@ -1150,17 +1198,30 @@ function GH:RefreshUI()
         frame.detailBody:Hide()
         frame.detailTitle:SetWidth(math.min(390, math.max(250, frame.detailPanel:GetWidth() - 500)))
         frame.detailTitle:SetText("PVP LEADERBOARD")
-        local season, ranking, ownScore, ownRank = self:GetPvPLeaderboard(frame.pvpAllTime)
-        frame.pvpTitleSeason:SetText((season.name or "Season 1"))
+        local season, ranking, ownScore, ownRank = self:GetPvPLeaderboard(frame.pvpAllTime, frame.pvpSelectedStart)
+        local deadline = season.ends and season.ends > 0 and season.ends
+        local seasonStatus = ""
+        if deadline then
+            local daysLeft = math.ceil((deadline - time()) / 86400)
+            seasonStatus = daysLeft > 0 and (" - Ends in " .. daysLeft .. (daysLeft == 1 and " day" or " days")) or " - Ended"
+        end
+        frame.pvpTitleSeason:SetText((season.name or "Season 1") .. seasonStatus)
+        if not frame.pvpCountdownTicker and C_Timer.NewTicker then
+            frame.pvpCountdownTicker = C_Timer.NewTicker(60, function()
+                if frame:IsShown() and GH.activeTab == "PvP" then GH:RefreshUI() end
+            end)
+        end
         frame.pvpMyButton:SetText(frame.pvpMyOnly and "Guild board" or "My stats")
-        frame.pvpSeasonButton:SetShown(self:CanManage())
-        frame.pvpScopeButton:SetText(frame.pvpAllTime and "Season board" or "All-time")
+        frame.pvpSeasonButton:SetShown(self:CanManagePvPSeason())
+        frame.pvpScopeButton:SetText("Seasons  v")
         local playerName = UnitName and UnitName("player") or "You"
         frame.pvpSummary:SetText(ownScore and ("You: |cffffcc33%d pts|r  -  %d kills  -  #%d"):format(ownScore.points, ownScore.kills, ownRank) or (playerName .. ": no PvP points yet"))
         frame.pvpInfo:SetText("Outdoor PvP  |  Points by level: 1 (1-19), 2 (20-29), 3 (30-39), 4 (40-49), 5 (50-60)  |  Same player: once per 5 min, 5 per day")
         if frame.pvpMyOnly then
             local own = ownScore
             ranking = own and { own } or {}
+        else
+            while #ranking > 10 do table.remove(ranking) end
         end
         local function leaderboardName(characterName)
             local profile = self:GetProfile(characterName)

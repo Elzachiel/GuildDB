@@ -5,6 +5,7 @@ GH:RegisterBucket("pvpDeaths", function() return {} end)
 GH:RegisterBucket("pvpTotals", function() return {} end)
 GH:RegisterBucket("pvpSeason", function() return { name = "All-time", start = 0, ts = 0 } end)
 GH:RegisterBucket("pvpReset", function() return { ts = 0 } end)
+GH:RegisterBucket("pvpSeasons", function() return {} end)
 local seenPlayers = {}
 local honorCredits = {}
 local creditScheduled = false
@@ -33,10 +34,14 @@ local function guildLeader(name)
     return false
 end
 
+function GH:CanManagePvPSeason()
+    return self.bucket ~= nil and guildLeader(playerName())
+end
+
 local function applyReset(stamp, author)
     if stamp <= resetTime() then return end
     GH.bucket.pvpReset = { ts = stamp, by = author }
-    GH.bucket.pvpKills, GH.bucket.pvpDeaths, GH.bucket.pvpTotals = {}, {}, {}
+    GH.bucket.pvpKills, GH.bucket.pvpDeaths, GH.bucket.pvpTotals, GH.bucket.pvpSeasons = {}, {}, {}, {}
     GH.bucket.pvpSeason = { name = "All-time", start = 0, ts = stamp, by = author }
     honorCredits, seenPlayers = {}, {}
     if GuildHallDB then GuildHallDB.pvpHistory = {} end
@@ -86,7 +91,9 @@ local function addLocalStat(field, points)
     local player = playerName()
     local season = GH.bucket.pvpSeason or { start = 0 }
     local starts = { 0 }
-    if (season.start or 0) > 0 then starts[#starts + 1] = season.start end
+    if (season.start or 0) > 0 and (not season.ends or season.ends == 0 or time() < season.ends) then
+        starts[#starts + 1] = season.start
+    end
     for _, start in ipairs(starts) do
         local key = totalsKey(start, player)
         local totals = GH.bucket.pvpTotals[key]
@@ -193,12 +200,28 @@ end)
 
 GH:RegisterRecordHandler("Y", function(id, ts, author, content)
     if ts <= resetTime() then return end
-    local name, start = content:match("^(.-)\n(%d+)$")
+    if not guildLeader(author) then return end
+    local name, start, ends = content:match("^(.-)\n(%d+)\n(%d+)$")
+    if not name then name, start = content:match("^(.-)\n(%d+)$") end
     start = tonumber(start)
-    if id ~= "season" or not name or name == "" or #name > 80 or not start then return end
+    ends = tonumber(ends) or 0
+    if not name or name == "" or #name > 80 or not start then return end
+    if id ~= "season" and id ~= "season:" .. tostring(start) then return end
+    if ends ~= 0 and ends <= start then return end
     local current = GH.bucket.pvpSeason or {}
-    if (current.ts or 0) > ts then return end
-    GH.bucket.pvpSeason = { name = name, start = start, ts = ts, by = author }
+    local saved = GH.bucket.pvpSeasons[tostring(start)]
+    local incoming = { name = name, start = start, ends = ends, ts = ts, by = author }
+    if not saved or (saved.ts or 0) <= ts then GH.bucket.pvpSeasons[tostring(start)] = incoming end
+    if id == "season" and (current.ts or 0) <= ts then
+        if (current.start or 0) > 0 then
+            local previous = GH.bucket.pvpSeasons[tostring(current.start)]
+            if not previous or (previous.ts or 0) < (current.ts or 0) then
+                GH.bucket.pvpSeasons[tostring(current.start)] = current
+            end
+        end
+        GH.bucket.pvpSeason = incoming
+        GH.bucket.pvpSeasons[tostring(start)] = incoming
+    end
     if GH.RefreshUI then GH:RefreshUI() end
 end)
 
@@ -324,12 +347,13 @@ GH:RegisterHistoryProvider(function()
         GH:SendRecord("X", death.id, death.ts, death.by, death.killer)
     end
     local season = GH.bucket.pvpSeason or { name = "All-time", start = 0, ts = 0 }
-    if season.ts and season.ts > 0 then GH:SendRecord("Y", "season", season.ts, season.by or "Guild officer", season.name .. "\n" .. season.start) end
-    local activeStart = (GH.bucket.pvpSeason or {}).start or 0
+    if season.ts and season.ts > 0 then GH:SendRecord("Y", "season", season.ts, season.by or "Guild officer", table.concat({ season.name, season.start, season.ends or 0 }, "\n")) end
+    for _, archived in pairs(GH.bucket.pvpSeasons) do
+        GH:SendRecord("Y", "season:" .. archived.start, archived.ts, archived.by,
+            table.concat({ archived.name, archived.start, archived.ends or 0 }, "\n"))
+    end
     for _, totals in pairs(GH.bucket.pvpTotals or {}) do
-        if (totals.start or 0) == 0 or totals.start == activeStart then
-            sendTotals(totals.start or 0, totals.by, totals)
-        end
+        sendTotals(totals.start or 0, totals.by, totals)
     end
 end)
 
@@ -374,14 +398,34 @@ GH:RegisterEventHandler("UNIT_HEALTH", function(_, unit)
     if unit == "target" or unit == "focus" then capturePlayer(unit) end
 end)
 GH:RegisterEventHandler("PLAYER_ENTERING_WORLD", function() seenPlayers = {} end)
-function GH:StartPvPSeason(name)
-    if not self:CanManage() then return false, "Only the guild leader or rank 1 can start a PvP season." end
+function GH:StartPvPSeason(name, endDate)
+    if not self:CanManagePvPSeason() then return false, "Only the guild master can start a PvP season." end
     name = (name or ""):gsub("^%s+", ""):gsub("%s+$", "")
     if name == "" or #name > 80 then return false, "Enter a season name (up to 80 characters)." end
     local ts = time()
-    local player = UnitName and UnitName("player") or "Guild officer"
-    self.bucket.pvpSeason = { name = name, start = ts, ts = ts, by = player }
-    self:SendRecord("Y", "season", ts, player, name .. "\n" .. ts)
+    local day, month, year = tostring(endDate or ""):match("^(%d%d)%-(%d%d)%-(%d%d%d%d)$")
+    if not year then return false, "Enter an end date as DD-MM-YYYY (your local time)." end
+    year, month, day = tonumber(year), tonumber(month), tonumber(day)
+    if year < 1971 or year > 2099 or month < 1 or month > 12 or day < 1 or day > 31 then
+        return false, "Enter a valid end date."
+    end
+    local midnight = time({ year = year, month = month, day = day, hour = 0, min = 0, sec = 0 })
+    if not midnight or date("%d-%m-%Y", midnight) ~= endDate then return false, "Enter a valid end date." end
+    local ends = time({ year = year, month = month, day = day + 1, hour = 0, min = 0, sec = 0 })
+    if ends <= ts then return false, "The end date must be today or later." end
+    local player = playerName()
+    local previous = self.bucket.pvpSeason
+    if previous and (previous.start or 0) > 0 then
+        -- Starting a replacement season closes the previous scoring window.
+        previous.ends = math.min(previous.ends and previous.ends > 0 and previous.ends or ts, ts)
+        previous.ts, previous.by = ts, player
+        self.bucket.pvpSeasons[tostring(previous.start)] = previous
+        self:SendRecord("Y", "season:" .. previous.start, previous.ts, player,
+            table.concat({ previous.name, previous.start, previous.ends }, "\n"))
+    end
+    self.bucket.pvpSeason = { name = name, start = ts, ends = ends, ts = ts, by = player }
+    self.bucket.pvpSeasons[tostring(ts)] = self.bucket.pvpSeason
+    self:SendRecord("Y", "season", ts, player, table.concat({ name, ts, ends }, "\n"))
     self:RefreshUI()
     return true, "PvP season started: " .. name
 end
@@ -395,15 +439,49 @@ GH:RegisterCommand("pvp", function(rest)
         print("Guild Hall: " .. result)
         return
     end
-    if (action or ""):lower() ~= "season" then GH.activeTab = "PvP"; GH:Open(); return end
-    local _, result = GH:StartPvPSeason(name)
-    print("Guild Hall: " .. result)
+    GH.activeTab = "PvP"
+    GH:Open()
 end)
 
-function GH:GetPvPLeaderboard(allTime)
+function GH:GetPvPSeasons()
+    local bucket = self.bucket or {}
+    local choices, known = {}, {}
+    local current = bucket.pvpSeason
+    if current and (current.start or 0) > 0 then
+        choices[#choices + 1], known[current.start] = current, true
+    end
+    for _, season in pairs(bucket.pvpSeasons or {}) do
+        if not known[season.start] then choices[#choices + 1], known[season.start] = season, true end
+    end
+    for _, total in pairs(bucket.pvpTotals or {}) do
+        local start = total.start or 0
+        if start > 0 and not known[start] then
+            choices[#choices + 1] = { start = start, name = "Season " .. date("%d-%m-%Y", start) }
+            known[start] = true
+        end
+    end
+    table.sort(choices, function(a, b) return a.start > b.start end)
+    for index = 2, #choices do
+        local older = choices[index]
+        older = { name = older.name, start = older.start, ends = older.ends, ts = older.ts, by = older.by }
+        older.ends = math.min(older.ends and older.ends > 0 and older.ends or math.huge, choices[index - 1].start)
+        choices[index] = older
+    end
+    choices[#choices + 1] = { start = 0, name = "All-time" }
+    return choices
+end
+
+function GH:GetPvPLeaderboard(allTime, selectedStart)
     local bucket = GH.bucket or {}
     local season = bucket.pvpSeason or { name = "All-time", start = 0 }
+    if selectedStart ~= nil then
+        allTime = false
+        for _, choice in ipairs(self:GetPvPSeasons()) do
+            if choice.start == selectedStart then season = choice; allTime = selectedStart == 0; break end
+        end
+    end
     local start = allTime and 0 or (season.start or 0)
+    local finish = not allTime and season.ends and season.ends > 0 and season.ends or math.huge
     local scores, totalRows = {}, {}
     for _, total in pairs(bucket.pvpTotals or {}) do
         if (total.start or 0) == start then
@@ -416,7 +494,7 @@ function GH:GetPvPLeaderboard(allTime)
         end
     end
     for _, kill in ipairs(bucket.pvpKills or {}) do
-        if kill.ts >= start then
+        if kill.ts >= start and kill.ts < finish then
             local score = scores[kill.by] or { name = kill.by, points = 0, kills = 0, deaths = 0, recentPoints = { 0, 0, 0, 0, 0 } }
             if not totalRows[kill.by] then
                 score.points = score.points + (tonumber(kill.points) or 1)
@@ -429,7 +507,7 @@ function GH:GetPvPLeaderboard(allTime)
         end
     end
     for _, death in ipairs(bucket.pvpDeaths or {}) do
-        if death.ts >= start then
+        if death.ts >= start and death.ts < finish then
             local score = scores[death.by] or { name = death.by, points = 0, kills = 0, deaths = 0, recentPoints = { 0, 0, 0, 0, 0 } }
             if not totalRows[death.by] then score.deaths = score.deaths + 1 end
             scores[death.by] = score
@@ -469,14 +547,14 @@ GH:RegisterTab("PvP", function()
         end
     end
     for _, kill in ipairs(kills) do
-        if not totalRows[kill.by] and kill.ts >= (season.start or 0) then
+        if not totalRows[kill.by] and kill.ts >= (season.start or 0) and (not season.ends or season.ends == 0 or kill.ts < season.ends) then
             local score = scores[kill.by] or { name = kill.by, points = 0, kills = 0, deaths = 0 }
             score.points, score.kills = score.points + (tonumber(kill.points) or 1), score.kills + 1
             scores[kill.by] = score
         end
     end
     for _, death in ipairs(deaths) do
-        if not totalRows[death.by] and death.ts >= (season.start or 0) then
+        if not totalRows[death.by] and death.ts >= (season.start or 0) and (not season.ends or season.ends == 0 or death.ts < season.ends) then
             local score = scores[death.by] or { name = death.by, points = 0, kills = 0, deaths = 0 }
             score.deaths = score.deaths + 1
             scores[death.by] = score
@@ -498,7 +576,7 @@ GH:RegisterTab("PvP", function()
     lines[#lines + 1] = "Recent kills:"
     local shown = 0
     for _, kill in ipairs(kills) do
-        if kill.ts >= (season.start or 0) and shown < 10 then
+        if kill.ts >= (season.start or 0) and (not season.ends or season.ends == 0 or kill.ts < season.ends) and shown < 10 then
             shown = shown + 1
             local level = kill.victimLevel and kill.victimLevel > 0 and (" (level " .. kill.victimLevel .. ")") or " (level unknown)"
             lines[#lines + 1] = ("%s defeated %s%s · +%d"):format(GH:Display(kill.by), GH:Display(kill.victim), level, kill.points or 1)

@@ -2,7 +2,7 @@
 local ADDON, GH = ...
 _G.GuildHall = GH
 
-GH.version = "0.1.70"
+GH.version = "0.1.74"
 GH.prefix = "GHALL"
 GH.maxItems = 60
 GH.tabs = { "Roster" }

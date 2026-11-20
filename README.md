@@ -44,7 +44,7 @@ Copy this folder into the client's `Interface/AddOns` directory, enable **Guild 
 - `/gh craft who Recipe` searches online members' listed crafting skills.
 - `/gh poll create Question | Option 1 | Option 2 [| Option 3 | Option 4]` creates a poll (officer).
 - `/gh poll vote # option#` votes; `/gh poll close #` closes a poll (officer).
-- `/gh pvp season Season name` starts a PvP season (officer).
+- PvP → New season creates a PvP season (guild master only), with an end date in DD-MM-YYYY format. The end date includes that entire day in the creator's local time. The New season button offers the same fields. When the deadline passes, new kills count toward all-time stats only; the finished season remains visible. All members must update for the cutoff to apply consistently.
 - `/gh pvp wipe CONFIRM` permanently clears all guild PvP points, kills, deaths, recent records, and seasons (guild master / rank 0 only). The saved reset syncs to updated members, including members who return later; older clients must update to honor resets. Repeat-victim history clears when a client receives the reset.
 - `/gh shout Player Name | Message` posts a shoutout.
 - `/gh map waypoint CharacterName` sets a waypoint to a member's latest shared location; `/gh map clear` clears it.
