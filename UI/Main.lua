@@ -121,7 +121,7 @@ local function splitSections(text)
 end
 
 local dialogCounter = 0
-local function showInputForm(title, fields, onAccept)
+local function showInputForm(title, fields, onAccept, acceptLabel)
     dialogCounter = dialogCounter + 1
     local name = "GuildHallActionDialog" .. dialogCounter
     local dialog = CreateFrame("Frame", name, UIParent, "BackdropTemplate")
@@ -245,7 +245,7 @@ local function showInputForm(title, fields, onAccept)
     GH:StyleButton(accept, "primary")
     accept:SetSize(92, 26)
     accept:SetPoint("LEFT", cancel, "RIGHT", 8, 0)
-    accept:SetText("Save")
+    accept:SetText(acceptLabel or "Save")
     accept:SetScript("OnClick", function()
         local values = {}
         for i, input in ipairs(dialog.inputs) do values[i] = input.selectedValue or input:GetText() end
@@ -361,7 +361,6 @@ local function build()
     frame.version:SetPoint("TOPLEFT", frame.logoText, "BOTTOMLEFT", 0, -1)
     frame.version:SetText("Guild Hall")
     frame.headerStatus = frame.header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    frame.headerStatus:SetPoint("RIGHT", -168, 0)
     frame.headerStatus:SetJustifyH("RIGHT")
     frame.close = CreateFrame("Button", nil, frame.header)
     frame.close:SetSize(30, 30)
@@ -373,17 +372,7 @@ local function build()
     frame.close:GetFontString():ClearAllPoints()
     frame.close:GetFontString():SetPoint("CENTER", frame.close, "CENTER", 0, 0)
     frame.close:SetScript("OnClick", function() frame:Hide() end)
-    frame.sync = CreateFrame("Button", nil, frame.header, "UIPanelButtonTemplate")
-    GH:StyleButton(frame.sync, "primary")
-    frame.sync:SetSize(104, 24)
-    frame.sync:SetPoint("RIGHT", frame.close, "LEFT", -8, 0)
-    frame.sync:SetText("Sync guild")
-    frame.sync:RegisterForClicks("LeftButtonUp")
-    frame.sync:SetScript("OnClick", function()
-        local _, message = GH:RequestSync()
-        print("Guild Hall: " .. tostring(message))
-    end)
-
+    frame.headerStatus:SetPoint("RIGHT", frame.close, "LEFT", -10, 0)
     frame.sidebar = CreateFrame("Frame", nil, frame)
     frame.sidebar:SetPoint("TOPLEFT", 1, -71)
     frame.sidebar:SetPoint("BOTTOMLEFT", 1, 1)
@@ -667,7 +656,7 @@ local function build()
             showInputForm("Post an announcement", {
                 { label = "Title", value = "", max = 120 },
                 { label = "Message", value = "", max = 600, multiline = true },
-            }, function(values) return GH:PostAnnouncement(values[1], values[2]) end)
+            }, function(values) return GH:PostAnnouncement(values[1], values[2]) end, "Post")
         elseif tab == "Guide" then
             local guide = GH.bucket and GH.bucket.guide or {}
             showInputForm("Edit guild guide", {
@@ -906,7 +895,6 @@ function GH:RefreshUI()
     frame.logoText:SetText((self.guildName or "Guild") .. " Hall")
     frame.logoAbbreviation:SetText(guildAbbreviation(self.guildName or "Guild"))
     frame.listHeader:SetText(active:upper())
-    frame.sync:SetShown(active ~= "Settings" and active ~= "Roster")
     if active == "Roster" then
         frame.listPanel:Show()
         frame.listPanel:ClearAllPoints()
@@ -1083,7 +1071,6 @@ function GH:RefreshUI()
     local isPvP = active == "PvP"
     local isEvents = active == "Events"
     local isActionList = active == "Looking For" or active == "Crafting" or active == "Polls" or active == "Announcements"
-    frame.sync:SetShown(active ~= "Settings" and not isPvP)
     frame.detailRule:SetShown(not isPvP and not isEvents and not isActionList)
     frame.detailMeta:SetShown(not isPvP and not isActionList)
     frame.detailScroll:ClearAllPoints()
