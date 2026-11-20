@@ -258,11 +258,17 @@ local function attachMapProvider()
     if GH.mapDataProvider then return end
     GuildHallMapPinMixin = CreateFromMixins(MapCanvasPinMixin)
     GuildHallMapPinMixin.OnLoad = function(self)
-        self:SetSize(22, 22)
-        self.icon = self:CreateTexture(nil, "ARTWORK")
-        self.icon:SetSize(16, 16)
-        self.icon:SetPoint("CENTER")
-        self.icon:SetTexture("Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES")
+        self:SetSize(20, 20)
+        local function createDot(size, layer)
+            local texture = self:CreateTexture(nil, layer)
+            texture:SetSize(size, size)
+            texture:SetPoint("CENTER")
+            texture:SetTexture("Interface\\COMMON\\Indicator-Gray")
+            return texture
+        end
+        self.outline = createDot(16, "ARTWORK")
+        self.outline:SetVertexColor(0, 0, 0, 1)
+        self.dot = createDot(11, "OVERLAY")
         self.text = self:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         self.text:SetPoint("BOTTOM", self, "TOP", 0, 3)
         self.text:SetTextColor(1, 1, 1, 1)
@@ -284,15 +290,8 @@ local function attachMapProvider()
         self.memberName, self.zone = report.name, report.zone
         self.x, self.y = report.x, report.y
         local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[report.class or ""]
-        local classCoords = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[report.class or ""]
-        if classCoords then
-            self.icon:SetTexCoord(unpack(classCoords))
-        else
-            self.icon:SetTexture("Interface\\Icons\\INV_Misc_GroupLooking")
-            self.icon:SetTexCoord(0, 1, 0, 1)
-        end
-        if color then self.icon:SetVertexColor(color.r, color.g, color.b, 1)
-        else self.icon:SetVertexColor(1, 1, 1, 1) end
+        if color then self.dot:SetVertexColor(color.r, color.g, color.b, 1)
+        else self.dot:SetVertexColor(0.8, 0.8, 0.8, 1) end
         self.text:SetText((report.name:match("^([^-]+)") or report.name):sub(1, 12))
         self:SetPosition(report.x, report.y)
     end
