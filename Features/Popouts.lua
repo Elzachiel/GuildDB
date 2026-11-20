@@ -159,9 +159,9 @@ function GH:ShowPvPPopup(points, victim, level, totalPoints)
     local showing = pvpPopup:IsShown()
     pvpPopup.sum = (showing and pvpPopup.sum or 0) + points
     pvpPopup.count = (showing and pvpPopup.count or 0) + 1
-    pvpPopup.title:SetText("+" .. pvpPopup.sum .. " PvP" .. (pvpPopup.count > 1 and ("  (" .. pvpPopup.count .. " kills)") or ""))
+    pvpPopup.title:SetText("+" .. pvpPopup.count .. (pvpPopup.count == 1 and " PvP kill" or " PvP kills"))
     local levelText = tonumber(level) and tonumber(level) > 0 and tostring(level) or "?"
-    pvpPopup.body:SetText(tostring(victim or "Unknown") .. " · lvl " .. levelText .. " · " .. tostring(totalPoints or 0) .. " pts")
+    pvpPopup.body:SetText(tostring(victim or "Unknown") .. " · lvl " .. levelText .. " · " .. tostring(totalPoints or 0) .. " total kills")
     pvpPopup.left = 3
     fitTextHeight(pvpPopup, 78, 11, 4, 10)
     pvpPopup:ClearAllPoints()

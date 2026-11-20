@@ -7,6 +7,17 @@ local CREAM = { 0.84, 0.89, 0.94 }
 local PANEL = { 0.045, 0.055, 0.072, 0.99 }
 local PANEL_ALT = { 0.075, 0.09, 0.115, 0.99 }
 
+local pvpColumnWidths = { 0.06, 0.28, 0.13, 0.13, 0.40 }
+local function layoutPvPColumn(text, index, parent, width, inset, header)
+    local offset = 0
+    for column = 1, index - 1 do offset = offset + pvpColumnWidths[column] * width end
+    text:ClearAllPoints()
+    if header then text:SetPoint("TOPLEFT", parent, "TOPLEFT", inset + offset, -153)
+    else text:SetPoint("LEFT", parent, "LEFT", offset, 0) end
+    text:SetWidth(math.max(1, pvpColumnWidths[index] * width - 8))
+    text:SetJustifyH("CENTER")
+end
+
 local function rosterText()
     if not GH.guildName then return "Join a guild to view its roster and Guild Hall." end
     if not GH.roster or #GH.roster == 0 then return "Loading the guild roster..." end
@@ -561,11 +572,21 @@ local function build()
     end
     addPvpHeader("#", 12, 28)
     addPvpHeader("PLAYER", 48, 170)
-    addPvpHeader("POINTS", 235, 58, "RIGHT")
-    addPvpHeader("KILLS", 320, 50, "RIGHT")
-    addPvpHeader("RECENT 1-5 PT KILLS", 390, 142)
-    addPvpHeader("LAST KILL", 550, 220)
+    addPvpHeader("KILLS", 260, 90, "CENTER")
+    addPvpHeader("DEATHS", 370, 90, "CENTER")
+    addPvpHeader("LAST KILL", 490, 280)
     frame.pvpRows = {}
+    frame.detailPanel:HookScript("OnSizeChanged", function(panel)
+        local width = math.max(1, panel:GetWidth() - 28)
+        for index, header in ipairs(frame.pvpHeaders) do
+            layoutPvPColumn(header, index, panel, width, 14, true)
+        end
+        for _, row in ipairs(frame.pvpRows) do
+            for index, text in ipairs({ row.rank, row.player, row.points, row.kills, row.last }) do
+                layoutPvPColumn(text, index, row, width, 0, false)
+            end
+        end
+    end)
     frame.pvpEmpty = frame.detailChild:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     frame.pvpEmpty:SetPoint("TOPLEFT", 12, -14)
     frame.pvpEmpty:SetTextColor(CREAM[1], CREAM[2], CREAM[3])
@@ -1256,8 +1277,8 @@ function GH:RefreshUI()
         frame.pvpSeasonButton:SetShown(self:CanManagePvPSeason())
         frame.pvpScopeButton:SetText("Seasons  v")
         local playerName = UnitName and UnitName("player") or "You"
-        frame.pvpSummary:SetText(ownScore and ("You: |cffffcc33%d pts|r  -  %d kills  -  #%d"):format(ownScore.points, ownScore.kills, ownRank) or (playerName .. ": no PvP points yet"))
-        frame.pvpInfo:SetText("Outdoor PvP  |  Points by level: 1 (1-19), 2 (20-29), 3 (30-39), 4 (40-49), 5 (50-60)  |  Same player: once per 5 min, 5 per day")
+        frame.pvpSummary:SetText(ownScore and ("You: |cffffcc33%d kills|r  -  #%d"):format(ownScore.kills, ownRank) or (playerName .. ": no PvP kills yet"))
+        frame.pvpInfo:SetText("Top 10 by honorable kills  |  Open world only  |  1 kill per game-credited honorable kill  |  Same player: once per 5 min, 5 per day")
         if frame.pvpMyOnly then
             local own = ownScore
             ranking = own and { own } or {}
@@ -1274,6 +1295,20 @@ function GH:RefreshUI()
             end
             return characterName
         end
+        local classByName = {}
+        local function characterKey(name)
+            return (tostring(name or ""):match("^([^-]+)") or ""):lower():gsub("%s", "")
+        end
+        if GetNumGuildMembers and GetGuildRosterInfo then
+            for index = 1, GetNumGuildMembers() do
+                local name, _, _, _, _, _, _, _, _, _, classFile = GetGuildRosterInfo(index)
+                if name and classFile then classByName[characterKey(name)] = classFile end
+            end
+        end
+        local boardWidth = math.max(1, frame.detailPanel:GetWidth() - 28)
+        for index, header in ipairs(frame.pvpHeaders) do
+            layoutPvPColumn(header, index, frame.detailPanel, boardWidth, 14, true)
+        end
         for i, score in ipairs(ranking) do
             local row = frame.pvpRows[i]
             if not row then
@@ -1285,26 +1320,23 @@ function GH:RefreshUI()
                 row.player = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
                 row.points = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
                 row.kills = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-                row.bands = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
                 row.last = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-                for _, spec in ipairs({ { row.rank, 12, 28, "LEFT" }, { row.player, 48, 170, "LEFT" }, { row.points, 235, 58, "RIGHT" }, { row.kills, 320, 50, "RIGHT" }, { row.bands, 390, 142, "LEFT" }, { row.last, 550, 220, "LEFT" } }) do
-                    spec[1]:SetPoint("LEFT", spec[2], 0)
-                    spec[1]:SetWidth(spec[3])
-                    spec[1]:SetJustifyH(spec[4])
-                end
                 frame.pvpRows[i] = row
+            end
+            for index, text in ipairs({ row.rank, row.player, row.points, row.kills, row.last }) do
+                layoutPvPColumn(text, index, row, boardWidth, 0, false)
             end
             row:ClearAllPoints()
             row:SetPoint("TOPLEFT", 4, -4 - (i - 1) * 36)
             row:SetPoint("RIGHT", frame.detailChild, "RIGHT", -4, 0)
-            local band = score.recentPoints or {}
             row.rank:SetText(tostring(i))
             row.player:SetText(self:Display(leaderboardName(score.name)))
-            row.player:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+            local classColor = RAID_CLASS_COLORS and RAID_CLASS_COLORS[classByName[characterKey(score.name)]]
+            if classColor then row.player:SetTextColor(classColor.r, classColor.g, classColor.b)
+            else row.player:SetTextColor(CREAM[1], CREAM[2], CREAM[3]) end
             row.points:SetText(tostring(score.points or 0))
             row.points:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
-            row.kills:SetText(tostring(score.kills or 0))
-            row.bands:SetText(('%d  -  %d  -  %d  -  %d  -  %d'):format(band[1] or 0, band[2] or 0, band[3] or 0, band[4] or 0, band[5] or 0))
+            row.kills:SetText(tostring(score.deaths or 0))
             local last = score.lastKill
             local lastText = "-"
             if last then

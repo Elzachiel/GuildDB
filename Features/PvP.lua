@@ -143,7 +143,7 @@ local function sendTotals(start, player, totals)
     totals.ts = time()
     totals.by = player
     GH:SendRecord("Z", totals.id, totals.ts, player,
-        table.concat({ start, totals.kills or 0, totals.points or 0, totals.deaths or 0, resetTime() }, "\n"))
+        table.concat({ start, totals.kills or 0, totals.kills or 0, totals.deaths or 0, resetTime() }, "\n"))
 end
 
 local function addLocalStat(field, points)
@@ -170,18 +170,10 @@ local function addLocalStat(field, points)
             end
         end
         totals[field] = (totals[field] or 0) + 1
-        if field == "kills" then totals.points = (totals.points or 0) + (points or 1) end
+        totals.points = totals.kills or 0
         GH.bucket.pvpTotals[key] = totals
         sendTotals(start, player, totals)
     end
-end
-
-local function pointsForLevel(level)
-    if level >= 50 then return 5 end
-    if level >= 40 then return 4 end
-    if level >= 30 then return 3 end
-    if level >= 20 then return 2 end
-    return 1
 end
 
 local function encodeKill(record)
@@ -233,7 +225,7 @@ local function recordKill(victim, victimLevel, outdoors)
     local ownLevel = tonumber(unitValue(UnitLevel, "player")) or 60
     if level == -1 then level = math.min(60, ownLevel + 10)
     elseif level <= 0 then level = ownLevel end
-    local record = GH:NewRecord({ victim = victim, victimLevel = level, points = pointsForLevel(level) })
+    local record = GH:NewRecord({ victim = victim, victimLevel = level, points = 1 })
     record.id = tostring(time()) .. "-pvp-" .. tostring(math.random(100000, 999999))
     addLocalStat("kills", record.points)
     trackingNote("Recorded " .. victim .. ": +" .. record.points .. " points")
@@ -241,7 +233,7 @@ local function recordKill(victim, victimLevel, outdoors)
         local player = playerName()
         local seasonStart = (GH.bucket.pvpSeason or {}).start or 0
         local totals = GH.bucket.pvpTotals[totalsKey(seasonStart, player)]
-        GH:ShowPvPPopup(record.points, victim, level, totals and totals.points or record.points)
+        GH:ShowPvPPopup(record.points, victim, level, totals and totals.kills or 1)
     end
     GH:StoreRecord("pvpKills", record, "P", encodeKill(record))
     return true
@@ -446,10 +438,12 @@ GH:RegisterEventHandler("CHAT_MSG_COMBAT_HONOR_GAIN", function(_, message)
     if not ok then victim = nil end
     if victim then queueCredit(victim)
     else
-        trackingNote("Unrecognized honor message: " .. tostring(message))
-        -- Honor without a name still requires a recently observed death;
-        -- it cannot create an anonymous leaderboard kill.
-        queueCredit(nil)
+        -- Generic honor can come from objectives and other rewards. Only a
+        -- named honorable-kill message or the game's kill-credit event may
+        -- authorize a kill; death observations only identify its victim.
+        if not creditScheduled and not unmatchedCredit then
+            trackingNote("Honor received; waiting for the game's honorable-kill credit")
+        end
     end
 end)
 GH:RegisterEventHandler("PLAYER_PVP_KILLS_CHANGED", function(_, unit)
@@ -670,7 +664,7 @@ function GH:GetPvPLeaderboard(allTime, selectedStart)
         end
     end
     local ranking = {}
-    for _, score in pairs(scores) do ranking[#ranking + 1] = score end
+    for _, score in pairs(scores) do score.points = score.kills; ranking[#ranking + 1] = score end
     table.sort(ranking, function(a, b)
         if a.points ~= b.points then return a.points > b.points end
         if a.kills ~= b.kills then return a.kills > b.kills end
@@ -718,13 +712,13 @@ GH:RegisterTab("PvP", function()
         end
     end
     local ranking = {}
-    for _, score in pairs(scores) do ranking[#ranking + 1] = score end
+    for _, score in pairs(scores) do score.points = score.kills; ranking[#ranking + 1] = score end
     table.sort(ranking, function(a, b)
         if a.points ~= b.points then return a.points > b.points end
         if a.kills ~= b.kills then return a.kills > b.kills end
         return a.name:lower() < b.name:lower()
     end)
-    local lines = { "PvP season: " .. GH:Display(season.name or "All-time"), "Points, kills, and deaths since season start", "" }
+    local lines = { "PvP season: " .. GH:Display(season.name or "All-time"), "Ranked by kills since season start", "" }
     for rank, score in ipairs(ranking) do
         lines[#lines + 1] = ("%d. %s — %d points · %d kills / %d deaths"):format(rank, GH:Display(score.name), score.points, score.kills, score.deaths)
     end

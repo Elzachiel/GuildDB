@@ -2,7 +2,7 @@
 ## Title: Guild Hall
 ## Notes: A modular guild hub with member profiles, a raid calendar, PvP, crafting, polls, and more.
 ## Author: Guild Hall Contributors
-## Version: 0.1.80
+## Version: 0.1.84
 ## SavedVariables: GuildHallDB
 
 Libs/LibStub/LibStub.lua
