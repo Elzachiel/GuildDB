@@ -589,21 +589,10 @@ local function build()
         showInputForm("Start a PvP season", {
             { label = "Season name", value = "Season " .. tostring(currentNumber + 1), max = 80 },
             { label = "End date DD-MM-YYYY (local, inclusive)", value = date("%d-%m-%Y", time() + 30 * 86400), max = 10 },
-            { label = "Season action (restart erases ALL PvP stats)", value = "Create next season", options = { "Create next season", "Restart Season 1 - erase all PvP stats" } },
+            { label = "Season action (all-time stats are kept)", value = "Create next season", options = { "Create next season", "Start fresh as Season 1" } },
         }, function(values)
-            local restart = values[3] == "Restart Season 1 - erase all PvP stats"
-            if restart then
-                showInputForm("Restart Season 1: erase all PvP stats?", {
-                    { label = "Type RESET to erase all-time stats and seasons", value = "", max = 5 },
-                }, function(confirm)
-                    if confirm[1] ~= "RESET" then return false, "Type RESET to confirm." end
-                    local ok, result = GH:StartPvPSeason("Season 1", values[2], true)
-                    if ok then frame.pvpSelectedStart = nil; frame.pvpAllTime = false end
-                    return ok, result
-                end, "Restart", true)
-                return true
-            end
-            local ok, result = GH:StartPvPSeason(values[1], values[2])
+            local restart = values[3] == "Start fresh as Season 1"
+            local ok, result = GH:StartPvPSeason(values[1], values[2], restart)
             if ok then frame.pvpSelectedStart = nil; frame.pvpAllTime = false end
             return ok, result
         end, "Create", true)

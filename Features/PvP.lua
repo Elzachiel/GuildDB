@@ -12,6 +12,9 @@ local honorCredits = {}
 local creditScheduled = false
 local lastTarget
 local captureVisiblePlayers
+local unmatchedCredit
+local retryGroupCredit
+local groupEvidence = {}
 
 -- Combat unit APIs may return protected values on this client. Never let a
 -- failed optional unit read prevent an honor reward from being processed.
@@ -99,6 +102,7 @@ local function applyReset(stamp, author)
     GH.bucket.pvpKills, GH.bucket.pvpDeaths, GH.bucket.pvpTotals, GH.bucket.pvpSeasons = {}, {}, {}, {}
     GH.bucket.pvpSeason = { name = "All-time", start = 0, ts = stamp, by = author }
     honorCredits, seenPlayers = {}, {}
+    unmatchedCredit, lastTarget, groupEvidence = nil, nil, {}
     if GuildHallDB then GuildHallDB.pvpHistory = {} end
     if GH.RefreshUI then GH:RefreshUI() end
 end
@@ -240,14 +244,16 @@ local function recordKill(victim, victimLevel, outdoors)
         GH:ShowPvPPopup(record.points, victim, level, totals and totals.points or record.points)
     end
     GH:StoreRecord("pvpKills", record, "P", encodeKill(record))
+    return true
 end
 
-GH:RegisterRecordHandler("P", function(id, ts, author, content)
+GH:RegisterRecordHandler("P", function(id, ts, author, content, sender)
     if ts <= resetTime() then return end
     local victim, level, points = content:match("^(.-)\n(%d+)\n(%d+)$")
     level, points = tonumber(level), tonumber(points)
     if not victim or victim == "" or #victim > 100 or not level or level > 100 or not points or points < 1 or points > 5 then return end
     GH:StoreRecord("pvpKills", { id = id, ts = ts, by = author, victim = victim, victimLevel = level, points = points })
+    if retryGroupCredit then retryGroupCredit(ts, author, sender, victim, level) end
 end)
 
 GH:RegisterRecordHandler("X", function(id, ts, author, content)
@@ -382,7 +388,7 @@ local function resolveCredits()
             candidate = lastTarget
         end
     end
-    if candidate then recordKill(candidate.name, candidate.level, true); return end
+    if candidate then unmatchedCredit = nil; recordKill(candidate.name, candidate.level, true); return end
     for _, seen in pairs(seenPlayers) do
         if seen.diedAt and GetTime() - seen.diedAt <= 12 then
             -- Without a named message, multiple recent deaths are ambiguous.
@@ -390,8 +396,38 @@ local function resolveCredits()
             candidate = seen
         end
     end
-    if candidate then recordKill(candidate.name, candidate.level, true)
-    else trackingNote("Kill credit received; enemy could not be identified") end
+    if not candidate and groupEvidence.expires and GetTime() <= groupEvidence.expires then
+        candidate = groupEvidence
+    end
+    if candidate then
+        recordKill(candidate.name, candidate.level, true)
+        unmatchedCredit = nil
+    else
+        unmatchedCredit = { expires = GetTime() + 12 }
+        trackingNote("Own kill credit received; waiting for enemy identification")
+    end
+end
+
+-- A live report from someone currently in our group supplies a victim name,
+-- never credit. Only consume it if this client already received its own reward.
+retryGroupCredit = function(stamp, author, sender, victim, level)
+    if not sender or normalizedName(sender) ~= normalizedName(author) then return end
+    if math.abs(time() - stamp) > 12 or not isOpenWorld() then return end
+    local grouped = false
+    for _, prefix in ipairs({ "party", "raid" }) do
+        local count = prefix == "party" and 4 or 40
+        for index = 1, count do
+            local name = unitValue(GetUnitName, prefix .. index)
+            if name and normalizedName(name) == normalizedName(sender) then grouped = true; break end
+        end
+        if grouped then break end
+    end
+    if not grouped then return end
+    groupEvidence = { name = victim, level = level, expires = GetTime() + 12 }
+    if unmatchedCredit and GetTime() <= unmatchedCredit.expires then
+        unmatchedCredit = nil
+        recordKill(victim, level, true)
+    end
 end
 
 local function queueCredit(victim)
@@ -479,6 +515,10 @@ captureVisiblePlayers = function()
     capturePlayer("target")
     capturePlayer("mouseover")
     capturePlayer("focus")
+    for index = 1, 4 do capturePlayer("party" .. index .. "target") end
+    if IsInRaid and IsInRaid() then
+        for index = 1, 40 do capturePlayer("raid" .. index .. "target") end
+    end
     if GetNumNameplates then
         for i = 1, GetNumNameplates() do capturePlayer("nameplate" .. i) end
     else
@@ -505,12 +545,15 @@ GH:RegisterEventHandler("PARTY_KILL", function(_, attacker, victim)
     local seen = seenPlayers[victim]
     if seen then seen.diedAt = GetTime() end
 end)
-GH:RegisterEventHandler("PLAYER_ENTERING_WORLD", function() seenPlayers = {}; lastTarget = nil end)
+GH:RegisterEventHandler("PLAYER_ENTERING_WORLD", function()
+    seenPlayers, groupEvidence = {}, {}
+    lastTarget, unmatchedCredit = nil, nil
+end)
 function GH:StartPvPSeason(name, endDate, restart)
     if not self:CanManagePvPSeason() then return false, "Only the guild master can start a PvP season." end
     name = (name or ""):gsub("^%s+", ""):gsub("%s+$", "")
     if name == "" or #name > 80 then return false, "Enter a season name (up to 80 characters)." end
-    local ts = time()
+    local ts = math.max(time(), resetTime() + 1, (self.bucket.pvpSeason.start or 0) + 1)
     local day, month, year = tostring(endDate or ""):match("^(%d%d)%-(%d%d)%-(%d%d%d%d)$")
     if not year then return false, "Enter an end date as DD-MM-YYYY (your local time)." end
     year, month, day = tonumber(year), tonumber(month), tonumber(day)
@@ -522,10 +565,7 @@ function GH:StartPvPSeason(name, endDate, restart)
     local ends = time({ year = year, month = month, day = day + 1, hour = 0, min = 0, sec = 0 })
     if ends <= ts then return false, "The end date must be today or later." end
     if restart then
-        local ok, result = self:WipePvPStats()
-        if not ok then return false, result end
         name = "Season 1"
-        ts = math.max(time(), resetTime() + 1)
     end
     if ends <= ts then return false, "Choose a later end date." end
     local player = playerName()
