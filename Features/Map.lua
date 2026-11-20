@@ -11,7 +11,8 @@ GH.mapReports = GH.mapReports or {}
 
 local function normalizeCharacterName(name)
     local shortName = tostring(name or ""):match("^([^-]+)") or tostring(name or "")
-    return shortName:lower():gsub("[%s%-]", "")
+    local firstName = shortName:match("^(%S+)") or shortName
+    return firstName:lower():gsub("[%s%-]", "")
 end
 
 local function unitLocation()

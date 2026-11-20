@@ -461,7 +461,7 @@ local function build()
         if GH.SetSetting then GH:SetSetting("onlineOnly", frame.rosterOnlineOnly) else GH:RefreshUI() end
     end)
     frame.rosterHeaders = {}
-    for _, column in ipairs({ { "NAME", "name", 10, 130 }, { "GUILD", "guild", 145, 38 }, { "LVL", "level", 185, 28 }, { "RANK", "rank", 218, 82 }, { "ZONE", "zone", 304, 120 }, { "ROLE", "role", 428, 58 }, { "HQ", "hq", 490, 55 } }) do
+    for _, column in ipairs({ { "NAME", "name", 10, 130 }, { "GUILD", "guild", 145, 38 }, { "LVL", "level", 185, 28 }, { "RANK", "rank", 218, 82 }, { "ZONE", "zone", 304, 120 }, { "ROLE", "role", 428, 58 }, { "GH", "hq", 490, 55 } }) do
         local header = CreateFrame("Button", nil, frame.listPanel)
         header:SetSize(column[4], 20)
         header:SetPoint("TOPLEFT", column[3], -44)
