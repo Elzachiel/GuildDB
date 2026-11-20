@@ -81,7 +81,6 @@ function GH:PostAnnouncement(title, text)
     local record = self:NewRecord({ title = title, text = text })
     self:StoreRecord("announcements", record)
     self:SendRecord("AN", record.id, record.ts, record.by, encodePost(title, text))
-    self:SendRecord("AP", record.id, record.ts, record.by, encodePost(title, text))
     self.shownAnnouncementPopups = self.shownAnnouncementPopups or {}
     self.shownAnnouncementPopups[record.id] = true
     popAnnouncement(record.by, title, text)
@@ -119,24 +118,18 @@ GH:RegisterRecordHandler("A", function(id, ts, author, content)
     if #content <= 600 then storePost(id, ts, author, "", content) end
 end)
 
-GH:RegisterRecordHandler("AN", function(id, ts, author, content)
+GH:RegisterRecordHandler("AN", function(id, ts, author, content, sender)
     local title, text = decodePost(content)
     storePost(id, ts, author, title, text)
-end)
-
-GH:RegisterRecordHandler("AP", function(id, ts, author, content, sender)
-    if #id > 100 or #author > 100 or #content > 721 then return end
-    GH.shownAnnouncementPopups = GH.shownAnnouncementPopups or {}
-    if GH.shownAnnouncementPopups[id] then return end
+    -- Live posts are sent by their author. History syncs are relayed by a
+    -- different guild member, so they update the announcement list without
+    -- replaying old popups.
     local senderName = tostring(sender or ""):match("^([^-]+)") or tostring(sender or "")
     local authorName = tostring(author or ""):match("^([^-]+)") or tostring(author or "")
-    -- The author's rank may not be present in the local guild roster yet (or
-    -- the roster may still be loading). The announcement is already sent on
-    -- the guild addon channel, so bind it to the actual sender and don't gate
-    -- the toast on local roster state.
-    if senderName:lower():gsub("[%s%-]", "") ~= authorName:lower():gsub("[%s%-]", "") then return end
-    local title, text = decodePost(content)
-    if #title > 120 or #text > 600 then return end
+    if senderName == "" or senderName:lower():gsub("[%s%-]", "") ~= authorName:lower():gsub("[%s%-]", "") then return end
+    if #id > 100 or #author > 100 or #title > 120 or #text > 600 then return end
+    GH.shownAnnouncementPopups = GH.shownAnnouncementPopups or {}
+    if GH.shownAnnouncementPopups[id] then return end
     GH.shownAnnouncementPopups[id] = true
     popAnnouncement(author, title, text)
 end)
