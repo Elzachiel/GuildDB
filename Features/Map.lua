@@ -5,6 +5,8 @@ local REPORT_TTL = 45
 local SEND_INTERVAL = 15
 local lastSent = 0
 local elapsedSincePrune = 0
+local lastLocalStatus = "Waiting for a map position"
+local lastLocalPosition
 GH.mapReports = GH.mapReports or {}
 
 local function unitLocation()
@@ -21,7 +23,8 @@ local function unitLocation()
     if position.GetXY then x, y = position:GetXY() else x, y = position.x, position.y end
     if not x or not y or x < 0 or x > 1 or y < 0 or y > 1 then return end
     local info = C_Map.GetMapInfo and C_Map.GetMapInfo(mapID)
-    return mapID, x, y, info and info.name or (GetZoneText and GetZoneText()) or "Unknown zone"
+    local zone = info and info.name or (GetZoneText and GetZoneText()) or "Unknown zone"
+    return mapID, x, y, zone
 end
 
 local function refreshMapPins()
@@ -53,7 +56,12 @@ end)
 local function sendLocation()
     if not GH.bucket or not GH:GetSetting("shareMapLocation") then return end
     local mapID, x, y, zone = unitLocation()
-    if not mapID then return end
+    if not mapID then
+        lastLocalStatus = IsInInstance and IsInInstance() and "Location sharing pauses in instances" or "The client did not return a map position"
+        return
+    end
+    lastLocalStatus = "Position available"
+    lastLocalPosition = { mapID = mapID, x = x, y = y, zone = zone }
     local author = UnitName and UnitName("player") or ""
     if author == "" then return end
     local payload = table.concat({
@@ -62,6 +70,7 @@ local function sendLocation()
     }, "|")
     GH:Enqueue(payload)
     lastSent = GetTime and GetTime() or 0
+    if GH.activeTab == "Map" and GH.RefreshUI then GH:RefreshUI() end
 end
 
 function GH:MapUpdate(now, elapsed)
@@ -127,8 +136,26 @@ end)
 local function mapTabText()
     if not GH.guildName then return "Join a guild to share and view member locations." end
     local reports = GH:GetMapReports()
+    local sharing = GH:GetSetting("shareMapLocation") and "On" or "Off"
+    local positionText = lastLocalPosition
+        and ("%s (%.1f, %.1f)"):format(lastLocalPosition.zone, lastLocalPosition.x * 100, lastLocalPosition.y * 100)
+        or lastLocalStatus
+    local lastSend = GH.lastAddonSendByKind and GH.lastAddonSendByKind.ML
+    local sendText = "No outbound addon message recorded yet"
+    if lastSend then
+        local age = math.max(0, math.floor((GetTime and GetTime() or 0) - (lastSend.at or 0)))
+        sendText = ("Last %s message: %s, result %s, %ds ago"):format(
+            tostring(lastSend.kind), lastSend.succeeded and "accepted" or "failed",
+            tostring(lastSend.error or lastSend.result or "unknown"), age)
+    end
     if #reports == 0 then
-        return "Guild member map\n\nNo fresh location reports. Members can opt in under Settings > Share my location.\n\nReports expire after 45 seconds and stop in instances."
+        return table.concat({
+            "Guild member map", "",
+            "No fresh reports from other GuildHall users.",
+            "Your sharing: " .. sharing .. "  ·  Your position: " .. positionText,
+            sendText,
+            "Reports expire after 45 seconds and pause in instances.",
+        }, "\n\n")
     end
     local lines = { "Guild member locations (reports expire after 45 seconds):", "" }
     for _, report in ipairs(reports) do
@@ -137,6 +164,8 @@ local function mapTabText()
             report.name, report.zone, report.x * 100, report.y * 100, age)
     end
     lines[#lines + 1] = ""
+    lines[#lines + 1] = "Your sharing: " .. sharing .. "  ·  Your position: " .. positionText
+    lines[#lines + 1] = sendText
     lines[#lines + 1] = "Set a navigation waypoint: /gh map waypoint CharacterName"
     return table.concat(lines, "\n")
 end

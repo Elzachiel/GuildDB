@@ -165,6 +165,17 @@ local function sendRaw(message)
     end
     if not send then return false end
     local ok, result = pcall(send, GH.prefix, message, "GUILD")
+    local body = message:match("^C|[^|]+|%d+|%d+|(.*)$") or message
+    GH.lastAddonSend = {
+        kind = body:match("^([^|]+)|") or body,
+        result = result,
+        succeeded = ok and (result == nil or result == true or result == 0),
+        at = GetTime and GetTime() or 0,
+        error = not ok and tostring(result) or nil,
+    }
+    GH.lastAddonSendByKind = GH.lastAddonSendByKind or {}
+    GH.lastAddonSendByKind[GH.lastAddonSend.kind] = GH.lastAddonSend
+    if GH.lastAddonSend.kind == "ML" and GH.activeTab == "Map" and GH.RefreshUI then GH:RefreshUI() end
     return ok and (result == nil or result == true or result == 0)
 end
 
