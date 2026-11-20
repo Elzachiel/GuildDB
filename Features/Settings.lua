@@ -152,6 +152,7 @@ end
 
 local function makeButton(parent, text, width, x, y, callback, list)
     local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    if GH.StyleButton then GH:StyleButton(button, text == "Re-sync now" and "primary" or nil) end
     button:SetSize(width, 26)
     button:SetPoint("TOPLEFT", x, y)
     button:SetText(text)

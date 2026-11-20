@@ -192,6 +192,9 @@ function GH:SetProfile(firstName, lastName, role, spec, timezone, alts, professi
     local player = currentRosterName()
     local playerBase = baseName(player)
     firstName, lastName = characterNameParts(player)
+    local detectedRace = UnitRace and UnitRace("player") or nil
+    if type(detectedRace) == "table" then detectedRace = detectedRace[1] end
+    race = (type(detectedRace) == "string" and detectedRace ~= "" and detectedRace) or race
     local detectedProfessions = self:GetPlayerProfessions()
     if detectedProfessions ~= nil and detectedProfessions ~= "" then professions = detectedProfessions end
     local profile = {

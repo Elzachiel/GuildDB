@@ -22,6 +22,47 @@ local function setTextColor(font, color)
     font:SetTextColor(color[1], color[2], color[3])
 end
 
+function GH:StyleButton(button, variant)
+    if not button then return end
+    local primary = variant == "primary"
+    local normalColor = primary and { 0.10, 0.32, 0.50 } or { 0.075, 0.09, 0.12 }
+    local pressedColor = primary and { 0.07, 0.23, 0.37 } or { 0.045, 0.06, 0.085 }
+    local borderColor = primary and { 0.20, 0.55, 0.84 } or { 0.16, 0.25, 0.34 }
+
+    button:SetNormalTexture("Interface/Buttons/WHITE8X8")
+    button:SetPushedTexture("Interface/Buttons/WHITE8X8")
+    button:SetHighlightTexture("Interface/Buttons/WHITE8X8")
+    button:SetDisabledTexture("Interface/Buttons/WHITE8X8")
+    local normal = button:GetNormalTexture()
+    local pushed = button:GetPushedTexture()
+    local highlight = button:GetHighlightTexture()
+    local disabled = button:GetDisabledTexture()
+    if normal then normal:SetAllPoints(button); normal:SetVertexColor(normalColor[1], normalColor[2], normalColor[3], 1) end
+    if pushed then pushed:SetAllPoints(button); pushed:SetVertexColor(pressedColor[1], pressedColor[2], pressedColor[3], 1) end
+    if highlight then highlight:SetAllPoints(button); highlight:SetVertexColor(0.22, 0.52, 0.78, 0.20) end
+    if disabled then disabled:SetAllPoints(button); disabled:SetVertexColor(0.08, 0.09, 0.11, 0.65) end
+
+    if not button.guildHallBorder then
+        local edges = {}
+        for index = 1, 4 do
+            edges[index] = button:CreateTexture(nil, "OVERLAY")
+            edges[index]:SetColorTexture(borderColor[1], borderColor[2], borderColor[3], 1)
+        end
+        edges[1]:SetPoint("TOPLEFT"); edges[1]:SetPoint("TOPRIGHT"); edges[1]:SetHeight(1)
+        edges[2]:SetPoint("BOTTOMLEFT"); edges[2]:SetPoint("BOTTOMRIGHT"); edges[2]:SetHeight(1)
+        edges[3]:SetPoint("TOPLEFT"); edges[3]:SetPoint("BOTTOMLEFT"); edges[3]:SetWidth(1)
+        edges[4]:SetPoint("TOPRIGHT"); edges[4]:SetPoint("BOTTOMRIGHT"); edges[4]:SetWidth(1)
+        button.guildHallBorder = edges
+    else
+        for _, edge in ipairs(button.guildHallBorder) do edge:SetColorTexture(borderColor[1], borderColor[2], borderColor[3], 1) end
+    end
+    local text = button:GetFontString()
+    if text then
+        text:SetFontObject("GameFontNormalSmall")
+        text:SetTextColor(primary and 0.92 or CREAM[1], primary and 0.97 or CREAM[2], primary and 1 or CREAM[3])
+    end
+end
+
 local function guildAbbreviation(name)
     local words = {}
     for word in tostring(name or "Guild"):gmatch("%S+") do words[#words + 1] = word end
@@ -77,6 +118,7 @@ local function showInputForm(title, fields, onAccept)
         local input
         if field.options then
             input = CreateFrame("Button", nil, dialog, "UIPanelButtonTemplate")
+            GH:StyleButton(input)
             input:SetSize(370, 24)
             input:SetPoint("TOPLEFT", 20, -offset - 16)
             input.selectedValue = field.value or field.options[1]
@@ -100,6 +142,7 @@ local function showInputForm(title, fields, onAccept)
             for optionIndex, option in ipairs(field.options) do
                 local chosenOption = option
                 local optionButton = CreateFrame("Button", nil, popup, "UIPanelButtonTemplate")
+                GH:StyleButton(optionButton)
                 optionButton:SetSize(356, 22)
                 optionButton:SetPoint("TOPLEFT", 5, -4 - (optionIndex - 1) * 24)
                 optionButton:SetText(chosenOption)
@@ -144,11 +187,13 @@ local function showInputForm(title, fields, onAccept)
     close:SetPoint("TOPRIGHT", -2, -2)
     close:SetScript("OnClick", function() dialog:Hide() end)
     local cancel = CreateFrame("Button", nil, dialog, "UIPanelButtonTemplate")
+    GH:StyleButton(cancel)
     cancel:SetSize(92, 26)
     cancel:SetPoint("BOTTOMRIGHT", -120, 14)
     cancel:SetText("Cancel")
     cancel:SetScript("OnClick", function() dialog:Hide() end)
     local accept = CreateFrame("Button", nil, dialog, "UIPanelButtonTemplate")
+    GH:StyleButton(accept, "primary")
     accept:SetSize(92, 26)
     accept:SetPoint("LEFT", cancel, "RIGHT", 8, 0)
     accept:SetText("Save")
@@ -184,7 +229,7 @@ local function openProfileEditor()
         { label = "Spec / playstyle", value = profile.spec or "", max = 80 },
         { label = "Time zone", value = timezoneValue, options = { "Eastern Time (ET)", "Central Time (CT)", "Mountain Time (MT)", "Pacific Time (PT)", "Alaska Time (AKT)", "Hawaii Time (HT)", "UTC", "UK Time (GMT/BST)", "Central European Time (CET/CEST)", "Eastern European Time (EET/EEST)", "India Standard Time (IST)", "Japan Standard Time (JST)", "Australian Eastern Time (AET)", "New Zealand Time (NZT)" } },
         { label = "Alts", value = profile.alts or "", max = 200 },
-        { label = "Race", value = profile.race or playerRace or "", max = 60 },
+        { label = "Race", value = playerRace or profile.race or "", max = 60, readOnly = true },
         { label = "Professions", value = profile.professions or "Detected automatically from your Skills tab", max = 250, readOnly = true },
     }, function(values)
         return GH:SetProfile(values[1], values[2], values[3], values[4], values[5], values[6], profile.professions, values[7])
@@ -257,6 +302,7 @@ local function build()
     frame.close:SetPoint("RIGHT", -4, 0)
     frame.close:SetScript("OnClick", function() frame:Hide() end)
     frame.sync = CreateFrame("Button", nil, frame.header, "UIPanelButtonTemplate")
+    GH:StyleButton(frame.sync, "primary")
     frame.sync:SetSize(104, 24)
     frame.sync:SetPoint("RIGHT", frame.close, "LEFT", -8, 0)
     frame.sync:SetText("Sync guild")
@@ -444,6 +490,7 @@ local function build()
     frame.pvpEmpty:SetPoint("TOPLEFT", 12, -14)
     frame.pvpEmpty:SetTextColor(CREAM[1], CREAM[2], CREAM[3])
     frame.pvpMyButton = CreateFrame("Button", nil, frame.detailPanel, "UIPanelButtonTemplate")
+    GH:StyleButton(frame.pvpMyButton)
     frame.pvpMyButton:SetSize(98, 26)
     frame.pvpMyButton:SetPoint("TOPRIGHT", -282, -12)
     frame.pvpMyButton:SetScript("OnClick", function()
@@ -451,6 +498,7 @@ local function build()
         GH:RefreshUI()
     end)
     frame.pvpSeasonButton = CreateFrame("Button", nil, frame.detailPanel, "UIPanelButtonTemplate")
+    GH:StyleButton(frame.pvpSeasonButton, "primary")
     frame.pvpSeasonButton:SetSize(112, 26)
     frame.pvpSeasonButton:SetPoint("LEFT", frame.pvpMyButton, "RIGHT", 8, 0)
     frame.pvpSeasonButton:SetText("New season")
@@ -463,6 +511,7 @@ local function build()
         }, function(values) return GH:StartPvPSeason(values[1]) end)
     end)
     frame.pvpScopeButton = CreateFrame("Button", nil, frame.detailPanel, "UIPanelButtonTemplate")
+    GH:StyleButton(frame.pvpScopeButton)
     frame.pvpScopeButton:SetSize(116, 26)
     frame.pvpScopeButton:SetPoint("LEFT", frame.pvpSeasonButton, "RIGHT", 8, 0)
     frame.pvpScopeButton:SetScript("OnClick", function()
@@ -470,6 +519,7 @@ local function build()
         GH:RefreshUI()
     end)
     frame.eventCreateButton = CreateFrame("Button", nil, frame.detailPanel, "UIPanelButtonTemplate")
+    GH:StyleButton(frame.eventCreateButton, "primary")
     frame.eventCreateButton:SetSize(112, 26)
     frame.eventCreateButton:SetPoint("TOPRIGHT", -18, -12)
     frame.eventCreateButton:SetText("New event")
@@ -486,6 +536,7 @@ local function build()
         end)
     end)
     frame.eventCreateTypeButton = CreateFrame("Button", nil, frame.detailPanel, "UIPanelButtonTemplate")
+    GH:StyleButton(frame.eventCreateTypeButton)
     frame.eventCreateTypeButton:SetSize(82, 26)
     frame.eventCreateTypeButton:SetPoint("RIGHT", frame.eventCreateButton, "LEFT", -8, 0)
     frame.eventCreateTypeButton:SetText("Event")
@@ -496,6 +547,7 @@ local function build()
     -- Parent the primary action to the main window rather than the detail panel.
     -- The detail scroll frame can otherwise sit above this button in older clients.
     frame.contentActionButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    GH:StyleButton(frame.contentActionButton, "primary")
     frame.contentActionButton:SetSize(130, 26)
     frame.contentActionButton:RegisterForClicks("LeftButtonUp")
     frame.contentActionButton:SetFrameStrata("DIALOG")
@@ -550,6 +602,7 @@ local function build()
     frame.actionLayer:EnableMouse(false)
     frame.actionLayer:SetFrameLevel(frame:GetFrameLevel() + 30)
     frame.profileEditButton = CreateFrame("Button", nil, frame.actionLayer, "UIPanelButtonTemplate")
+    GH:StyleButton(frame.profileEditButton, "primary")
     frame.profileEditButton:SetSize(242, 28)
     frame.profileEditButton:SetPoint("BOTTOMLEFT", frame.detailPanel, "BOTTOMLEFT", 14, 12)
     frame.profileEditButton:SetFrameStrata("DIALOG")
@@ -565,6 +618,7 @@ local function build()
         end
     end)
     frame.rosterInviteButton = CreateFrame("Button", nil, frame.actionLayer, "UIPanelButtonTemplate")
+    GH:StyleButton(frame.rosterInviteButton)
     frame.rosterInviteButton:SetSize(242, 28)
     frame.rosterInviteButton:SetPoint("BOTTOMLEFT", frame.profileEditButton, "TOPLEFT", 0, 8)
     frame.rosterInviteButton:SetFrameLevel(frame.actionLayer:GetFrameLevel() + 1)
@@ -593,6 +647,7 @@ local function build()
         if not ok then print("Guild Hall: Could not invite " .. GH:Display(name) .. ": " .. tostring(err)) end
     end)
     frame.craftSearchButton = CreateFrame("Button", nil, frame.detailPanel, "UIPanelButtonTemplate")
+    GH:StyleButton(frame.craftSearchButton, "primary")
     frame.craftSearchButton:SetSize(112, 26)
     frame.craftSearchButton:SetPoint("RIGHT", frame.contentActionButton, "LEFT", -8, 0)
     frame.craftSearchButton:SetText("Find crafter")
@@ -1131,6 +1186,7 @@ function GH:RefreshUI()
                 row.rsvpButtons = {}
                 for buttonIndex, state in ipairs({ { "Going", "going" }, { "Maybe", "tentative" }, { "Absent", "absent" } }) do
                     local button = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+                    GH:StyleButton(button, "primary")
                     button:SetSize(72, 22)
                     button:SetPoint("BOTTOMRIGHT", -8 - (3 - buttonIndex) * 78, 9)
                     button:SetText(state[1])
@@ -1204,6 +1260,7 @@ function GH:RefreshUI()
                 local button = row.buttons[buttonIndex]
                 if not button then
                     button = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+                    GH:StyleButton(button, "primary")
                     button:SetSize(76, 22)
                     row.buttons[buttonIndex] = button
                 end
