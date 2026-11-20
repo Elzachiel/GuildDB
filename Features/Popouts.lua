@@ -285,6 +285,21 @@ GH:RegisterEventHandler("PLAYER_LOGIN", scanProfessionMilestones)
 GH:RegisterEventHandler("SKILL_LINES_CHANGED", scanProfessionMilestones)
 GH:RegisterEventHandler("TRADE_SKILL_UPDATE", scanProfessionMilestones)
 
+local function showPopupTest(id, author)
+    GH.popupTestIds = GH.popupTestIds or {}
+    if GH.popupTestIds[id] then return end
+    GH.popupTestIds[id] = true
+    GH:ShowPopout("Guild-wide test", "Popup test", "Guild Hall popup test from " .. author .. ".", "Interface/Icons/INV_Letter_15")
+end
+
+GH:RegisterRecordHandler("PT", function(id, ts, author, content, sender)
+    if #id > 100 or #author > 100 or #content > 100 then return end
+    local senderName = tostring(sender or ""):match("^([^-]+)") or tostring(sender or "")
+    local authorName = tostring(author or ""):match("^([^-]+)") or tostring(author or "")
+    if senderName:lower():gsub("[%s%-]", "") ~= authorName:lower():gsub("[%s%-]", "") then return end
+    showPopupTest(id, author)
+end)
+
 GH:RegisterCommand("popout", function(rest)
     local action, milestone = (rest or ""):lower():match("^(%S+)%s*(.-)$")
     -- Accept the previous `test <kind>` form too, while making each preview
@@ -309,6 +324,20 @@ GH:RegisterCommand("popout", function(rest)
         return
     end
 
+    if selected == "guild" or selected == "all" then
+        if not GH:CanManage() then
+            print("Guild Hall: Only the guild leader or rank 1 can broadcast a popup test.")
+            return
+        end
+        GH.popupTestIds = GH.popupTestIds or {}
+        local id = tostring(time()) .. "-popup-test-" .. tostring(math.random(100000, 999999))
+        GH.popupTestIds[id] = true
+        GH:SendRecord("PT", id, time(), player, player)
+        GH:ShowPopout("Guild-wide test", "Popup test", "Guild Hall popup test from " .. player .. ".", "Interface/Icons/INV_Letter_15")
+        print("Guild Hall: Popup test sent to online Guild Hall users.")
+        return
+    end
+
     local level = tonumber(selected:match("^level(%d+)$"))
     if level and (level == 10 or level == 20 or level == 30 or level == 40 or level == 50 or level == 60) then
         GH:ShowPopout("Level milestone", "Level " .. level .. " reached!", player .. " reached level " .. level .. ".", "Interface/Icons/Achievement_Level_" .. level)
@@ -321,5 +350,5 @@ GH:RegisterCommand("popout", function(rest)
         return
     end
 
-    print("Guild Hall: use /gh popout pvp, /gh popout level10/20/30/40/50/60, or /gh popout profession150/225/300.")
+    print("Guild Hall: use /gh popout guild, /gh popout pvp, /gh popout level10/20/30/40/50/60, or /gh popout profession150/225/300.")
 end)
