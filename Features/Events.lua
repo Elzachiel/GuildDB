@@ -24,6 +24,7 @@ local function encodeEvent(record)
         settings.locked and "1" or "0",
         settings.inviteMode or "none",
         settings.inviteNames or "",
+        tostring(settings.raidSize or 40),
     }, "\n")
     return table.concat({ record.at, record.title, details .. EVENT_SETTINGS_MARKER .. metadata }, "\n")
 end
@@ -79,12 +80,14 @@ local function storeEvent(id, ts, author, content, eventType, sender)
     local details, metadata = remainder:match("^(.*)\n\n%[GuildHall calendar settings%]\n(.*)$")
     local settings = {}
     if metadata then
-        local category, locked, inviteMode, inviteNames = metadata:match("^(.-)\n(.-)\n(.-)\n(.*)$")
+        local category, locked, inviteMode, inviteNames, raidSize = metadata:match("^(.-)\n(.-)\n(.-)\n(.-)\n(%d+)$")
+        if not category then category, locked, inviteMode, inviteNames = metadata:match("^(.-)\n(.-)\n(.-)\n(.*)$") end
         if category then
             settings.category = CALENDAR_TYPES[category] and category or (eventType == "raid" and "Raid" or "Other")
             settings.locked = locked == "1"
             settings.inviteMode = (inviteMode == "selected" or inviteMode == "guild") and inviteMode or "none"
             settings.inviteNames = (inviteNames or ""):sub(1, 200)
+            settings.raidSize = math.max(1, math.min(40, tonumber(raidSize) or 40))
         end
     else
         details = remainder
@@ -94,7 +97,7 @@ local function storeEvent(id, ts, author, content, eventType, sender)
     if current and (current.ts or 0) >= ts then return end
     local isNew = current == nil
     local event = { id = id, ts = ts, by = author, at = at, title = title, details = details,
-        eventType = eventType, calendarSettings = settings, rsvps = current and current.rsvps or {} }
+        eventType = eventType, calendarSettings = settings, rsvps = current and current.rsvps or {}, selections = current and current.selections or {}, signupDeletes = current and current.signupDeletes or {} }
     if current then GH.bucket.events[index] = event else table.insert(GH.bucket.events, 1, event) end
     if GH.RefreshUI then GH:RefreshUI() end
     if isNew and sender and samePlayerName(sender, author) then showEventPopout(event) end
@@ -110,6 +113,7 @@ local function normalizeCalendarSettings(settings, eventType)
         locked = settings.locked == true,
         inviteMode = inviteMode,
         inviteNames = tostring(settings.inviteNames or ""):gsub("[\r\n]", ","):sub(1, 200),
+        raidSize = math.max(1, math.min(40, math.floor(tonumber(settings.raidSize) or 40))),
     }
 end
 
@@ -192,7 +196,7 @@ function GH:PostEvent(at, title, details, eventType, calendarSettings)
     local kind = eventType == "raid" and "D" or "E"
     self:StoreRecord("events", record, kind, encodeEvent(record))
     showEventPopout(record)
-    return true, (eventType == "raid" and "Raid" or "Event") .. " saved and sent to online Guild Hall users."
+    return true, (eventType == "raid" and "Raid" or "Event") .. " saved and sent to online Guild Hall users.", record.id
 end
 
 local function onEventRecord(kind, id, ts, author, content, sender)
@@ -223,7 +227,7 @@ function GH:EditEvent(eventId, at, title, details, calendarSettings)
     local updated = { id = event.id, ts = math.max(time(), (event.ts or 0) + 1), by = player,
         at = at, title = title:sub(1, 100), details = (details or ""):sub(1, 300),
         eventType = settings.category == "Raid" and "raid" or "event",
-        calendarSettings = settings, rsvps = event.rsvps or {} }
+        calendarSettings = settings, rsvps = event.rsvps or {}, selections = event.selections or {}, signupDeletes = event.signupDeletes or {} }
     local _, index = findEvent(eventId)
     self.bucket.events[index] = updated
     self:SendRecord(updated.eventType == "raid" and "D" or "E", updated.id, updated.ts, updated.by, encodeEvent(updated))
@@ -262,14 +266,21 @@ function GH:DeleteEvent(eventId)
 end
 
 GH:RegisterRecordHandler("R", function(id, ts, author, content)
-    local status = content:lower()
+    local status, role, spec, note = content:match("^(.-)\n(.-)\n(.-)\n(.*)$")
+    if not status then status, role, note = content:match("^(.-)\n(.-)\n(.*)$") end
+    status = (status or content):lower()
+    if role and role ~= "Tank" and role ~= "Healer" and role ~= "DPS" then return end
+    if note and #note > 100 then return end
+    if spec and #spec > 60 then return end
     if status ~= "going" and status ~= "tentative" and status ~= "absent" then return end
     for _, event in ipairs(GH.bucket.events or {}) do
         if event.id == id then
             event.rsvps = event.rsvps or {}
             local previous = event.rsvps[author]
-            if previous and type(previous) == "table" and previous.ts > ts then return end
-            event.rsvps[author] = { status = status, ts = ts }
+            local deleted = event.signupDeletes and event.signupDeletes[author]
+            if deleted and deleted.ts >= ts then return end
+            if previous and type(previous) == "table" and previous.ts >= ts then return end
+            event.rsvps[author] = { status = status, ts = ts, role = role, spec = spec, note = note }
             if GH.RefreshUI then GH:RefreshUI() end
             return
         end
@@ -279,7 +290,118 @@ end)
 local function sendRSVP(eventId, player, response)
     local status = type(response) == "table" and response.status or response
     local ts = type(response) == "table" and response.ts or time()
-    GH:SendRecord("R", eventId, ts, player, status)
+    local content = status
+    if type(response) == "table" and response.role then
+        content = table.concat({ status, response.role, response.spec or "", response.note or "" }, "\n")
+    end
+    GH:SendRecord("R", eventId, ts, player, content)
+end
+
+function GH:IsRaidGM(name)
+    local wanted = name or self:PlayerName()
+    for index = 1, (GetNumGuildMembers and GetNumGuildMembers() or 0) do
+        local member, _, rank = GetGuildRosterInfo(index)
+        if samePlayerName(member, wanted) then return rank == 0 end
+    end
+    return false
+end
+
+-- Class comes from the live guild roster, including offline members.
+function GH:GetRaidPlayerClass(name)
+    if samePlayerName(name, self:PlayerName()) and UnitClass then
+        local label, token = UnitClass("player")
+        if token then return label, token end
+    end
+    for index = 1, (GetNumGuildMembers and GetNumGuildMembers() or 0) do
+        local member, _, _, _, label, _, _, _, _, _, token = GetGuildRosterInfo(index)
+        if samePlayerName(member, name) then return label, token end
+    end
+    return "Unknown", nil
+end
+
+function GH:GetRaidSignupSummary(event)
+    local summary = { going = 0, tentative = 0, absent = 0, Tank = 0, Healer = 0, DPS = 0, unassigned = 0, selected = 0 }
+    for name, response in pairs(event.rsvps or {}) do
+        local status = type(response) == "table" and response.status or response
+        if summary[status] ~= nil then summary[status] = summary[status] + 1 end
+        if status == "going" then
+            local role = type(response) == "table" and response.role
+            if role == "Tank" or role == "Healer" or role == "DPS" then summary[role] = summary[role] + 1
+            else summary.unassigned = summary.unassigned + 1 end
+        end
+        local selection = event.selections and event.selections[name]
+        if status == "going" and selection and selection.selected then summary.selected = summary.selected + 1 end
+    end
+    return summary
+end
+
+local function removeSignup(event, player, ts, author)
+    event.signupDeletes = event.signupDeletes or {}
+    local prior = event.signupDeletes[player]
+    local response = event.rsvps and event.rsvps[player]
+    if prior and prior.ts >= ts then return false end
+    if type(response) == "table" and (response.ts or 0) >= ts then return false end
+    event.signupDeletes[player] = { ts = ts, by = author }
+    if event.rsvps then event.rsvps[player] = nil end
+    if event.selections then event.selections[player] = nil end
+    return true
+end
+
+GH:RegisterRecordHandler("RX", function(id, ts, author, player)
+    if #player > 100 or player == "" then return end
+    if not samePlayerName(player, author) and not GH:IsRaidGM(author) then return end
+    local event = findEvent(id)
+    if event and removeSignup(event, player, ts, author) and GH.RefreshUI then GH:RefreshUI() end
+end)
+
+function GH:RemoveRaidSignup(eventId, player)
+    local event = self.bucket and findEvent(eventId)
+    if not event then return false, "That raid is no longer available." end
+    player = player or self:PlayerName()
+    local author = self:PlayerName()
+    if not samePlayerName(player, author) and not self:IsRaidGM() then return false, "Only the GM can remove another player's signup." end
+    local response = event.rsvps and event.rsvps[player]
+    if not response then return false, "That player is not signed up." end
+    local prior = event.signupDeletes and event.signupDeletes[player]
+    local selection = event.selections and event.selections[player]
+    local ts = math.max(time(), type(response) == "table" and (response.ts or 0) + 1 or 0, prior and prior.ts + 1 or 0, selection and selection.ts + 1 or 0)
+    removeSignup(event, player, ts, author)
+    self:SendRecord("RX", eventId, ts, author, player)
+    if samePlayerName(player, author) and syncGameCalendarRSVP then syncGameCalendarRSVP(event, "absent") end
+    if self.RefreshUI then self:RefreshUI() end
+    return true, "Signup removed for " .. player .. "."
+end
+
+GH:RegisterRecordHandler("RI", function(id, ts, author, content)
+    if not GH:IsRaidGM(author) then return end
+    local player, selected = content:match("^([^\n]+)\n([01])$")
+    if not player or #player > 100 then return end
+    local event = findEvent(id)
+    if not event then return end
+    local deleted = event.signupDeletes and event.signupDeletes[player]
+    if deleted and deleted.ts >= ts then return end
+    event.selections = event.selections or {}
+    local prior = event.selections[player]
+    if prior and prior.ts >= ts then return end
+    event.selections[player] = { selected = selected == "1", ts = ts, by = author }
+    if GH.RefreshUI then GH:RefreshUI() end
+end)
+
+function GH:SetRaidSelection(eventId, player, selected)
+    if not self:IsRaidGM() then return false, "Only the GM can select the invite roster." end
+    local event = findEvent(eventId)
+    if not event or not event.rsvps or not event.rsvps[player] then return false, "That signup is no longer available." end
+    event.selections = event.selections or {}
+    local prior = event.selections[player]
+    local ts = math.max(time(), prior and prior.ts + 1 or 0)
+    local response = event.rsvps[player]
+    if selected and (type(response) == "table" and response.status or response) ~= "going" then return false, "Only attending players can be selected for invites." end
+    local deleted = event.signupDeletes and event.signupDeletes[player]
+    ts = math.max(ts, deleted and deleted.ts + 1 or 0)
+    event.selections[player] = { selected = selected == true, ts = ts, by = self:PlayerName() }
+    self:SendRecord("RI", eventId, ts, self:PlayerName(), player .. "\n" .. (selected and "1" or "0"))
+    if self.RefreshUI then self:RefreshUI() end
+    return true, "Invite roster updated."
 end
 
 GH:RegisterHistoryProvider(function()
@@ -287,7 +409,13 @@ GH:RegisterHistoryProvider(function()
     for i = math.min(#events, 12), 1, -1 do
         local event = events[i]
         GH:SendRecord(event.eventType == "raid" and "D" or "E", event.id, event.ts, event.by, encodeEvent(event))
+        for player, removal in pairs(event.signupDeletes or {}) do
+            GH:SendRecord("RX", event.id, removal.ts, removal.by, player)
+        end
         for player, response in pairs(event.rsvps or {}) do sendRSVP(event.id, player, response) end
+        for player, selection in pairs(event.selections or {}) do
+            GH:SendRecord("RI", event.id, selection.ts, selection.by, player .. "\n" .. (selection.selected and "1" or "0"))
+        end
     end
     for id, info in pairs(GH.bucket.eventDeletes or {}) do
         local ts = type(info) == "table" and info.ts or tonumber(info)
@@ -315,7 +443,7 @@ function GH:ParseEventTimeFields(dateText, timeText)
     return parseEventTime(tostring(dateText or "") .. " " .. tostring(timeText or ""))
 end
 
-function GH:SetRSVPForEvent(eventId, status)
+function GH:SetRSVPForEvent(eventId, status, role, note, spec)
     if not self.bucket then return false, "Join a guild first." end
     status = tostring(status or ""):lower()
     if status ~= "going" and status ~= "tentative" and status ~= "absent" then return false, "Choose going, tentative, or absent." end
@@ -324,10 +452,17 @@ function GH:SetRSVPForEvent(eventId, status)
         if candidate.id == eventId then event = candidate; break end
     end
     if not event then return false, "That event is no longer upcoming." end
-    if event.calendarSettings and event.calendarSettings.locked then return false, "Sign-ups are locked for this event." end
+    if event.calendarSettings and event.calendarSettings.locked and not (event.rsvps and event.rsvps[self:PlayerName()]) then return false, "Sign-ups are locked for this event." end
     event.rsvps = event.rsvps or {}
-    local player, ts = UnitName and UnitName("player") or "Guild member", time()
-    event.rsvps[player] = { status = status, ts = ts }
+    local player, ts = self:PlayerName(), time()
+    local previous = event.rsvps[player]
+    role = role or (type(previous) == "table" and previous.role) or "DPS"
+    if role ~= "Tank" and role ~= "Healer" and role ~= "DPS" then return false, "Choose Tank, Healer, or DPS." end
+    note = tostring(note or (type(previous) == "table" and previous.note) or ""):gsub("[\r\n]", " "):sub(1, 100)
+    local deleted = event.signupDeletes and event.signupDeletes[player]
+    ts = math.max(ts, type(previous) == "table" and (previous.ts or 0) + 1 or 0, deleted and deleted.ts + 1 or 0)
+    spec = tostring(spec or (type(previous) == "table" and previous.spec) or ""):gsub("[\r\n]", " "):sub(1, 60)
+    event.rsvps[player] = { status = status, ts = ts, role = role, spec = spec, note = note }
     sendRSVP(event.id, player, event.rsvps[player])
     local calendarSynced = syncGameCalendarRSVP and syncGameCalendarRSVP(event, status)
     if self.RefreshUI then self:RefreshUI() end
@@ -353,7 +488,7 @@ function GH:AddEventToGameCalendar(eventId)
     end
     if not event then return false, "That Guild Hall event could not be found." end
 
-    local playerName = UnitName and UnitName("player") or ""
+    local playerName = self:PlayerName()
     local eventOwner = tostring(event.by or ""):match("^([^-]+)") or tostring(event.by or "")
     playerName = tostring(playerName):match("^([^-]+)") or tostring(playerName)
     if playerName:lower() ~= eventOwner:lower() then

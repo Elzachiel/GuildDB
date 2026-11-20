@@ -8,7 +8,7 @@ Guild Hall is a World of Warcraft guild addon for a shared roster, member profil
 - Opt-in guild member location sharing with fresh reports, World Map pins, and waypoint navigation.
 - Member profiles for role, specialization, time zone, alts, and listed professions or recipes.
 - Officer announcements and a guild guide for rules and loot rules.
-- Raid and event calendar with Going, Tentative, and Absent RSVPs.
+- Raid creation and signup area with raid size targets, player specs, Tank/Healer/DPS roles, attendance, and signup notes. The GM can check players for the invite roster; selections are shared with the guild.
 - PvP leaderboard with outdoor kills, deaths, seasons, and a Most Wanted list.
 - Looking For group board; posts expire after three hours.
 - Crafting request board; requests expire after seven days and can be claimed by crafters.
@@ -19,6 +19,12 @@ Guild Hall is a World of Warcraft guild addon for a shared roster, member profil
 Officers (guild leader and rank 1) can create announcements, schedule raids and events, edit the guide, create or close polls, and start PvP seasons. Any guild member can edit their own profile, RSVP, vote, make or claim board requests, and post shoutouts.
 
 Guild data syncs between members running Guild Hall using in-game addon messages. There is no external server. Offline members catch up from an online rank 0 or rank 1 member when they sync. Board requests expire automatically.
+
+In Events, officers use Create raid to schedule a raid and set its signup lock and size target. Creation defaults to also creating an in-game guild-calendar signup event; choose Guild Hall only to skip it. The creator can retry with Create calendar if the client cannot create the calendar copy. Calendar writes require the client's guild-calendar APIs and game permissions.
+
+Members use Sign up / Change to choose Going, Maybe, or Absent, write their spec, choose Tank/Healer/DPS, and add an optional note. Class is detected automatically from the guild roster; player and class columns use class colors. Role totals count Going players only, with older signups missing a role counted as Unassigned. Members can change an existing signup even when new signups are locked, or use Remove my signup to withdraw. The GM can remove anyone's signup. Removal records are synced to prevent older history from restoring a withdrawn signup; members can sign up again while signups are open.
+
+Only the GM can change the invite checkmarks, and only Going players can be selected. Checkmarks record the planned invite list and do not automatically invite players. All participating members should update Guild Hall to exchange the expanded signup data, removals, and GM selections. Raid size is a planning target, so additional members can still sign up. Withdrawing your own signup attempts to decline the matching native calendar event; GM removal affects the Guild Hall roster.
 
 The roster shows online guild members only. Guild Hall clients announce their installed version at login and once per minute; a member with no recent announcement is shown as "No addon detected." This detection requires a client version that sends presence announcements, so older addon versions may not report.
 

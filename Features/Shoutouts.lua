@@ -34,12 +34,3 @@ GH:RegisterCommand("shout", function(rest)
     local _, result = GH:PostShoutout(target, text)
     print("Guild Hall: " .. result)
 end)
-
-GH:RegisterTab("Shoutouts", function()
-    if not GH.bucket then return "Join a guild to see shoutouts." end
-    local lines = {}
-    for _, record in ipairs(GH.bucket.shoutouts or {}) do
-        lines[#lines + 1] = ("%s gave a shoutout to %s\n%s"):format(GH:Display(record.by), GH:Display(record.target), GH:Display(record.text))
-    end
-    return #lines > 0 and table.concat(lines, "\n\n") or "No shoutouts yet. Post one with /gh shout Player Name | message."
-end)
