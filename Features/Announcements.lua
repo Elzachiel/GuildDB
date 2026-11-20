@@ -55,7 +55,7 @@ local function popAnnouncement(author, title, text)
     local displayTitle = title ~= "" and title or "New guild announcement"
     local message = tostring(author or "Guild officer")
     if summary ~= "" then message = message .. ": " .. summary end
-    GH:ShowPopout("Guild announcement", displayTitle, message, "Interface/Icons/INV_Misc_Note_01", function()
+    GH:ShowPopout("Guild announcement", displayTitle, message, "Interface/Icons/INV_Letter_15", function()
         GH.activeTab = "Announcements"
         GH:Open()
     end, 8)

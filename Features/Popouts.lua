@@ -161,11 +161,35 @@ function GH:ShowPvPPopup(points, victim, level, totalPoints)
 end
 
 local seenMilestones = {}
+local professionIconPatterns = {
+    { "blacksmith", "Interface/Icons/Trade_BlackSmithing" },
+    { "engineer", "Interface/Icons/Trade_Engineering" },
+    { "alchemy", "Interface/Icons/Trade_Alchemy" },
+    { "leatherworking", "Interface/Icons/Trade_LeatherWorking" },
+    { "tailor", "Interface/Icons/Trade_Tailoring" },
+    { "herbal", "Interface/Icons/Trade_Herbalism" },
+    { "mining", "Interface/Icons/Trade_Mining" },
+    { "skinning", "Interface/Icons/Trade_Skinning" },
+    { "enchant", "Interface/Icons/Trade_Enchanting" },
+    { "jewelcraft", "Interface/Icons/Trade_Jewelcrafting" },
+    { "inscription", "Interface/Icons/Trade_Inscription" },
+    { "fishing", "Interface/Icons/Trade_Fishing" },
+    { "cooking", "Interface/Icons/INV_Misc_Food_15" },
+}
+
+local function iconForProfession(profession)
+    local name = tostring(profession or ""):lower()
+    for _, entry in ipairs(professionIconPatterns) do
+        if name:find(entry[1], 1, true) then return entry[2] end
+    end
+    return "Interface/Icons/Trade_BlackSmithing"
+end
+
 local function milestoneToast(kind, value, author, profession)
     if kind == "L" then
         GH:ShowPopout("Level milestone", "Level " .. value .. " reached!", author .. " reached level " .. value .. ".", "Interface/Icons/Achievement_Level_" .. value)
     elseif kind == "P" then
-        GH:ShowPopout("Profession milestone", profession .. " " .. value .. "!", author .. " reached " .. value .. " in " .. profession .. ".", "Interface/Icons/Trade_BlackSmithing")
+        GH:ShowPopout("Profession milestone", profession .. " " .. value .. "!", author .. " reached " .. value .. " in " .. profession .. ".", iconForProfession(profession))
     end
 end
 
