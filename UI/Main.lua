@@ -1,4 +1,4 @@
--- Dark guild workspace with a compact navigation rail and single content pane.
+-- Dark guild workspace with a compact navigation rail and single content pane. - TEST
 local _, GH = ...
 
 local GOLD = { 0.20, 0.62, 0.98 }
