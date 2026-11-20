@@ -601,8 +601,9 @@ local function build()
         local tab = frame.activeTab
         if tab == "Announcements" then
             showInputForm("Post an announcement", {
+                { label = "Title", value = "", max = 120 },
                 { label = "Message", value = "", max = 600, multiline = true },
-            }, function(values) return GH:PostAnnouncement(values[1]) end)
+            }, function(values) return GH:PostAnnouncement(values[1], values[2]) end)
         elseif tab == "Guide" then
             local guide = GH.bucket and GH.bucket.guide or {}
             showInputForm("Edit guild guide", {
@@ -1017,7 +1018,7 @@ function GH:RefreshUI()
     local detail = table.concat(sections, "\n\n")
     local isPvP = active == "PvP"
     local isEvents = active == "Events"
-    local isActionList = active == "Looking For" or active == "Crafting" or active == "Polls"
+    local isActionList = active == "Looking For" or active == "Crafting" or active == "Polls" or active == "Announcements"
     frame.sync:SetShown(active ~= "Settings" and not isPvP)
     frame.detailRule:SetShown(not isPvP and not isEvents and not isActionList)
     frame.detailMeta:SetShown(not isPvP and not isActionList)
@@ -1274,12 +1275,11 @@ function GH:RefreshUI()
         frame.detailBody:Hide()
         frame.detailTitle:SetText(active:upper())
         local entries, y = {}, 4
-        local function addActionRow(title, subtitle, actions)
+        local function addActionRow(title, subtitle, actions, body)
             local index = #frame.actionRows + 1
             local row = frame.actionRows[index]
             if not row then
                 row = CreateFrame("Frame", nil, frame.detailChild)
-                row:SetHeight(68)
                 row.bg = row:CreateTexture(nil, "BACKGROUND")
                 row.bg:SetAllPoints()
                 row.title = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -1291,14 +1291,38 @@ function GH:RefreshUI()
                 row.subtitle:SetPoint("TOPLEFT", row.title, "BOTTOMLEFT", 0, -5)
                 row.subtitle:SetWidth(520)
                 row.subtitle:SetJustifyH("LEFT")
+                row.body = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                row.body:SetPoint("TOPLEFT", row.subtitle, "BOTTOMLEFT", 0, -5)
+                row.body:SetJustifyH("LEFT")
+                row.body:SetJustifyV("TOP")
+                row.body:SetWordWrap(true)
+                row.body:SetTextColor(CREAM[1], CREAM[2], CREAM[3])
                 row.buttons = {}
                 frame.actionRows[index] = row
             end
+            local actionCount = #(actions or {})
+            local textWidth = math.max(180, frame.detailChild:GetWidth() - actionCount * 82 - 28)
+            local bodyWidth = math.max(180, frame.detailChild:GetWidth() - 28)
             row:ClearAllPoints()
             row:SetPoint("TOPLEFT", 4, -y)
             row:SetPoint("RIGHT", frame.detailChild, "RIGHT", -4, 0)
             row.title:SetText(title)
+            row.title:SetWidth(textWidth)
             row.subtitle:SetText(subtitle or "")
+            row.subtitle:SetWidth(textWidth)
+            if body and body ~= "" then
+                row.body:SetText(body)
+                row.body:SetWidth(bodyWidth)
+                row.body:Show()
+                local lineCount = 1
+                for _ in body:gmatch("\n") do lineCount = lineCount + 1 end
+                lineCount = lineCount + math.floor(#body / math.max(1, math.floor(bodyWidth / 7)))
+                row:SetHeight(math.max(76, 69 + lineCount * 14))
+            else
+                row.body:SetText("")
+                row.body:Hide()
+                row:SetHeight(68)
+            end
             row.bg:SetColorTexture(index % 2 == 1 and PANEL_ALT[1] or PANEL[1], index % 2 == 1 and PANEL_ALT[2] or PANEL[2], index % 2 == 1 and PANEL_ALT[3] or PANEL[3], 1)
             for buttonIndex, action in ipairs(actions or {}) do
                 local button = row.buttons[buttonIndex]
@@ -1309,15 +1333,37 @@ function GH:RefreshUI()
                     row.buttons[buttonIndex] = button
                 end
                 button:SetText(action.label)
-                button:SetPoint("RIGHT", row, "RIGHT", -8 - (buttonIndex - 1) * 82, -2)
+                GH:StyleButton(button, action.label == "Delete" and "secondary" or "primary")
+                button:SetPoint("TOPRIGHT", row, "TOPRIGHT", -8 - (buttonIndex - 1) * 82, -8)
                 button:SetScript("OnClick", action.click)
                 button:Show()
             end
             for i = #(actions or {}) + 1, #row.buttons do row.buttons[i]:Hide() end
             row:Show()
-            y = y + 76
+            y = y + row:GetHeight() + 8
         end
-        if active == "Looking For" then
+        if active == "Announcements" then
+            entries = self.bucket and self.bucket.announcements or {}
+            for _, post in ipairs(entries) do
+                local postId, postTitle, postText = post.id, post.title or "", post.text or ""
+                local actions = {}
+                if self:CanManage() then
+                    actions[#actions + 1] = { label = "Edit", click = function()
+                        showInputForm("Edit announcement", {
+                            { label = "Title", value = postTitle, max = 120 },
+                            { label = "Message", value = postText, max = 600, multiline = true },
+                        }, function(values) return self:EditAnnouncement(postId, values[1], values[2]) end)
+                    end }
+                    actions[#actions + 1] = { label = "Delete", click = function()
+                        local _, message = self:DeleteAnnouncement(postId)
+                        print("Guild Hall: " .. tostring(message))
+                    end }
+                end
+                local title = postTitle ~= "" and postTitle or "Announcement"
+                local meta = "By " .. self:Display(post.by or "Guild member") .. "  ·  " .. date("%b %d, %I:%M %p", post.ts or time())
+                addActionRow(self:Display(title), meta, actions, self:Display(postText))
+            end
+        elseif active == "Looking For" then
             entries = self.GetActiveLookingRequests and self:GetActiveLookingRequests() or {}
             for _, entry in ipairs(entries) do
                 local requestId = entry.id
@@ -1360,7 +1406,8 @@ function GH:RefreshUI()
         if #entries == 0 then
             frame.actionEmpty = frame.actionEmpty or frame.detailChild:CreateFontString(nil, "OVERLAY", "GameFontNormal")
             frame.actionEmpty:SetPoint("TOPLEFT", 12, -14)
-            frame.actionEmpty:SetText(active == "Polls" and "No polls have been created." or "No active posts.")
+            local emptyText = active == "Polls" and "No polls have been created." or (active == "Announcements" and "No announcements yet. Officers can create the first post." or "No active posts.")
+            frame.actionEmpty:SetText(emptyText)
             frame.actionEmpty:SetTextColor(CREAM[1], CREAM[2], CREAM[3])
             frame.actionEmpty:Show()
         elseif frame.actionEmpty then frame.actionEmpty:Hide() end
