@@ -61,19 +61,15 @@ local function popAnnouncement(author, title, text)
     end, 8)
 end
 
-local function storePost(id, ts, author, title, text, showPopup)
+local function storePost(id, ts, author, title, text)
     if #id > 100 or #author > 100 or #title > 120 or #text > 600 then return end
     if not isOfficer(author) then return end
     if deleteTimestamp(id) >= ts then return end
     local current, index = findPost(id)
     if current and (current.ts or 0) >= ts then return end
     local post = { id = id, ts = ts, by = author, title = title, text = text }
-    local isNew = current == nil
     if current then GH.bucket.announcements[index] = post else table.insert(GH.bucket.announcements, 1, post) end
     if GH.RefreshUI then GH:RefreshUI() end
-    if showPopup and isNew and ts <= time() + 5 and time() - ts <= 30 then
-        popAnnouncement(author, title, text)
-    end
 end
 
 function GH:PostAnnouncement(title, text)
@@ -85,6 +81,9 @@ function GH:PostAnnouncement(title, text)
     local record = self:NewRecord({ title = title, text = text })
     self:StoreRecord("announcements", record)
     self:SendRecord("AN", record.id, record.ts, record.by, encodePost(title, text))
+    self:SendRecord("AP", record.id, record.ts, record.by, encodePost(title, text))
+    self.shownAnnouncementPopups = self.shownAnnouncementPopups or {}
+    self.shownAnnouncementPopups[record.id] = true
     popAnnouncement(record.by, title, text)
     return true, "Announcement saved and sent to online Guild Hall users."
 end
@@ -122,7 +121,20 @@ end)
 
 GH:RegisterRecordHandler("AN", function(id, ts, author, content)
     local title, text = decodePost(content)
-    storePost(id, ts, author, title, text, true)
+    storePost(id, ts, author, title, text)
+end)
+
+GH:RegisterRecordHandler("AP", function(id, ts, author, content, sender)
+    if #id > 100 or #author > 100 or #content > 721 then return end
+    GH.shownAnnouncementPopups = GH.shownAnnouncementPopups or {}
+    if GH.shownAnnouncementPopups[id] then return end
+    local senderName = tostring(sender or ""):match("^([^-]+)") or tostring(sender or "")
+    local authorName = tostring(author or ""):match("^([^-]+)") or tostring(author or "")
+    if senderName:lower():gsub("[%s%-]", "") ~= authorName:lower():gsub("[%s%-]", "") or not isOfficer(author) then return end
+    local title, text = decodePost(content)
+    if #title > 120 or #text > 600 then return end
+    GH.shownAnnouncementPopups[id] = true
+    popAnnouncement(author, title, text)
 end)
 
 GH:RegisterRecordHandler("AE", function(id, ts, author, content)
