@@ -1,0 +1,101 @@
+-- Short-lived guild requests for groups, roles, and activities.
+local _, GH = ...
+GH:RegisterBucket("lookingFor", function() return {} end)
+
+local function trim(value)
+    return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+end
+
+local function activeRequests()
+    local result = {}
+    for _, request in ipairs((GH.bucket and GH.bucket.lookingFor) or {}) do
+        if not request.closed and (request.expires or 0) > time() then result[#result + 1] = request end
+    end
+    table.sort(result, function(a, b) return a.ts > b.ts end)
+    return result
+end
+GH.GetActiveLookingRequests = activeRequests
+
+local function requestPayload(request)
+    return table.concat({ request.role, request.activity, request.details, request.expires }, "\n")
+end
+
+local function updateRequest(id, closed)
+    for _, request in ipairs(GH.bucket.lookingFor or {}) do
+        if request.id == id then
+            request.closed = closed
+            request.closedAt = time()
+            if GH.RefreshUI then GH:RefreshUI() end
+            return
+        end
+    end
+end
+
+GH:RegisterRecordHandler("L", function(id, ts, author, content)
+    local role, activity, details, expires = content:match("^(.-)\n(.-)\n(.-)\n(%d+)$")
+    expires = tonumber(expires)
+    if not role or #role > 60 or #activity > 100 or #details > 250 or not expires or expires <= ts then return end
+    GH:StoreRecord("lookingFor", { id = id, ts = ts, by = author, role = role, activity = activity, details = details, expires = expires })
+end)
+GH:RegisterRecordHandler("LC", function(id) updateRequest(id, true) end)
+
+GH:RegisterHistoryProvider(function()
+    local requests = {}
+    for _, request in ipairs(GH.bucket.lookingFor or {}) do requests[#requests + 1] = request end
+    table.sort(requests, function(a, b) return a.ts > b.ts end)
+    for i = math.min(#requests, 12), 1, -1 do
+        local request = requests[i]
+        GH:SendRecord("L", request.id, request.ts, request.by, requestPayload(request))
+        if request.closed then GH:SendRecord("LC", request.id, request.closedAt or request.ts, request.by, "closed") end
+    end
+end)
+
+function GH:PostLookingRequest(role, activity, details)
+    if not self.bucket then return false, "Join a guild first." end
+    role, activity, details = trim(role), trim(activity), trim(details)
+    if role == "" or activity == "" then return false, "Role and activity are required." end
+    local request = self:NewRecord({ role = role:sub(1, 60), activity = activity:sub(1, 100), details = details:sub(1, 250), expires = time() + 3 * 60 * 60 })
+    self:StoreRecord("lookingFor", request, "L", requestPayload(request))
+    return true, "Looking For post created; it expires in 3 hours."
+end
+
+function GH:CloseLookingRequest(id)
+    local request
+    for _, candidate in ipairs(activeRequests()) do if candidate.id == id then request = candidate; break end end
+    if not request then return false, "That Looking For post is no longer active." end
+    local player = UnitName and UnitName("player") or ""
+    if request.by:lower() ~= player:lower() and not self:CanManage() then return false, "You can only close your own post." end
+    updateRequest(request.id, true)
+    self:SendRecord("LC", request.id, time(), player, "closed")
+    return true, "Looking For post closed."
+end
+
+GH:RegisterCommand("looking", function(rest)
+    local action, content = rest:match("^(%S+)%s*(.*)$")
+    action = (action or ""):lower()
+    if action == "close" then
+        local request = activeRequests()[tonumber(content) or 0]
+        local _, result = GH:CloseLookingRequest(request and request.id)
+        print("Guild Hall: " .. result)
+        return
+    end
+    if action == "list" then GH.activeTab = "Looking For"; GH:Open(); return end
+    local role, activity, details = rest:match("^(.-)%s*|%s*(.-)%s*|%s*(.*)$")
+    local _, result = GH:PostLookingRequest(role, activity, details)
+    print("Guild Hall: " .. result)
+end)
+
+GH:RegisterTab("Looking For", function()
+    if not GH.bucket then return "Join a guild to see group requests." end
+    local requests = activeRequests()
+    if #requests == 0 then return "No active requests. Post one with /gh looking Role | Activity | Details." end
+    local lines = { "Looking For · posts expire after 3 hours", "Use /gh looking close # to close your post.", "" }
+    for index, request in ipairs(requests) do
+        local minutes = math.max(1, math.ceil((request.expires - time()) / 60))
+        lines[#lines + 1] = ("%d. %s looking for %s · %d min left"):format(index, GH:Display(request.role), GH:Display(request.activity), minutes)
+        if request.details ~= "" then lines[#lines + 1] = GH:Display(request.details) end
+        lines[#lines + 1] = "Posted by " .. GH:Display(request.by)
+        lines[#lines + 1] = ""
+    end
+    return table.concat(lines, "\n")
+end)

@@ -1,0 +1,55 @@
+# Guild Hall
+
+Guild Hall is a World of Warcraft guild addon for a shared roster, member profiles, announcements, raids, events, shoutouts, and guild utilities. It is designed to work independently for any guild.
+
+## Features
+
+- Online-only guild roster with Guild Hall presence and reported addon version.
+- Member profiles for role, specialization, time zone, alts, and listed professions or recipes.
+- Officer announcements and a guild guide for rules and loot rules.
+- Raid and event calendar with Going, Tentative, and Absent RSVPs.
+- PvP leaderboard with outdoor kills, deaths, seasons, and a Most Wanted list.
+- Looking For group board; posts expire after three hours.
+- Crafting request board; requests expire after seven days and can be claimed by crafters.
+- Officer polls with public totals; voter names are not shown in the interface.
+- Shoutouts between guild members.
+
+Officers (guild leader and rank 1) can create announcements, schedule raids and events, edit the guide, create or close polls, and start PvP seasons. Any guild member can edit their own profile, RSVP, vote, make or claim board requests, and post shoutouts.
+
+Guild data syncs between members running Guild Hall using in-game addon messages. There is no external server. Offline members catch up from an online rank 0 or rank 1 member when they sync. Board requests expire automatically.
+
+The roster shows online guild members only. Guild Hall clients announce their installed version at login and once per minute; a member with no recent announcement is shown as "No addon detected." This detection requires a client version that sends presence announcements, so older addon versions may not report.
+
+PvP points are based on victim level: levels 1-19 earn 1 point, 20-39 earn 2, 40-59 earn 3, 60-69 earn 4, and 70+ earn 5. The addon excludes instances. Victim level is read when the victim is still your target; otherwise the kill earns 1 point. The detailed activity feed keeps up to 60 recent kills and deaths per guild. Leaderboard kill, point, and death totals are cumulative per member and season, synced separately from that feed. Existing saved recent records are folded into a member's totals the next time they record a PvP event; older records already discarded by the 60-entry cap cannot be recovered. A new season starts fresh at its start time.
+
+## Install for development
+
+Copy this folder into the client's `Interface/AddOns` directory, enable **Guild Hall** on the AddOns screen, and join a guild.
+
+## Commands
+
+- `/gh` opens Guild Hall; `/gh sync` requests recent guild data.
+- `/gh post Message text` posts an announcement (officer).
+- `/gh event YYYY-MM-DD HH:MM | Title | Details` schedules an event (officer).
+- `/gh raid YYYY-MM-DD HH:MM | Title | Details` schedules a raid (officer).
+- `/gh rsvp # going|tentative|absent` responds to an upcoming calendar entry.
+- `/gh profile set Role | Spec | Time zone | Alts | Professions` sets your member profile.
+- `/gh profile Name` views a member profile; `/gh profile list` returns to the directory.
+- `/gh guide` opens the guild guide; `/gh guide set Rules | Loot rules` updates it (officer).
+- `/gh looking Role | Activity | Details` posts a group request; `/gh looking close #` closes your post.
+- `/gh craft request Item | Details` posts a crafting request.
+- `/gh craft claim #` claims a request; `/gh craft done #` closes it.
+- `/gh craft who Recipe` searches online members' listed crafting skills.
+- `/gh poll create Question | Option 1 | Option 2 [| Option 3 | Option 4]` creates a poll (officer).
+- `/gh poll vote # option#` votes; `/gh poll close #` closes a poll (officer).
+- `/gh pvp season Season name` starts a PvP season (officer).
+- `/gh shout Player Name | Message` posts a shoutout.
+
+Date and time in event commands use the local time shown by the game client. Board item numbers refer to the current order shown in their tab.
+
+## Project layout
+
+- `Core/Runtime.lua` provides addon lifecycle, saved data, slash routing, and guild message sync.
+- `Features/` contains independent modules for profiles, announcements, events, shoutouts, PvP, guild guide, group requests, crafting, and polls.
+- `UI/Main.lua` builds the shared window, navigation, and roster view.
+- `GuildHall.toc` lists the files in WoW load order.
