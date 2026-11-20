@@ -106,6 +106,61 @@ function GH:SetRSVP(eventNumber, status)
     return self:SetRSVPForEvent(event.id, status)
 end
 
+function GH:AddEventToGameCalendar(eventId)
+    local event
+    for _, candidate in ipairs((self.bucket and self.bucket.events) or {}) do
+        if candidate.id == eventId then event = candidate; break end
+    end
+    if not event then return false, "That Guild Hall event could not be found." end
+
+    local playerName = UnitName and UnitName("player") or ""
+    local eventOwner = tostring(event.by or ""):match("^([^-]+)") or tostring(event.by or "")
+    playerName = tostring(playerName):match("^([^-]+)") or tostring(playerName)
+    if playerName:lower() ~= eventOwner:lower() then
+        return false, "Only the event creator can add it to the guild calendar, to prevent duplicate entries."
+    end
+
+    GuildHallDB = type(GuildHallDB) == "table" and GuildHallDB or {}
+    GuildHallDB.calendarExports = type(GuildHallDB.calendarExports) == "table" and GuildHallDB.calendarExports or {}
+    if GuildHallDB.calendarExports[eventId] then
+        return false, "This event was already added to your in-game calendar on this character."
+    end
+
+    local calendar = C_Calendar
+    if not calendar or type(calendar.CreateGuildSignUpEvent) ~= "function"
+        or type(calendar.EventSetTitle) ~= "function" or type(calendar.EventSetDate) ~= "function"
+        or type(calendar.EventSetTime) ~= "function" or type(calendar.AddEvent) ~= "function" then
+        return false, "Your game client does not provide guild calendar event creation."
+    end
+    if type(C_DateAndTime) ~= "table" or type(C_DateAndTime.GetCalendarTimeFromEpoch) ~= "function" then
+        return false, "Your game client does not provide calendar date conversion."
+    end
+
+    -- Calendar writes are protected by the game and must happen directly from
+    -- a user click. Convert the shared Unix timestamp to the client's calendar
+    -- date, then create a native guild sign-up event that guildmates can see.
+    local ok, err = pcall(function()
+        local calendarTime = C_DateAndTime.GetCalendarTimeFromEpoch(event.at * 1000000)
+        if type(calendarTime) ~= "table" or not calendarTime.year or not calendarTime.month
+            or not calendarTime.monthDay or calendarTime.hour == nil or calendarTime.minute == nil then
+            error("The event date could not be converted.")
+        end
+        calendar.CreateGuildSignUpEvent()
+        calendar.EventSetTitle((event.title or "Guild event"):sub(1, 64))
+        calendar.EventSetDate(calendarTime.month, calendarTime.monthDay, calendarTime.year)
+        calendar.EventSetTime(calendarTime.hour, calendarTime.minute)
+        if type(calendar.EventSetDescription) == "function" then
+            calendar.EventSetDescription((event.details or ""):sub(1, 255))
+        end
+        calendar.AddEvent()
+    end)
+    if not ok then return false, "Could not add the calendar event: " .. tostring(err) end
+
+    GuildHallDB.calendarExports[eventId] = time()
+    if self.RefreshUI then self:RefreshUI() end
+    return true, "Guild sign-up event added to the in-game calendar."
+end
+
 local function createCommand(rest, eventType)
     local dateText, title, details = rest:match("^(%d%d%d%d%-%d%d%-%d%d%s+%d%d:%d%d)%s*|%s*([^|]-)%s*|%s*(.*)$")
     local ok, result = GH:PostEvent(parseEventTime(dateText or ""), title, details, eventType)

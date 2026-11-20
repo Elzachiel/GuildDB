@@ -1236,6 +1236,14 @@ function GH:RefreshUI()
                 row.counts:SetWidth(190)
                 row.counts:SetTextColor(CREAM[1], CREAM[2], CREAM[3])
                 row.rsvpButtons = {}
+                row.calendarButton = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+                GH:StyleButton(row.calendarButton)
+                row.calendarButton:SetSize(138, 22)
+                row.calendarButton:SetPoint("BOTTOMLEFT", 8, 9)
+                row.calendarButton:SetScript("OnClick", function(self)
+                    local _, result = GH:AddEventToGameCalendar(self.eventId)
+                    if result then print("Guild Hall: " .. result) end
+                end)
                 for buttonIndex, state in ipairs({ { "Going", "going" }, { "Maybe", "tentative" }, { "Absent", "absent" } }) do
                     local button = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
                     GH:StyleButton(button, "primary")
@@ -1257,6 +1265,15 @@ function GH:RefreshUI()
             row.title:SetText((event.eventType == "raid" and "RAID  -  " or "EVENT  -  ") .. self:Display(event.title))
             row.info:SetText(date("%a, %b %d  -  %I:%M %p", event.at) .. "  -  Posted by " .. self:Display(event.by))
             row.details:SetText(self:Display(event.details or ""))
+            row.calendarButton.eventId = event.id
+            local calendarExports = GuildHallDB and GuildHallDB.calendarExports
+            if calendarExports and calendarExports[event.id] then
+                row.calendarButton:SetText("In game calendar")
+                row.calendarButton:Disable()
+            else
+                row.calendarButton:SetText("Add to game calendar")
+                row.calendarButton:Enable()
+            end
             local counts = { going = 0, tentative = 0, absent = 0 }
             for _, response in pairs(event.rsvps or {}) do
                 local status = type(response) == "table" and response.status or response
