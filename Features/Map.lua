@@ -178,7 +178,7 @@ local mapMemberIcons = {}
 
 local function isInLocalGroup(memberName)
     local wanted = normalizeMemberKey(memberName)
-    if wanted == "" or not UnitExists or not UnitName then return false end
+    if wanted == "" or not UnitExists then return false end
 
     -- Prefer raid unit tokens when in a raid; otherwise inspect the four
     -- non-player party slots. These members already have Blizzard map markers.
@@ -187,8 +187,14 @@ local function isInLocalGroup(memberName)
     for index = 1, limit do
         local unit = prefix .. index
         if UnitExists(unit) then
-            local name = UnitName(unit)
+            local name, realm
+            if UnitFullName then
+                name, realm = UnitFullName(unit)
+            elseif UnitName then
+                name, realm = UnitName(unit)
+            end
             if name and normalizeMemberKey(name) == wanted then return true end
+            if realm and normalizeMemberKey(name .. "-" .. realm) == wanted then return true end
         end
     end
     return false
