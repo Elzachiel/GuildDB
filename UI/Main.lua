@@ -213,6 +213,17 @@ local function showInputForm(title, fields, onAccept)
     dialog.inputs[1]:SetFocus()
 end
 
+local function calendarSettingsFromForm(values, offset)
+    local inviteChoice = values[offset + 2]
+    return {
+        category = values[offset],
+        locked = values[offset + 1] == "Locked",
+        inviteMode = inviteChoice == "Selected players" and "selected"
+            or inviteChoice == "Mass invite guild" and "guild" or "none",
+        inviteNames = values[offset + 3] or "",
+    }
+end
+
 local function openProfileEditor()
     local player = UnitName and UnitName("player") or ""
     GH:RefreshPlayerProfessions()
@@ -580,10 +591,14 @@ local function build()
             { label = "Title", value = "Guild event", max = 100 },
             { label = "Date (YYYY-MM-DD)", value = date("%Y-%m-%d", tomorrow), max = 10 },
             { label = "Start time, local (HH:MM, 24-hour)", value = "20:00", max = 5 },
+            { label = "Calendar category", value = frame.eventCreateType == "raid" and "Raid" or "Other", options = { "Raid", "Dungeon", "PvP", "Meeting", "Other" } },
+            { label = "Sign-ups", value = "Open", options = { "Open", "Locked" } },
+            { label = "Invitations", value = "No invites", options = { "No invites", "Selected players", "Mass invite guild" } },
+            { label = "Players to invite (comma separated)", value = "", max = 200 },
             { label = "Details", value = "", max = 300, multiline = true },
         }, function(values)
-            local eventType = frame.eventCreateType or "event"
-            return GH:PostEventFields(values[2], values[3], values[1], values[4], eventType)
+            local settings = calendarSettingsFromForm(values, 4)
+            return GH:PostEventFields(values[2], values[3], values[1], values[8], nil, settings)
         end)
     end)
     frame.eventCreateTypeButton = CreateFrame("Button", nil, frame.detailPanel, "UIPanelButtonTemplate")
@@ -1041,7 +1056,7 @@ function GH:RefreshUI()
         element:SetShown(isPvP)
     end
     frame.eventCreateButton:SetShown(isEvents and self:CanManage())
-    frame.eventCreateTypeButton:SetShown(isEvents and self:CanManage())
+    frame.eventCreateTypeButton:Hide()
     local actionVisible = active == "Profiles" or active == "Shoutouts" or active == "Looking For" or active == "Crafting" or (active == "Polls" and self:CanManage()) or ((active == "Announcements" or active == "Guide") and self:CanManage())
     frame.contentActionButton:SetShown(actionVisible)
     frame.contentActionButton:EnableMouse(true)
@@ -1255,14 +1270,22 @@ function GH:RefreshUI()
                         if candidate.id == self.eventId then event = candidate; break end
                     end
                     if not event then return end
+                    local settings = event.calendarSettings or {}
+                    local category = settings.category or (event.eventType == "raid" and "Raid" or "Other")
+                    local inviteMode = settings.inviteMode == "selected" and "Selected players"
+                        or settings.inviteMode == "guild" and "Mass invite guild" or "No invites"
                     showInputForm("Edit guild event", {
                         { label = "Title", value = event.title or "", max = 100 },
                         { label = "Date (YYYY-MM-DD)", value = date("%Y-%m-%d", event.at), max = 10 },
                         { label = "Start time, local (HH:MM, 24-hour)", value = date("%H:%M", event.at), max = 5 },
+                        { label = "Calendar category", value = category, options = { "Raid", "Dungeon", "PvP", "Meeting", "Other" } },
+                        { label = "Sign-ups", value = settings.locked and "Locked" or "Open", options = { "Open", "Locked" } },
+                        { label = "Invitations", value = inviteMode, options = { "No invites", "Selected players", "Mass invite guild" } },
+                        { label = "Players to invite (comma separated)", value = settings.inviteNames or "", max = 200 },
                         { label = "Details", value = event.details or "", max = 300, multiline = true },
                     }, function(values)
                         local at = GH:ParseEventTimeFields(values[2], values[3])
-                        return GH:EditEvent(self.eventId, at, values[1], values[4])
+                        return GH:EditEvent(self.eventId, at, values[1], values[8], calendarSettingsFromForm(values, 4))
                     end)
                 end)
                 row.deleteButton = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
@@ -1299,7 +1322,10 @@ function GH:RefreshUI()
             row:SetPoint("TOPLEFT", 4, -4 - (i - 1) * 88)
             row:SetPoint("RIGHT", frame.detailChild, "RIGHT", -4, 0)
             row.title:SetText((event.eventType == "raid" and "RAID  -  " or "EVENT  -  ") .. self:Display(event.title))
-            row.info:SetText(date("%a, %b %d  -  %I:%M %p", event.at) .. "  -  Posted by " .. self:Display(event.by))
+            local calendarSettings = event.calendarSettings or {}
+            local category = calendarSettings.category or (event.eventType == "raid" and "Raid" or "Other")
+            local signupState = calendarSettings.locked and "Sign-ups locked" or "Sign-ups open"
+            row.info:SetText(date("%a, %b %d  -  %I:%M %p", event.at) .. "  -  " .. category .. "  -  " .. signupState .. "  -  Posted by " .. self:Display(event.by))
             row.details:SetText(self:Display(event.details or ""))
             row.calendarButton.eventId = event.id
             row.editButton.eventId = event.id
@@ -1324,7 +1350,10 @@ function GH:RefreshUI()
             if type(mine) == "table" then mine = mine.status end
             row.counts:SetText(("Going %d  -  Maybe %d  -  Absent %d\nYour RSVP: %s"):format(counts.going, counts.tentative, counts.absent, mine or "Not set"))
             row.bg:SetColorTexture(i % 2 == 1 and PANEL_ALT[1] or PANEL[1], i % 2 == 1 and PANEL_ALT[2] or PANEL[2], i % 2 == 1 and PANEL_ALT[3] or PANEL[3], 1)
-            for _, button in ipairs(row.rsvpButtons) do button.eventId = event.id end
+            for _, button in ipairs(row.rsvpButtons) do
+                button.eventId = event.id
+                if calendarSettings.locked then button:Disable() else button:Enable() end
+            end
             row:Show()
         end
         for i = #events + 1, #frame.eventRows do frame.eventRows[i]:Hide() end

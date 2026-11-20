@@ -3,6 +3,8 @@ local _, GH = ...
 GH:RegisterBucket("events", function() return {} end)
 GH:RegisterBucket("eventDeletes", function() return {} end)
 local syncGameCalendarRSVP
+local EVENT_SETTINGS_MARKER = "\n\n[GuildHall calendar settings]\n"
+local CALENDAR_TYPES = { Raid = 0, Dungeon = 1, PvP = 2, Meeting = 3, Other = 4 }
 
 local function parseEventTime(value)
     local y, month, day, hour, minute = value:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)%s+(%d%d):(%d%d)$")
@@ -15,7 +17,15 @@ local function parseEventTime(value)
 end
 
 local function encodeEvent(record)
-    return table.concat({ record.at, record.title, record.details or "" }, "\n")
+    local settings = record.calendarSettings or {}
+    local details = tostring(record.details or ""):gsub("%[GuildHall calendar settings%]", "[GuildHall settings]")
+    local metadata = table.concat({
+        settings.category or (record.eventType == "raid" and "Raid" or "Other"),
+        settings.locked and "1" or "0",
+        settings.inviteMode or "none",
+        settings.inviteNames or "",
+    }, "\n")
+    return table.concat({ record.at, record.title, details .. EVENT_SETTINGS_MARKER .. metadata }, "\n")
 end
 
 local function findEvent(id)
@@ -42,24 +52,122 @@ local function isOfficer(name)
 end
 
 local function storeEvent(id, ts, author, content, eventType)
-    if #id > 100 or #author > 100 or #content > 500 then return end
+    if #id > 100 or #author > 100 or #content > 900 then return end
     if not isOfficer(author) or eventDeleteTimestamp(id) >= ts then return end
-    local at, title, details = content:match("^(.-)\n(.-)\n(.*)$")
+    local at, title, remainder = content:match("^(.-)\n(.-)\n(.*)$")
     at = tonumber(at)
-    if not at or not title or #title > 100 or #details > 300 then return end
+    if not at or not title then return end
+    local details, metadata = remainder:match("^(.*)\n\n%[GuildHall calendar settings%]\n(.*)$")
+    local settings = {}
+    if metadata then
+        local category, locked, inviteMode, inviteNames = metadata:match("^(.-)\n(.-)\n(.-)\n(.*)$")
+        if category then
+            settings.category = CALENDAR_TYPES[category] and category or (eventType == "raid" and "Raid" or "Other")
+            settings.locked = locked == "1"
+            settings.inviteMode = (inviteMode == "selected" or inviteMode == "guild") and inviteMode or "none"
+            settings.inviteNames = (inviteNames or ""):sub(1, 200)
+        end
+    else
+        details = remainder
+    end
+    if not details or #title > 100 or #details > 300 then return end
     local current, index = findEvent(id)
     if current and (current.ts or 0) >= ts then return end
     local event = { id = id, ts = ts, by = author, at = at, title = title, details = details,
-        eventType = eventType, rsvps = current and current.rsvps or {} }
+        eventType = eventType, calendarSettings = settings, rsvps = current and current.rsvps or {} }
     if current then GH.bucket.events[index] = event else table.insert(GH.bucket.events, 1, event) end
     if GH.RefreshUI then GH:RefreshUI() end
 end
 
-function GH:PostEvent(at, title, details, eventType)
+local function normalizeCalendarSettings(settings, eventType)
+    settings = type(settings) == "table" and settings or {}
+    local category = CALENDAR_TYPES[settings.category] and settings.category or (eventType == "raid" and "Raid" or "Other")
+    local inviteMode = "none"
+    if settings.inviteMode == "selected" or settings.inviteMode == "guild" then inviteMode = settings.inviteMode end
+    return {
+        category = category,
+        locked = settings.locked == true,
+        inviteMode = inviteMode,
+        inviteNames = tostring(settings.inviteNames or ""):gsub("[\r\n]", ","):sub(1, 200),
+    }
+end
+
+local function parseInviteNames(value)
+    local names, seen = {}, {}
+    for name in tostring(value or ""):gmatch("[^,]+") do
+        name = name:gsub("^%s+", ""):gsub("%s+$", "")
+        local key = name:lower()
+        if name ~= "" and not seen[key] and #names < 25 then
+            seen[key] = true
+            names[#names + 1] = name
+        end
+    end
+    return names
+end
+
+local function inviteCalendarGuests(calendar, settings, priorSettings)
+    local warnings = {}
+    priorSettings = priorSettings or {}
+    local priorSelected = parseInviteNames(priorSettings.inviteNames)
+    local selected = {}
+    if settings.inviteMode == "selected" then
+        for _, name in ipairs(parseInviteNames(settings.inviteNames)) do selected[name:lower()] = true end
+    end
+    if priorSettings.inviteMode == "selected" and #priorSelected > 0 then
+        if type(calendar.GetNumInvites) == "function" and type(calendar.EventGetInvite) == "function"
+            and type(calendar.EventRemoveInvite) == "function" then
+            for index = calendar.GetNumInvites(), 1, -1 do
+                local invite = calendar.EventGetInvite(index)
+                local name = invite and invite.name
+                if name and not selected[name:lower()] then
+                    local wasManaged = false
+                    for _, previousName in ipairs(priorSelected) do
+                        if previousName:lower() == name:lower() then wasManaged = true; break end
+                    end
+                    if wasManaged then
+                        local ok, err = pcall(calendar.EventRemoveInvite, index)
+                        if not ok then warnings[#warnings + 1] = "Could not remove invite for " .. name .. ": " .. tostring(err) end
+                    end
+                end
+            end
+        else
+            warnings[#warnings + 1] = "This client cannot remove previously selected player invites."
+        end
+    elseif priorSettings.inviteMode == "guild" and settings.inviteMode ~= "guild" then
+        warnings[#warnings + 1] = "Previously sent mass guild invites remain on the in-game calendar."
+    end
+    if settings.inviteMode == "guild" and priorSettings.inviteMode ~= "guild" then
+        if type(calendar.MassInviteGuild) == "function" then
+            local ok, err = pcall(calendar.MassInviteGuild, 1, 100, 99)
+            if not ok then warnings[#warnings + 1] = "Mass invite failed: " .. tostring(err) end
+        else
+            warnings[#warnings + 1] = "Mass guild invite is unavailable in this client."
+        end
+    elseif settings.inviteMode == "selected" then
+        local prior = {}
+        for _, name in ipairs(priorSelected) do prior[name:lower()] = true end
+        for _, name in ipairs(parseInviteNames(settings.inviteNames)) do
+            if not prior[name:lower()] then
+                if type(calendar.EventInvite) == "function" then
+                    local ok, err = pcall(calendar.EventInvite, name)
+                    if not ok then warnings[#warnings + 1] = "Invite failed for " .. name .. ": " .. tostring(err) end
+                else
+                    warnings[#warnings + 1] = "Named invites are unavailable in this client."
+                    break
+                end
+            end
+        end
+    end
+    return warnings
+end
+
+function GH:PostEvent(at, title, details, eventType, calendarSettings)
     if not self:CanManage() then return false, "Only the guild leader or rank 1 can post events." end
     if not at or not title or title == "" then return false, "Enter a valid date, time, and event title." end
     eventType = eventType == "raid" and "raid" or "event"
-    local record = self:NewRecord({ at = at, title = title:sub(1, 100), details = (details or ""):sub(1, 300), eventType = eventType, rsvps = {} })
+    local settings = normalizeCalendarSettings(calendarSettings, eventType)
+    eventType = settings.category == "Raid" and "raid" or "event"
+    local record = self:NewRecord({ at = at, title = title:sub(1, 100), details = (details or ""):sub(1, 300), eventType = eventType, calendarSettings = settings, rsvps = {} })
     local kind = eventType == "raid" and "D" or "E"
     self:StoreRecord("events", record, kind, encodeEvent(record))
     return true, (eventType == "raid" and "Raid" or "Event") .. " saved and sent to online Guild Hall users."
@@ -80,24 +188,28 @@ GH:RegisterRecordHandler("EVX", function(id, ts, author)
     if GH.RefreshUI then GH:RefreshUI() end
 end)
 
-function GH:EditEvent(eventId, at, title, details)
+function GH:EditEvent(eventId, at, title, details, calendarSettings)
     if not self:CanManage() then return false, "Only the guild leader or rank 1 can edit events." end
     local event = findEvent(eventId)
     if not event then return false, "That event is no longer available." end
     if not at or not title or title == "" then return false, "Enter a valid date, time, and event title." end
 
     local player = UnitName and UnitName("player") or "Guild officer"
-    local calendarUpdated, calendarMessage = self:UpdateGameCalendarEvent(event, at, title, details)
+    local settings = normalizeCalendarSettings(calendarSettings or event.calendarSettings, event.eventType)
+    local calendarUpdated, calendarMessage = self:UpdateGameCalendarEvent(event, at, title, details, settings)
 
     local updated = { id = event.id, ts = math.max(time(), (event.ts or 0) + 1), by = player,
         at = at, title = title:sub(1, 100), details = (details or ""):sub(1, 300),
-        eventType = event.eventType, rsvps = event.rsvps or {} }
+        eventType = settings.category == "Raid" and "raid" or "event",
+        calendarSettings = settings, rsvps = event.rsvps or {} }
     local _, index = findEvent(eventId)
     self.bucket.events[index] = updated
     self:SendRecord(updated.eventType == "raid" and "D" or "E", updated.id, updated.ts, updated.by, encodeEvent(updated))
     if self.RefreshUI then self:RefreshUI() end
     local result = "Event updated and shared with online Guild Hall users."
-    if calendarUpdated then result = result .. " The in-game guild-calendar entry was updated."
+    if calendarUpdated then
+        result = result .. " The in-game guild-calendar entry was updated."
+        if calendarMessage then result = result .. " " .. calendarMessage end
     elseif calendarMessage and calendarMessage ~= "No matching native guild-calendar entry was found." then
         result = result .. " Calendar copy unchanged: " .. calendarMessage
     end
@@ -172,9 +284,9 @@ local function upcomingEvents()
 end
 GH.GetUpcomingEvents = upcomingEvents
 
-function GH:PostEventFields(dateText, timeText, title, details, eventType)
+function GH:PostEventFields(dateText, timeText, title, details, eventType, calendarSettings)
     local at = parseEventTime(tostring(dateText or "") .. " " .. tostring(timeText or ""))
-    return self:PostEvent(at, title, details, eventType)
+    return self:PostEvent(at, title, details, eventType, calendarSettings)
 end
 
 function GH:ParseEventTimeFields(dateText, timeText)
@@ -190,6 +302,7 @@ function GH:SetRSVPForEvent(eventId, status)
         if candidate.id == eventId then event = candidate; break end
     end
     if not event then return false, "That event is no longer upcoming." end
+    if event.calendarSettings and event.calendarSettings.locked then return false, "Sign-ups are locked for this event." end
     event.rsvps = event.rsvps or {}
     local player, ts = UnitName and UnitName("player") or "Guild member", time()
     event.rsvps[player] = { status = status, ts = ts }
@@ -244,6 +357,11 @@ function GH:AddEventToGameCalendar(eventId)
     -- Calendar writes are protected by the game and must happen directly from
     -- a user click. Convert the shared Unix timestamp to the client's calendar
     -- date, then create a native guild sign-up event that guildmates can see.
+    local settings = normalizeCalendarSettings(event.calendarSettings, event.eventType)
+    if settings.inviteMode == "selected" and #parseInviteNames(settings.inviteNames) == 0 then
+        return false, "Enter at least one player name or choose a different invitation option."
+    end
+    local inviteWarnings = {}
     local ok, err = pcall(function()
         local calendarTime = C_DateAndTime.GetCalendarTimeFromEpoch(event.at * 1000000)
         if type(calendarTime) ~= "table" or not calendarTime.year or not calendarTime.month
@@ -252,10 +370,20 @@ function GH:AddEventToGameCalendar(eventId)
         end
         calendar.CreateGuildSignUpEvent()
         calendar.EventSetTitle((event.title or "Guild event"):sub(1, 64))
+        if type(calendar.EventSetType) == "function" then
+            calendar.EventSetType(CALENDAR_TYPES[settings.category] or CALENDAR_TYPES.Other)
+        end
         calendar.EventSetDate(calendarTime.month, calendarTime.monthDay, calendarTime.year)
         calendar.EventSetTime(calendarTime.hour, calendarTime.minute)
         if type(calendar.EventSetDescription) == "function" then
             calendar.EventSetDescription((event.details or ""):sub(1, 255))
+        end
+        for _, warning in ipairs(inviteCalendarGuests(calendar, settings)) do
+            inviteWarnings[#inviteWarnings + 1] = warning
+        end
+        if settings.locked then
+            if type(calendar.EventSetLocked) == "function" then calendar.EventSetLocked()
+            else inviteWarnings[#inviteWarnings + 1] = "Locking sign-ups is unavailable in this client." end
         end
         calendar.AddEvent()
     end)
@@ -263,7 +391,9 @@ function GH:AddEventToGameCalendar(eventId)
 
     GuildHallDB.calendarExports[eventId] = time()
     if self.RefreshUI then self:RefreshUI() end
-    return true, "Guild sign-up event added to the in-game calendar."
+    local message = "Guild sign-up event added to the in-game calendar."
+    if #inviteWarnings > 0 then message = message .. " " .. table.concat(inviteWarnings, " ") end
+    return true, message
 end
 
 local function findGameCalendarEvent(event)
@@ -291,10 +421,10 @@ local function findGameCalendarEvent(event)
     if not calendar.OpenEvent(match.index.offsetMonths, match.index.monthDay, match.index.eventIndex) then
         return nil, "The native calendar entry could not be opened. Try again after the calendar finishes loading."
     end
-    return match.info, nil, target
+    return match.info, nil, target, match.index
 end
 
-function GH:UpdateGameCalendarEvent(oldEvent, at, title, details)
+function GH:UpdateGameCalendarEvent(oldEvent, at, title, details, settings)
     local calendar = C_Calendar
     if not calendar or type(calendar.UpdateEvent) ~= "function" then
         return false, "Your game client does not provide calendar event editing."
@@ -305,28 +435,62 @@ function GH:UpdateGameCalendarEvent(oldEvent, at, title, details)
         return false, "The game calendar does not grant this officer permission to edit that entry."
     end
     local target = C_DateAndTime.GetCalendarTimeFromEpoch(at * 1000000)
+    settings = normalizeCalendarSettings(settings or oldEvent.calendarSettings, oldEvent.eventType)
+    if settings.inviteMode == "selected" and #parseInviteNames(settings.inviteNames) == 0 then
+        return false, "Enter at least one player name or choose a different invitation option."
+    end
+    local inviteWarnings = {}
     local ok, err = pcall(function()
         calendar.EventSetTitle((title or "Guild event"):sub(1, 64))
+        if type(calendar.EventSetType) == "function" then
+            calendar.EventSetType(CALENDAR_TYPES[settings.category] or CALENDAR_TYPES.Other)
+        end
         calendar.EventSetDate(target.month, target.monthDay, target.year)
         calendar.EventSetTime(target.hour, target.minute)
         if calendar.EventSetDescription then calendar.EventSetDescription((details or ""):sub(1, 255)) end
+        local currentInfo = type(calendar.GetEventInfo) == "function" and calendar.GetEventInfo() or nil
+        for _, warning in ipairs(inviteCalendarGuests(calendar, settings, oldEvent.calendarSettings)) do
+            inviteWarnings[#inviteWarnings + 1] = warning
+        end
+        if settings.locked and not (currentInfo and currentInfo.isLocked) then
+            if type(calendar.EventSetLocked) == "function" then calendar.EventSetLocked()
+            else inviteWarnings[#inviteWarnings + 1] = "Locking sign-ups is unavailable in this client." end
+        elseif not settings.locked and currentInfo and currentInfo.isLocked then
+            if type(calendar.EventClearLocked) == "function" then calendar.EventClearLocked()
+            else inviteWarnings[#inviteWarnings + 1] = "Unlocking sign-ups is unavailable in this client." end
+        end
         calendar.UpdateEvent()
     end)
     if not ok then return false, "Could not update the in-game calendar entry: " .. tostring(err) end
-    return true
+    return true, #inviteWarnings > 0 and table.concat(inviteWarnings, " ") or nil
 end
 
 function GH:RemoveGameCalendarEvent(event)
     local calendar = C_Calendar
-    if not calendar or type(calendar.RemoveEvent) ~= "function" then
+    if not calendar or (type(calendar.RemoveEvent) ~= "function" and type(calendar.ContextMenuEventRemove) ~= "function") then
         return false, "Your game client does not provide calendar event removal."
     end
-    local selected, reason = findGameCalendarEvent(event)
+    local selected, reason, _, eventIndex = findGameCalendarEvent(event)
     if not selected then return false, reason end
-    if type(calendar.EventCanEdit) == "function" and not calendar.EventCanEdit() then
-        return false, "The game calendar does not grant this officer permission to remove that entry."
+    local ok, err
+    if eventIndex and type(calendar.ContextMenuSelectEvent) == "function"
+        and type(calendar.ContextMenuEventRemove) == "function" then
+        local canRemove = type(calendar.ContextMenuEventCanRemove) ~= "function"
+            or calendar.ContextMenuEventCanRemove(eventIndex.offsetMonths, eventIndex.monthDay, eventIndex.eventIndex)
+        if not canRemove then return false, "The game calendar does not grant this officer permission to remove that entry." end
+        ok, err = pcall(function()
+            calendar.ContextMenuSelectEvent(eventIndex.offsetMonths, eventIndex.monthDay, eventIndex.eventIndex)
+            calendar.ContextMenuEventRemove()
+        end)
+    else
+        if type(calendar.RemoveEvent) ~= "function" then
+            return false, "Your game client does not expose a usable calendar removal action."
+        end
+        if type(calendar.EventCanEdit) == "function" and not calendar.EventCanEdit() then
+            return false, "The game calendar does not grant this officer permission to remove that entry."
+        end
+        ok, err = pcall(calendar.RemoveEvent)
     end
-    local ok, err = pcall(calendar.RemoveEvent)
     if not ok then return false, "Could not remove the in-game calendar entry: " .. tostring(err) end
     return true
 end
