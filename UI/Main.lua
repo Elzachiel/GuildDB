@@ -1304,10 +1304,7 @@ function GH:RefreshUI()
             row.calendarButton.eventId = event.id
             row.editButton.eventId = event.id
             row.deleteButton.eventId = event.id
-            local playerName = UnitName and UnitName("player") or ""
-            playerName = tostring(playerName):match("^([^-]+)") or tostring(playerName)
-            local eventOwner = tostring(event.by or ""):match("^([^-]+)") or tostring(event.by or "")
-            local canManageEvent = self:CanManage() and playerName:lower() == eventOwner:lower()
+            local canManageEvent = self:CanManage()
             row.editButton:SetShown(canManageEvent)
             row.deleteButton:SetShown(canManageEvent)
             local calendarExports = GuildHallDB and GuildHallDB.calendarExports

@@ -86,17 +86,8 @@ function GH:EditEvent(eventId, at, title, details)
     if not event then return false, "That event is no longer available." end
     if not at or not title or title == "" then return false, "Enter a valid date, time, and event title." end
 
-    local player = UnitName and UnitName("player") or "Guild member"
-    local owner = tostring(event.by or ""):match("^([^-]+)") or tostring(event.by or "")
-    local current = tostring(player):match("^([^-]+)") or tostring(player)
-    if current:lower() ~= owner:lower() then
-        return false, "Only the event creator can edit it, so its game-calendar entry stays under the same owner."
-    end
-
-    if GuildHallDB and GuildHallDB.calendarExports and GuildHallDB.calendarExports[eventId] then
-        local ok, message = self:UpdateGameCalendarEvent(event, at, title, details)
-        if not ok then return false, message end
-    end
+    local player = UnitName and UnitName("player") or "Guild officer"
+    local calendarUpdated, calendarMessage = self:UpdateGameCalendarEvent(event, at, title, details)
 
     local updated = { id = event.id, ts = math.max(time(), (event.ts or 0) + 1), by = player,
         at = at, title = title:sub(1, 100), details = (details or ""):sub(1, 300),
@@ -105,26 +96,22 @@ function GH:EditEvent(eventId, at, title, details)
     self.bucket.events[index] = updated
     self:SendRecord(updated.eventType == "raid" and "D" or "E", updated.id, updated.ts, updated.by, encodeEvent(updated))
     if self.RefreshUI then self:RefreshUI() end
-    return true, "Event updated and shared with online Guild Hall users."
+    local result = "Event updated and shared with online Guild Hall users."
+    if calendarUpdated then result = result .. " The in-game guild-calendar entry was updated."
+    elseif calendarMessage and calendarMessage ~= "No matching native guild-calendar entry was found." then
+        result = result .. " Calendar copy unchanged: " .. calendarMessage
+    end
+    return true, result
 end
 
 function GH:DeleteEvent(eventId)
     if not self:CanManage() then return false, "Only the guild leader or rank 1 can remove events." end
     local event, index = findEvent(eventId)
     if not event then return false, "That event is no longer available." end
-    local player = UnitName and UnitName("player") or "Guild member"
-    local owner = tostring(event.by or ""):match("^([^-]+)") or tostring(event.by or "")
-    local current = tostring(player):match("^([^-]+)") or tostring(player)
-    if current:lower() ~= owner:lower() then
-        return false, "Only the event creator can remove it, so its game-calendar entry stays under the same owner."
-    end
-
-    local removedCalendarEntry = false
-    if GuildHallDB and GuildHallDB.calendarExports and GuildHallDB.calendarExports[eventId] then
-        local ok, message = self:RemoveGameCalendarEvent(event)
-        if not ok then return false, message end
+    local player = UnitName and UnitName("player") or "Guild officer"
+    local removedCalendarEntry, calendarMessage = self:RemoveGameCalendarEvent(event)
+    if removedCalendarEntry and GuildHallDB and GuildHallDB.calendarExports then
         GuildHallDB.calendarExports[eventId] = nil
-        removedCalendarEntry = true
     end
     local ts = math.max(time(), (event.ts or 0) + 1)
     table.remove(self.bucket.events, index)
@@ -132,8 +119,12 @@ function GH:DeleteEvent(eventId)
     self.bucket.eventDeletes[eventId] = { ts = ts, by = player }
     self:SendRecord("EVX", eventId, ts, player, "")
     if self.RefreshUI then self:RefreshUI() end
-    return true, removedCalendarEntry and "Event removed from Guild Hall and the in-game guild calendar."
-        or "Event removed from Guild Hall and synced with online Guild Hall users."
+    local result = "Event removed from Guild Hall and synced with online Guild Hall users."
+    if removedCalendarEntry then result = result .. " The in-game guild-calendar entry was removed."
+    elseif calendarMessage and calendarMessage ~= "No matching native guild-calendar entry was found." then
+        result = result .. " Calendar copy unchanged: " .. calendarMessage
+    end
+    return true, result
 end
 
 GH:RegisterRecordHandler("R", function(id, ts, author, content)
@@ -310,6 +301,9 @@ function GH:UpdateGameCalendarEvent(oldEvent, at, title, details)
     end
     local selected, reason = findGameCalendarEvent(oldEvent)
     if not selected then return false, reason end
+    if type(calendar.EventCanEdit) == "function" and not calendar.EventCanEdit() then
+        return false, "The game calendar does not grant this officer permission to edit that entry."
+    end
     local target = C_DateAndTime.GetCalendarTimeFromEpoch(at * 1000000)
     local ok, err = pcall(function()
         calendar.EventSetTitle((title or "Guild event"):sub(1, 64))
@@ -329,6 +323,9 @@ function GH:RemoveGameCalendarEvent(event)
     end
     local selected, reason = findGameCalendarEvent(event)
     if not selected then return false, reason end
+    if type(calendar.EventCanEdit) == "function" and not calendar.EventCanEdit() then
+        return false, "The game calendar does not grant this officer permission to remove that entry."
+    end
     local ok, err = pcall(calendar.RemoveEvent)
     if not ok then return false, "Could not remove the in-game calendar entry: " .. tostring(err) end
     return true
