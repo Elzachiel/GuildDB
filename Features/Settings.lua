@@ -64,7 +64,7 @@ function GH:SetSetting(key, value)
     if key == "onlineOnly" then
         if self.frame and self.frame.rosterOnlineCheck then
             self.frame.rosterOnlineOnly = value ~= false
-            self.frame.rosterOnlineCheck:SetChecked(self.frame.rosterOnlineOnly)
+            self.frame.rosterOnlineCheck.mark:SetShown(self.frame.rosterOnlineOnly)
         end
         if self.RebuildRoster then self:RebuildRoster() end
     end
