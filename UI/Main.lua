@@ -589,7 +589,24 @@ local function build()
         showInputForm("Start a PvP season", {
             { label = "Season name", value = "Season " .. tostring(currentNumber + 1), max = 80 },
             { label = "End date DD-MM-YYYY (local, inclusive)", value = date("%d-%m-%Y", time() + 30 * 86400), max = 10 },
-        }, function(values) return GH:StartPvPSeason(values[1], values[2]) end, "Create", true)
+            { label = "Season action (restart erases ALL PvP stats)", value = "Create next season", options = { "Create next season", "Restart Season 1 - erase all PvP stats" } },
+        }, function(values)
+            local restart = values[3] == "Restart Season 1 - erase all PvP stats"
+            if restart then
+                showInputForm("Restart Season 1: erase all PvP stats?", {
+                    { label = "Type RESET to erase all-time stats and seasons", value = "", max = 5 },
+                }, function(confirm)
+                    if confirm[1] ~= "RESET" then return false, "Type RESET to confirm." end
+                    local ok, result = GH:StartPvPSeason("Season 1", values[2], true)
+                    if ok then frame.pvpSelectedStart = nil; frame.pvpAllTime = false end
+                    return ok, result
+                end, "Restart", true)
+                return true
+            end
+            local ok, result = GH:StartPvPSeason(values[1], values[2])
+            if ok then frame.pvpSelectedStart = nil; frame.pvpAllTime = false end
+            return ok, result
+        end, "Create", true)
     end)
     frame.pvpScopeButton = CreateFrame("Button", nil, frame.detailPanel, "UIPanelButtonTemplate")
     GH:StyleButton(frame.pvpScopeButton)
@@ -611,6 +628,7 @@ local function build()
     frame.pvpScopeButton:SetScript("OnClick", function()
         if seasonMenu:IsShown() then seasonMenu:Hide(); return end
         local choices = GH:GetPvPSeasons()
+        choices[#choices + 1] = { name = "Tracking details", tracking = true }
         for index, choice in ipairs(choices) do
             local option = seasonMenu.buttons[index]
             if not option then
@@ -622,7 +640,15 @@ local function build()
             end
             option:SetText(choice.name)
             local start = choice.start
+            local tracking = choice.tracking
             option:SetScript("OnClick", function()
+                if tracking then
+                    seasonMenu:Hide()
+                    showInputForm("PvP tracking details", {
+                        { label = "Last tracking result", value = (GH.pvpTrackingStatus or "No honor or kill-credit event received this session.") .. "\n\nLast honor message:\n" .. (GH.pvpLastHonorMessage or "None received"), multiline = true, readOnly = true, max = 1000 },
+                    }, function() return true end, "Done", true)
+                    return
+                end
                 frame.pvpSelectedStart = start
                 frame.pvpAllTime = start == 0
                 seasonMenu:Hide()

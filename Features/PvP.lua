@@ -9,6 +9,12 @@ GH:RegisterBucket("pvpSeasons", function() return {} end)
 local seenPlayers = {}
 local honorCredits = {}
 local creditScheduled = false
+local lastTarget
+local captureVisiblePlayers
+
+local function trackingNote(message)
+    GH.pvpTrackingStatus = message
+end
 
 local function totalsKey(start, player)
     return tostring(start) .. "|" .. player
@@ -162,10 +168,12 @@ local function historyFor(victim)
 end
 
 local function recordKill(victim, victimLevel, outdoors)
-    if not GH.bucket or not outdoors or not victim or victim == "" then return end
+    if not GH.bucket then trackingNote("No guild data available"); return end
+    if not outdoors then trackingNote("Reward ignored: instanced area"); return end
+    if not victim or victim == "" then trackingNote("Reward received without an identified enemy"); return end
     local history, now = historyFor(victim)
-    if #history > 0 and now - history[#history] < 300 then return end
-    if #history >= 5 then return end
+    if #history > 0 and now - history[#history] < 300 then trackingNote("Repeat victim: five-minute limit"); return end
+    if #history >= 5 then trackingNote("Repeat victim: daily limit"); return end
     history[#history + 1] = now
     local level = tonumber(victimLevel) or 0
     local ownLevel = UnitLevel and tonumber(UnitLevel("player")) or 60
@@ -174,6 +182,7 @@ local function recordKill(victim, victimLevel, outdoors)
     local record = GH:NewRecord({ victim = victim, victimLevel = level, points = pointsForLevel(level) })
     record.id = tostring(time()) .. "-pvp-" .. tostring(math.random(100000, 999999))
     addLocalStat("kills", record.points)
+    trackingNote("Recorded " .. victim .. ": +" .. record.points .. " points")
     if GH.ShowPvPPopup then
         local player = playerName()
         local seasonStart = (GH.bucket.pvpSeason or {}).start or 0
@@ -267,10 +276,17 @@ end
 
 local function victimFromHonorMessage(message)
     if type(message) ~= "string" then return end
+    message = message:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+    message = message:gsub("|H.-|h(.-)|h", "%1"):gsub("^%s+", ""):gsub("%s+$", "")
     if not honorPatterns then buildHonorPatterns() end
     for _, pattern in ipairs(honorPatterns) do
         local name = message:match(pattern)
         if name and name ~= "" then return name end
+    end
+    -- Some clients change capitalization or punctuation in the English text.
+    local at = message:lower():find(" dies", 1, true)
+    if at and message:lower():find("honorable kill", at, true) then
+        return message:sub(1, at - 1)
     end
 end
 
@@ -313,7 +329,13 @@ local function resolveCredits()
             candidate = seen
         end
     end
-    if candidate then recordKill(candidate.name, candidate.level, true) end
+    if not candidate and lastTarget and GetTime() - lastTarget.targetAt <= 15 then
+        local guid = UnitGUID and UnitGUID("target")
+        local dead = UnitIsDeadOrGhost and UnitIsDeadOrGhost("target")
+        if guid ~= lastTarget.guid or dead then candidate = lastTarget end
+    end
+    if candidate then recordKill(candidate.name, candidate.level, true)
+    else trackingNote("Kill credit received; enemy could not be identified") end
 end
 
 local function queueCredit(victim)
@@ -325,11 +347,20 @@ local function queueCredit(victim)
 end
 
 GH:RegisterEventHandler("CHAT_MSG_COMBAT_HONOR_GAIN", function(_, message)
+    GH.pvpLastHonorMessage = type(message) == "string" and message or "Honor event had no readable text"
+    if captureVisiblePlayers then captureVisiblePlayers() end
     local victim = victimFromHonorMessage(message)
-    if victim then queueCredit(victim) end
+    if victim then queueCredit(victim)
+    else
+        trackingNote("Unrecognized honor message: " .. tostring(message))
+        -- Honor without a name still requires a recently observed death;
+        -- it cannot create an anonymous leaderboard kill.
+        queueCredit(nil)
+    end
 end)
 GH:RegisterEventHandler("PLAYER_PVP_KILLS_CHANGED", function(_, unit)
-    if unit and unit ~= "player" then return end
+    if type(unit) == "string" and unit ~= "player" then return end
+    if captureVisiblePlayers then captureVisiblePlayers() end
     queueCredit(nil)
 end)
 
@@ -370,6 +401,7 @@ local function capturePlayer(unit)
     if type(guid) ~= "string" or type(name) ~= "string" or name == "" then return end
     local level = UnitLevel and tonumber(UnitLevel(unit)) or 0
     local seen = seenPlayers[guid] or {}
+    seen.guid = guid
     seen.name, seen.level, seen.seen = name, level or 0, GetTime()
     if UnitIsDeadOrGhost and UnitIsDeadOrGhost(unit) then
         if seen.alive and not seen.diedAt then seen.diedAt = seen.seen end
@@ -377,9 +409,10 @@ local function capturePlayer(unit)
         seen.alive, seen.diedAt = true, nil
     end
     seenPlayers[guid] = seen
+    if unit == "target" then seen.targetAt = seen.seen; lastTarget = seen end
 end
 
-local function captureVisiblePlayers()
+captureVisiblePlayers = function()
     capturePlayer("target")
     capturePlayer("mouseover")
     capturePlayer("focus")
@@ -397,8 +430,8 @@ GH:RegisterEventHandler("NAME_PLATE_UNIT_REMOVED", function(_, unit) capturePlay
 GH:RegisterEventHandler("UNIT_HEALTH", function(_, unit)
     if unit == "target" or unit == "focus" then capturePlayer(unit) end
 end)
-GH:RegisterEventHandler("PLAYER_ENTERING_WORLD", function() seenPlayers = {} end)
-function GH:StartPvPSeason(name, endDate)
+GH:RegisterEventHandler("PLAYER_ENTERING_WORLD", function() seenPlayers = {}; lastTarget = nil end)
+function GH:StartPvPSeason(name, endDate, restart)
     if not self:CanManagePvPSeason() then return false, "Only the guild master can start a PvP season." end
     name = (name or ""):gsub("^%s+", ""):gsub("%s+$", "")
     if name == "" or #name > 80 then return false, "Enter a season name (up to 80 characters)." end
@@ -413,6 +446,13 @@ function GH:StartPvPSeason(name, endDate)
     if not midnight or date("%d-%m-%Y", midnight) ~= endDate then return false, "Enter a valid end date." end
     local ends = time({ year = year, month = month, day = day + 1, hour = 0, min = 0, sec = 0 })
     if ends <= ts then return false, "The end date must be today or later." end
+    if restart then
+        local ok, result = self:WipePvPStats()
+        if not ok then return false, result end
+        name = "Season 1"
+        ts = math.max(time(), resetTime() + 1)
+    end
+    if ends <= ts then return false, "Choose a later end date." end
     local player = playerName()
     local previous = self.bucket.pvpSeason
     if previous and (previous.start or 0) > 0 then
