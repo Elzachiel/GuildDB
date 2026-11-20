@@ -34,8 +34,8 @@ local function unitLocation()
 end
 
 local function refreshMapPins()
-    if GH.mapDataProvider and WorldMapFrame and WorldMapFrame:IsShown() then
-        GH.mapDataProvider:RefreshAllData()
+    if GH.RefreshMapPins and WorldMapFrame and WorldMapFrame:IsShown() then
+        GH:RefreshMapPins()
     end
 end
 
@@ -174,167 +174,76 @@ local function mapTabText()
 end
 GH:RegisterTab("Map", mapTabText)
 
-GuildHallMapPinMixin = {}
+local mapMemberIcons = {}
 
--- Convert a point between map levels using the map hierarchy. GetMapPosFromWorldPos
--- is inconsistent for some legacy/continent maps, while map rectangles are available
--- for both the source and the map currently shown by the canvas.
-local function mapAncestors(mapID)
-    local chain, seen = {}, {}
-    while mapID and not seen[mapID] do
-        chain[#chain + 1] = mapID
-        seen[mapID] = true
-        local info = C_Map and C_Map.GetMapInfo and C_Map.GetMapInfo(mapID)
-        mapID = info and info.parentMapID
-    end
-    return chain
+local function getMapLibraries()
+    if not LibStub then return end
+    return LibStub("HereBeDragons-2.0", true), LibStub("HereBeDragons-Pins-2.0", true)
 end
 
-local function mapRect(childID, parentID)
-    if not C_Map or not C_Map.GetMapRectOnMap then return end
-    local left, right, top, bottom = C_Map.GetMapRectOnMap(childID, parentID)
-    if left == nil or right == nil or top == nil or bottom == nil then return end
-    return left, right, top, bottom
+local function createMemberIcon()
+    local icon = CreateFrame("Frame", nil, UIParent)
+    icon:SetSize(14, 14)
+    icon.dotOutline = icon:CreateTexture(nil, "ARTWORK")
+    icon.dotOutline:SetSize(11, 11)
+    icon.dotOutline:SetPoint("CENTER")
+    icon.dotOutline:SetTexture("Interface\\AddOns\\GuildHall\\Assets\\MapDot")
+    icon.dotOutline:SetVertexColor(0, 0, 0, 1)
+    icon.dot = icon:CreateTexture(nil, "OVERLAY")
+    icon.dot:SetSize(8, 8)
+    icon.dot:SetPoint("CENTER")
+    icon.dot:SetTexture("Interface\\AddOns\\GuildHall\\Assets\\MapDot")
+    icon.label = icon:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    icon.label:SetPoint("BOTTOM", icon, "TOP", 0, 3)
+    icon.label:SetTextColor(1, 1, 1, 1)
+    icon.label:SetShadowColor(0, 0, 0, 1)
+    icon.label:SetShadowOffset(1, -1)
+    icon:EnableMouse(true)
+    icon:SetScript("OnEnter", function(frame)
+        GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
+        GameTooltip:SetText(frame.memberName or "Guild member")
+        GameTooltip:AddLine(frame.zone or "", 0.8, 0.85, 0.9)
+        GameTooltip:AddLine(("%.1f, %.1f"):format((frame.x or 0) * 100, (frame.y or 0) * 100), 0.6, 0.8, 1)
+        GameTooltip:AddLine("Live GuildHall location pin", 0.6, 0.8, 1)
+        GameTooltip:Show()
+    end)
+    icon:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return icon
 end
 
-local function convertMapPosition(sourceID, x, y, targetID)
-    if sourceID == targetID then return x, y end
-    -- Use Blizzard's world-coordinate conversion first. It handles zone maps whose
-    -- map hierarchy rectangles are incomplete (common on older continent maps).
-    if C_Map and C_Map.GetWorldPosFromMapPos and C_Map.GetMapPosFromWorldPos then
-        local sourcePosition = CreateVector2D and CreateVector2D(x, y) or { x = x, y = y }
-        local continentID, worldPosition = C_Map.GetWorldPosFromMapPos(sourceID, sourcePosition)
-        if continentID and worldPosition then
-            local convertedID, mapPosition = C_Map.GetMapPosFromWorldPos(continentID, worldPosition, targetID)
-            if mapPosition and (convertedID == targetID or convertedID == nil) then
-                local mapX, mapY
-                if mapPosition.GetXY then mapX, mapY = mapPosition:GetXY()
-                else mapX, mapY = mapPosition.x, mapPosition.y end
-                if mapX and mapY and mapX >= 0 and mapX <= 1 and mapY >= 0 and mapY <= 1 then
-                    return mapX, mapY
-                end
-            end
-        end
-    end
-    local sourceChain, targetChain = mapAncestors(sourceID), mapAncestors(targetID)
-    local targetSet = {}
-    for _, id in ipairs(targetChain) do targetSet[id] = true end
-    local common
-    for _, id in ipairs(sourceChain) do
-        if targetSet[id] then common = id; break end
-    end
-    if not common then return end
+function GH:RefreshMapPins()
+    local HBD, HBDPins = getMapLibraries()
+    if not (HBD and HBDPins and WorldMapFrame) then return end
 
-    local mapID = sourceID
-    while mapID ~= common do
-        local info = C_Map.GetMapInfo(mapID)
-        local parentID = info and info.parentMapID
-        local left, right, top, bottom = mapRect(mapID, parentID)
-        if not left or not parentID then return end
-        x, y = left + (right - left) * x, top + (bottom - top) * y
-        mapID = parentID
-    end
-
-    local targetPath = {}
-    mapID = targetID
-    while mapID ~= common do
-        targetPath[#targetPath + 1] = mapID
-        local info = C_Map.GetMapInfo(mapID)
-        mapID = info and info.parentMapID
-        if not mapID then return end
-    end
-    for i = #targetPath, 1, -1 do
-        local childID = targetPath[i]
-        local left, right, top, bottom = mapRect(childID, C_Map.GetMapInfo(childID).parentMapID)
-        if not left or right == left or bottom == top then return end
-        x, y = (x - left) / (right - left), (y - top) / (bottom - top)
-    end
-    if x < 0 or x > 1 or y < 0 or y > 1 then return end
-    return x, y
-end
-
-local function attachMapProvider()
-    if not (MapCanvasDataProviderMixin and MapCanvasPinMixin and CreateFromMixins and WorldMapFrame and WorldMapFrame.AddDataProvider) then return end
-    if GH.mapDataProvider then return end
-    GuildHallMapPinMixin = CreateFromMixins(MapCanvasPinMixin)
-    GuildHallMapPinMixin.OnLoad = function(self)
-        self:SetSize(14, 14)
-        local function createDot(size, layer)
-            local texture = self:CreateTexture(nil, layer)
-            texture:SetSize(size, size)
-            texture:SetPoint("CENTER")
-            texture:SetTexture("Interface\\AddOns\\GuildHall\\Assets\\MapDot")
-            return texture
-        end
-        self.outline = createDot(11, "ARTWORK")
-        self.outline:SetVertexColor(0, 0, 0, 1)
-        self.dot = createDot(8, "OVERLAY")
-        self.text = self:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        self.text:SetPoint("BOTTOM", self, "TOP", 0, 3)
-        self.text:SetTextColor(1, 1, 1, 1)
-        self.text:SetShadowColor(0, 0, 0, 1)
-        self.text:SetShadowOffset(1, -1)
-        self:EnableMouse(true)
-        self:SetScript("OnEnter", function(pin)
-            GameTooltip:SetOwner(pin, "ANCHOR_RIGHT")
-            GameTooltip:SetText(pin.memberName or "Guild member")
-            GameTooltip:AddLine(pin.zone or "", 0.8, 0.85, 0.9)
-            GameTooltip:AddLine(("%.1f, %.1f"):format((pin.x or 0) * 100, (pin.y or 0) * 100), 0.6, 0.8, 1)
-            GameTooltip:AddLine("Live GuildHall location pin", 0.6, 0.8, 1)
-            GameTooltip:Show()
-        end)
-        self:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    end
-    GuildHallMapPinMixin.OnAcquired = function(self, report)
-        self.report = report
-        self.memberName, self.zone = report.name, report.zone
-        self.x, self.y = report.x, report.y
+    HBDPins:RemoveAllWorldMapIcons(self)
+    local activeIcons = {}
+    for _, report in ipairs(self:GetMapReports()) do
+        local key = normalizeMemberKey(report.name)
+        local icon = mapMemberIcons[key] or createMemberIcon()
+        mapMemberIcons[key] = icon
+        icon.memberName, icon.zone = report.name, report.zone
+        icon.x, icon.y = report.x, report.y
+        icon.label:SetText((report.name:match("^([^-]+)") or report.name):sub(1, 12))
         local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[report.class or ""]
-        if color then self.dot:SetVertexColor(color.r, color.g, color.b, 1)
-        else self.dot:SetVertexColor(0.8, 0.8, 0.8, 1) end
-        self.text:SetText((report.name:match("^([^-]+)") or report.name):sub(1, 12))
-        self:SetPosition(report.x, report.y)
+        if color then icon.dot:SetVertexColor(color.r, color.g, color.b, 1)
+        else icon.dot:SetVertexColor(0.8, 0.8, 0.8, 1) end
+        icon:Show()
+
+        local added = HBDPins:AddWorldMapIconMap(
+            self, icon, report.mapID, report.x, report.y, HBD_PINS_WORLDMAP_SHOW_WORLD
+        )
+        if added then activeIcons[key] = true else icon:Hide() end
     end
-    GH.mapDataProvider = CreateFromMixins(MapCanvasDataProviderMixin)
-    function GH.mapDataProvider:RemoveAllData()
-        local map = self:GetMap()
-        if map and map.RemoveAllPinsByTemplate then
-            map:RemoveAllPinsByTemplate("GuildHallMapPinTemplate")
-        end
+    for key, icon in pairs(mapMemberIcons) do
+        if not activeIcons[key] then icon:Hide() end
     end
-    function GH.mapDataProvider:OnMapChanged()
-        self:RefreshAllData()
-        -- The map canvas changes its map ID before the map art/coordinate data
-        -- finishes loading. Refresh once more on the next frame for legacy clients.
-        if C_Timer and C_Timer.After then
-            C_Timer.After(0, function()
-                if GH.mapDataProvider == self and self:GetMap() == WorldMapFrame then
-                    self:RefreshAllData()
-                end
-            end)
-        end
-    end
-    function GH.mapDataProvider:RefreshAllData()
-        self:RemoveAllData()
-        local map = self:GetMap()
-        if not map or not map.GetMapID then return end
-        local mapID = map:GetMapID()
-        for _, report in ipairs(GH:GetMapReports()) do
-            local x, y
-            if C_Map and C_Map.GetMapInfo and C_Map.GetMapRectOnMap then
-                x, y = convertMapPosition(report.mapID, report.x, report.y, mapID)
-            end
-            if x and y then
-                local pinReport = { name = report.name, zone = report.zone, class = report.class, mapID = mapID, x = x, y = y, seen = report.seen }
-                map:AcquirePin("GuildHallMapPinTemplate", pinReport)
-            end
-        end
-    end
-    WorldMapFrame:AddDataProvider(GH.mapDataProvider)
 end
 
-GH:RegisterEventHandler("ADDON_LOADED", attachMapProvider)
-GH:RegisterEventHandler("PLAYER_LOGIN", attachMapProvider)
-GH:RegisterEventHandler("WORLD_MAP_OPEN", attachMapProvider)
-if C_Timer and C_Timer.After then C_Timer.After(2, attachMapProvider) end
+GH:RegisterEventHandler("WORLD_MAP_OPEN", function()
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0, refreshMapPins)
+    else
+        refreshMapPins()
+    end
+end)
 
