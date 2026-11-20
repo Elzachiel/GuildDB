@@ -1244,6 +1244,42 @@ function GH:RefreshUI()
                     local _, result = GH:AddEventToGameCalendar(self.eventId)
                     if result then print("Guild Hall: " .. result) end
                 end)
+                row.editButton = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+                GH:StyleButton(row.editButton)
+                row.editButton:SetSize(54, 22)
+                row.editButton:SetPoint("LEFT", row.calendarButton, "RIGHT", 6, 0)
+                row.editButton:SetText("Edit")
+                row.editButton:SetScript("OnClick", function(self)
+                    local event
+                    for _, candidate in ipairs(GH.bucket and GH.bucket.events or {}) do
+                        if candidate.id == self.eventId then event = candidate; break end
+                    end
+                    if not event then return end
+                    showInputForm("Edit guild event", {
+                        { label = "Title", value = event.title or "", max = 100 },
+                        { label = "Date (YYYY-MM-DD)", value = date("%Y-%m-%d", event.at), max = 10 },
+                        { label = "Start time, local (HH:MM, 24-hour)", value = date("%H:%M", event.at), max = 5 },
+                        { label = "Details", value = event.details or "", max = 300, multiline = true },
+                    }, function(values)
+                        local at = GH:ParseEventTimeFields(values[2], values[3])
+                        return GH:EditEvent(self.eventId, at, values[1], values[4])
+                    end)
+                end)
+                row.deleteButton = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+                GH:StyleButton(row.deleteButton)
+                row.deleteButton:SetSize(64, 22)
+                row.deleteButton:SetPoint("LEFT", row.editButton, "RIGHT", 6, 0)
+                row.deleteButton:SetText("Remove")
+                row.deleteButton:SetScript("OnClick", function(self)
+                    showInputForm("Remove guild event", {
+                        { label = "Type REMOVE to confirm", value = "", max = 12 },
+                    }, function(values)
+                        if tostring(values[1] or ""):upper() ~= "REMOVE" then
+                            return false, "Type REMOVE to confirm event removal."
+                        end
+                        return GH:DeleteEvent(self.eventId)
+                    end)
+                end)
                 for buttonIndex, state in ipairs({ { "Going", "going" }, { "Maybe", "tentative" }, { "Absent", "absent" } }) do
                     local button = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
                     GH:StyleButton(button, "primary")
@@ -1266,6 +1302,14 @@ function GH:RefreshUI()
             row.info:SetText(date("%a, %b %d  -  %I:%M %p", event.at) .. "  -  Posted by " .. self:Display(event.by))
             row.details:SetText(self:Display(event.details or ""))
             row.calendarButton.eventId = event.id
+            row.editButton.eventId = event.id
+            row.deleteButton.eventId = event.id
+            local playerName = UnitName and UnitName("player") or ""
+            playerName = tostring(playerName):match("^([^-]+)") or tostring(playerName)
+            local eventOwner = tostring(event.by or ""):match("^([^-]+)") or tostring(event.by or "")
+            local canManageEvent = self:CanManage() and playerName:lower() == eventOwner:lower()
+            row.editButton:SetShown(canManageEvent)
+            row.deleteButton:SetShown(canManageEvent)
             local calendarExports = GuildHallDB and GuildHallDB.calendarExports
             if calendarExports and calendarExports[event.id] then
                 row.calendarButton:SetText("In game calendar")

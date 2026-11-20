@@ -1,6 +1,8 @@
 -- Guild events, raid scheduling, attendee RSVPs, display, and sync.
 local _, GH = ...
 GH:RegisterBucket("events", function() return {} end)
+GH:RegisterBucket("eventDeletes", function() return {} end)
+local syncGameCalendarRSVP
 
 local function parseEventTime(value)
     local y, month, day, hour, minute = value:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)%s+(%d%d):(%d%d)$")
@@ -16,6 +18,43 @@ local function encodeEvent(record)
     return table.concat({ record.at, record.title, record.details or "" }, "\n")
 end
 
+local function findEvent(id)
+    for index, event in ipairs((GH.bucket and GH.bucket.events) or {}) do
+        if event.id == id then return event, index end
+    end
+end
+
+local function eventDeleteTimestamp(id)
+    local value = (GH.bucket.eventDeletes or {})[id]
+    return type(value) == "table" and (tonumber(value.ts) or 0) or (tonumber(value) or 0)
+end
+
+local function isOfficer(name)
+    if not name or not GetNumGuildMembers or not GetGuildRosterInfo then return false end
+    local wanted = (name:match("^([^-]+)") or name):lower()
+    for index = 1, GetNumGuildMembers() do
+        local rosterName, _, rankIndex = GetGuildRosterInfo(index)
+        if rosterName and (rosterName:match("^([^-]+)") or rosterName):lower() == wanted then
+            return tonumber(rankIndex) ~= nil and tonumber(rankIndex) <= 1
+        end
+    end
+    return false
+end
+
+local function storeEvent(id, ts, author, content, eventType)
+    if #id > 100 or #author > 100 or #content > 500 then return end
+    if not isOfficer(author) or eventDeleteTimestamp(id) >= ts then return end
+    local at, title, details = content:match("^(.-)\n(.-)\n(.*)$")
+    at = tonumber(at)
+    if not at or not title or #title > 100 or #details > 300 then return end
+    local current, index = findEvent(id)
+    if current and (current.ts or 0) >= ts then return end
+    local event = { id = id, ts = ts, by = author, at = at, title = title, details = details,
+        eventType = eventType, rsvps = current and current.rsvps or {} }
+    if current then GH.bucket.events[index] = event else table.insert(GH.bucket.events, 1, event) end
+    if GH.RefreshUI then GH:RefreshUI() end
+end
+
 function GH:PostEvent(at, title, details, eventType)
     if not self:CanManage() then return false, "Only the guild leader or rank 1 can post events." end
     if not at or not title or title == "" then return false, "Enter a valid date, time, and event title." end
@@ -27,13 +66,75 @@ function GH:PostEvent(at, title, details, eventType)
 end
 
 local function onEventRecord(kind, id, ts, author, content)
-    local at, title, details = content:match("^(.-)\n(.-)\n(.*)$")
-    at = tonumber(at)
-    if not at or not title or #title > 100 or #details > 300 then return end
-    GH:StoreRecord("events", { id = id, ts = ts, by = author, at = at, title = title, details = details, eventType = kind == "D" and "raid" or "event", rsvps = {} })
+    storeEvent(id, ts, author, content, kind == "D" and "raid" or "event")
 end
 GH:RegisterRecordHandler("E", function(...) onEventRecord("E", ...) end)
 GH:RegisterRecordHandler("D", function(...) onEventRecord("D", ...) end)
+
+GH:RegisterRecordHandler("EVX", function(id, ts, author)
+    if #id > 100 or #author > 100 or not isOfficer(author) or eventDeleteTimestamp(id) >= ts then return end
+    GH.bucket.eventDeletes = GH.bucket.eventDeletes or {}
+    GH.bucket.eventDeletes[id] = { ts = ts, by = author }
+    local _, index = findEvent(id)
+    if index then table.remove(GH.bucket.events, index) end
+    if GH.RefreshUI then GH:RefreshUI() end
+end)
+
+function GH:EditEvent(eventId, at, title, details)
+    if not self:CanManage() then return false, "Only the guild leader or rank 1 can edit events." end
+    local event = findEvent(eventId)
+    if not event then return false, "That event is no longer available." end
+    if not at or not title or title == "" then return false, "Enter a valid date, time, and event title." end
+
+    local player = UnitName and UnitName("player") or "Guild member"
+    local owner = tostring(event.by or ""):match("^([^-]+)") or tostring(event.by or "")
+    local current = tostring(player):match("^([^-]+)") or tostring(player)
+    if current:lower() ~= owner:lower() then
+        return false, "Only the event creator can edit it, so its game-calendar entry stays under the same owner."
+    end
+
+    if GuildHallDB and GuildHallDB.calendarExports and GuildHallDB.calendarExports[eventId] then
+        local ok, message = self:UpdateGameCalendarEvent(event, at, title, details)
+        if not ok then return false, message end
+    end
+
+    local updated = { id = event.id, ts = math.max(time(), (event.ts or 0) + 1), by = player,
+        at = at, title = title:sub(1, 100), details = (details or ""):sub(1, 300),
+        eventType = event.eventType, rsvps = event.rsvps or {} }
+    local _, index = findEvent(eventId)
+    self.bucket.events[index] = updated
+    self:SendRecord(updated.eventType == "raid" and "D" or "E", updated.id, updated.ts, updated.by, encodeEvent(updated))
+    if self.RefreshUI then self:RefreshUI() end
+    return true, "Event updated and shared with online Guild Hall users."
+end
+
+function GH:DeleteEvent(eventId)
+    if not self:CanManage() then return false, "Only the guild leader or rank 1 can remove events." end
+    local event, index = findEvent(eventId)
+    if not event then return false, "That event is no longer available." end
+    local player = UnitName and UnitName("player") or "Guild member"
+    local owner = tostring(event.by or ""):match("^([^-]+)") or tostring(event.by or "")
+    local current = tostring(player):match("^([^-]+)") or tostring(player)
+    if current:lower() ~= owner:lower() then
+        return false, "Only the event creator can remove it, so its game-calendar entry stays under the same owner."
+    end
+
+    local removedCalendarEntry = false
+    if GuildHallDB and GuildHallDB.calendarExports and GuildHallDB.calendarExports[eventId] then
+        local ok, message = self:RemoveGameCalendarEvent(event)
+        if not ok then return false, message end
+        GuildHallDB.calendarExports[eventId] = nil
+        removedCalendarEntry = true
+    end
+    local ts = math.max(time(), (event.ts or 0) + 1)
+    table.remove(self.bucket.events, index)
+    self.bucket.eventDeletes = self.bucket.eventDeletes or {}
+    self.bucket.eventDeletes[eventId] = { ts = ts, by = player }
+    self:SendRecord("EVX", eventId, ts, player, "")
+    if self.RefreshUI then self:RefreshUI() end
+    return true, removedCalendarEntry and "Event removed from Guild Hall and the in-game guild calendar."
+        or "Event removed from Guild Hall and synced with online Guild Hall users."
+end
 
 GH:RegisterRecordHandler("R", function(id, ts, author, content)
     local status = content:lower()
@@ -63,6 +164,11 @@ GH:RegisterHistoryProvider(function()
         GH:SendRecord(event.eventType == "raid" and "D" or "E", event.id, event.ts, event.by, encodeEvent(event))
         for player, response in pairs(event.rsvps or {}) do sendRSVP(event.id, player, response) end
     end
+    for id, info in pairs(GH.bucket.eventDeletes or {}) do
+        local ts = type(info) == "table" and info.ts or tonumber(info)
+        local author = type(info) == "table" and info.by or nil
+        if ts and author then GH:SendRecord("EVX", id, ts, author, "") end
+    end
 end)
 
 local function upcomingEvents()
@@ -80,6 +186,10 @@ function GH:PostEventFields(dateText, timeText, title, details, eventType)
     return self:PostEvent(at, title, details, eventType)
 end
 
+function GH:ParseEventTimeFields(dateText, timeText)
+    return parseEventTime(tostring(dateText or "") .. " " .. tostring(timeText or ""))
+end
+
 function GH:SetRSVPForEvent(eventId, status)
     if not self.bucket then return false, "Join a guild first." end
     status = tostring(status or ""):lower()
@@ -93,8 +203,12 @@ function GH:SetRSVPForEvent(eventId, status)
     local player, ts = UnitName and UnitName("player") or "Guild member", time()
     event.rsvps[player] = { status = status, ts = ts }
     sendRSVP(event.id, player, event.rsvps[player])
+    local calendarSynced = syncGameCalendarRSVP and syncGameCalendarRSVP(event, status)
     if self.RefreshUI then self:RefreshUI() end
-    return true, "RSVP saved as " .. status .. " for " .. event.title .. "."
+    local result = "RSVP saved as " .. status .. " for " .. event.title .. "."
+    if calendarSynced then result = result .. " Your in-game guild-calendar signup was updated."
+    else result = result .. " No matching native calendar entry was found, so this RSVP is in Guild Hall only." end
+    return true, result
 end
 
 function GH:SetRSVP(eventNumber, status)
@@ -159,6 +273,78 @@ function GH:AddEventToGameCalendar(eventId)
     GuildHallDB.calendarExports[eventId] = time()
     if self.RefreshUI then self:RefreshUI() end
     return true, "Guild sign-up event added to the in-game calendar."
+end
+
+local function findGameCalendarEvent(event)
+    local calendar = C_Calendar
+    if not calendar or type(calendar.GetNumGuildEvents) ~= "function"
+        or type(calendar.GetGuildEventInfo) ~= "function" or type(calendar.GetEventIndexInfo) ~= "function"
+        or type(calendar.OpenEvent) ~= "function" then return nil, "Guild calendar lookup is unavailable." end
+    local target = C_DateAndTime and C_DateAndTime.GetCalendarTimeFromEpoch
+        and C_DateAndTime.GetCalendarTimeFromEpoch(event.at * 1000000)
+    if not target then return nil, "Could not convert the event date for the game calendar." end
+
+    local matches = {}
+    for index = 1, (calendar.GetNumGuildEvents() or 0) do
+        local info = calendar.GetGuildEventInfo(index)
+        if info and info.calendarType == "GUILD_EVENT" and info.title == (event.title or ""):sub(1, 64)
+            and info.year == target.year and info.month == target.month and info.monthDay == target.monthDay
+            and info.hour == target.hour and info.minute == target.minute then
+            local eventIndex = info.eventID and calendar.GetEventIndexInfo(info.eventID)
+            if eventIndex then matches[#matches + 1] = { info = info, index = eventIndex } end
+        end
+    end
+    if #matches == 0 then return nil, "No matching native guild-calendar entry was found." end
+    if #matches > 1 then return nil, "More than one calendar entry matches; refusing to change an ambiguous entry." end
+    local match = matches[1]
+    if not calendar.OpenEvent(match.index.offsetMonths, match.index.monthDay, match.index.eventIndex) then
+        return nil, "The native calendar entry could not be opened. Try again after the calendar finishes loading."
+    end
+    return match.info, nil, target
+end
+
+function GH:UpdateGameCalendarEvent(oldEvent, at, title, details)
+    local calendar = C_Calendar
+    if not calendar or type(calendar.UpdateEvent) ~= "function" then
+        return false, "Your game client does not provide calendar event editing."
+    end
+    local selected, reason = findGameCalendarEvent(oldEvent)
+    if not selected then return false, reason end
+    local target = C_DateAndTime.GetCalendarTimeFromEpoch(at * 1000000)
+    local ok, err = pcall(function()
+        calendar.EventSetTitle((title or "Guild event"):sub(1, 64))
+        calendar.EventSetDate(target.month, target.monthDay, target.year)
+        calendar.EventSetTime(target.hour, target.minute)
+        if calendar.EventSetDescription then calendar.EventSetDescription((details or ""):sub(1, 255)) end
+        calendar.UpdateEvent()
+    end)
+    if not ok then return false, "Could not update the in-game calendar entry: " .. tostring(err) end
+    return true
+end
+
+function GH:RemoveGameCalendarEvent(event)
+    local calendar = C_Calendar
+    if not calendar or type(calendar.RemoveEvent) ~= "function" then
+        return false, "Your game client does not provide calendar event removal."
+    end
+    local selected, reason = findGameCalendarEvent(event)
+    if not selected then return false, reason end
+    local ok, err = pcall(calendar.RemoveEvent)
+    if not ok then return false, "Could not remove the in-game calendar entry: " .. tostring(err) end
+    return true
+end
+
+syncGameCalendarRSVP = function(event, status)
+    local calendar = C_Calendar
+    if not calendar then return false end
+    local selected = findGameCalendarEvent(event)
+    if not selected then return false end
+    local action = status == "going" and calendar.EventSignUp
+        or status == "tentative" and calendar.EventTentative
+        or calendar.EventDecline
+    if type(action) ~= "function" then return false end
+    local ok = pcall(action)
+    return ok
 end
 
 local function createCommand(rest, eventType)
