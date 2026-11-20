@@ -1583,7 +1583,10 @@ function GH:IsSyncResponder()
     if not self.roster or #self.roster == 0 then return false end
     local candidates = {}
     for _, member in ipairs(self.roster) do
-        if member.online and member.rankIndex <= 1 then candidates[#candidates + 1] = member end
+        -- Sync can only be served by a client that is actually running Guild
+        -- Hall. Limiting this to officers meant no one answered when the
+        -- online leader/rank-1 member did not have the addon installed.
+        if member.online and self:GetAddonVersion(member.name) then candidates[#candidates + 1] = member end
     end
     table.sort(candidates, function(a, b)
         if a.rankIndex ~= b.rankIndex then return a.rankIndex < b.rankIndex end

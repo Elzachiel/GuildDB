@@ -2,7 +2,7 @@
 local ADDON, GH = ...
 _G.GuildHall = GH
 
-GH.version = "0.1.51"
+GH.version = "0.1.53"
 GH.prefix = "GHALL"
 GH.maxItems = 60
 GH.tabs = { "Roster" }
@@ -14,6 +14,7 @@ GH.eventHandlers = {}
 GH.commands = {}
 GH.fragments = {}
 GH.sendQueue = {}
+GH.historyQueue = {}
 GH.nextSend = 0
 GH.sendTokens = 8
 GH.sendTokenAt = 0
@@ -29,17 +30,18 @@ function GH:Decode(value)
     return (tostring(value or ""):gsub("%%(%x%x)", function(hex) return string.char(tonumber(hex, 16)) end))
 end
 
-function GH:Enqueue(payload)
+function GH:Enqueue(payload, lowPriority)
     local id = tostring(time()) .. tostring(math.random(1000, 999999))
     local size = 180
     local total = math.max(1, math.ceil(#payload / size))
+    local queue = lowPriority and GH.historyQueue or GH.sendQueue
     for i = 1, total do
-        GH.sendQueue[#GH.sendQueue + 1] = table.concat({ "C", id, i, total, payload:sub((i - 1) * size + 1, i * size) }, "|")
+        queue[#queue + 1] = table.concat({ "C", id, i, total, payload:sub((i - 1) * size + 1, i * size) }, "|")
     end
 end
 
 function GH:SendRecord(kind, id, timestamp, author, content)
-    self:Enqueue(table.concat({ kind, self:Encode(id), timestamp, self:Encode(author), self:Encode(content) }, "|"))
+    self:Enqueue(table.concat({ kind, self:Encode(id), timestamp, self:Encode(author), self:Encode(content) }, "|"), self.historySyncing)
 end
 
 function GH:NewRecord(values)
@@ -188,7 +190,12 @@ local function sendHistory()
     if not GH.bucket then return end
     local responder = GH.IsSyncResponder and GH:IsSyncResponder()
     for _, provider in ipairs(GH.historyProviders) do
-        if not provider.responderOnly or responder then provider.handler() end
+        if not provider.responderOnly or responder then
+            GH.historySyncing = true
+            local ok, err = pcall(provider.handler)
+            GH.historySyncing = false
+            if not ok then print("Guild Hall sync error: " .. tostring(err)) end
+        end
     end
 end
 
@@ -277,9 +284,10 @@ frame:SetScript("OnUpdate", function(_, elapsed)
         GH:Enqueue("H|" .. GH.version)
         GH.nextPresence = now + 60
     end
-    if #GH.sendQueue > 0 and GH.sendTokens >= 1 and now >= GH.nextSend then
-        if sendRaw(GH.sendQueue[1]) then
-            table.remove(GH.sendQueue, 1)
+    local queue = #GH.sendQueue > 0 and GH.sendQueue or GH.historyQueue
+    if #queue > 0 and GH.sendTokens >= 1 and now >= GH.nextSend then
+        if sendRaw(queue[1]) then
+            table.remove(queue, 1)
             GH.sendTokens = GH.sendTokens - 1
         else
             -- Keep the unsent frame queued and retry after a short pause.
