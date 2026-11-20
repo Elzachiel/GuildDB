@@ -4,6 +4,7 @@ GH:RegisterBucket("pvpKills", function() return {} end)
 GH:RegisterBucket("pvpDeaths", function() return {} end)
 GH:RegisterBucket("pvpTotals", function() return {} end)
 GH:RegisterBucket("pvpSeason", function() return { name = "All-time", start = 0, ts = 0 } end)
+GH:RegisterBucket("pvpReset", function() return { ts = 0 } end)
 local seenPlayers = {}
 local honorCredits = {}
 local creditScheduled = false
@@ -14,6 +15,46 @@ end
 
 local function playerName()
     return GH.PlayerName and GH:PlayerName() or (UnitName and UnitName("player") or "Guild member")
+end
+
+local function resetTime()
+    return (GH.bucket.pvpReset or {}).ts or 0
+end
+
+local function guildLeader(name)
+    if not GetNumGuildMembers or not GetGuildRosterInfo then return false end
+    local wanted = (tostring(name or ""):match("^([^-]+)") or ""):lower()
+    for index = 1, GetNumGuildMembers() do
+        local member, _, rank = GetGuildRosterInfo(index)
+        if member and (member:match("^([^-]+)") or member):lower() == wanted then
+            return tonumber(rank) == 0
+        end
+    end
+    return false
+end
+
+local function applyReset(stamp, author)
+    if stamp <= resetTime() then return end
+    GH.bucket.pvpReset = { ts = stamp, by = author }
+    GH.bucket.pvpKills, GH.bucket.pvpDeaths, GH.bucket.pvpTotals = {}, {}, {}
+    GH.bucket.pvpSeason = { name = "All-time", start = 0, ts = stamp, by = author }
+    honorCredits, seenPlayers = {}, {}
+    if GuildHallDB then GuildHallDB.pvpHistory = {} end
+    if GH.RefreshUI then GH:RefreshUI() end
+end
+
+GH:RegisterRecordHandler("PR", function(id, ts, author)
+    if id ~= "wipe" or not guildLeader(author) or ts > time() + 60 then return end
+    applyReset(ts, author)
+end)
+
+function GH:WipePvPStats()
+    if not self.bucket then return false, "Join a guild first." end
+    if not guildLeader(playerName()) then return false, "Only the guild master can wipe PvP stats." end
+    local stamp = math.max(time(), resetTime() + 1)
+    applyReset(stamp, playerName())
+    self:SendRecord("PR", "wipe", stamp, playerName(), "")
+    return true, "All guild PvP stats and seasons reset. Updated members receive the reset through guild sync."
 end
 
 local function isOpenWorld()
@@ -37,7 +78,7 @@ local function sendTotals(start, player, totals)
     totals.ts = time()
     totals.by = player
     GH:SendRecord("Z", totals.id, totals.ts, player,
-        table.concat({ start, totals.kills or 0, totals.points or 0, totals.deaths or 0 }, "\n"))
+        table.concat({ start, totals.kills or 0, totals.points or 0, totals.deaths or 0, resetTime() }, "\n"))
 end
 
 local function addLocalStat(field, points)
@@ -136,6 +177,7 @@ local function recordKill(victim, victimLevel, outdoors)
 end
 
 GH:RegisterRecordHandler("P", function(id, ts, author, content)
+    if ts <= resetTime() then return end
     local victim, level, points = content:match("^(.-)\n(%d+)\n(%d+)$")
     level, points = tonumber(level), tonumber(points)
     if not victim or victim == "" or #victim > 100 or not level or level > 100 or not points or points < 1 or points > 5 then return end
@@ -143,12 +185,14 @@ GH:RegisterRecordHandler("P", function(id, ts, author, content)
 end)
 
 GH:RegisterRecordHandler("X", function(id, ts, author, content)
+    if ts <= resetTime() then return end
     local killer = content:gsub("^%s+", ""):gsub("%s+$", "")
     if killer == "" or #killer > 100 then return end
     GH:StoreRecord("pvpDeaths", { id = id, ts = ts, by = author, killer = killer })
 end)
 
 GH:RegisterRecordHandler("Y", function(id, ts, author, content)
+    if ts <= resetTime() then return end
     local name, start = content:match("^(.-)\n(%d+)$")
     start = tonumber(start)
     if id ~= "season" or not name or name == "" or #name > 80 or not start then return end
@@ -159,6 +203,11 @@ GH:RegisterRecordHandler("Y", function(id, ts, author, content)
 end)
 
 GH:RegisterRecordHandler("Z", function(id, ts, author, content)
+    local body, epoch = content:match("^(.*)\n(%d+)$")
+    if body and select(2, content:gsub("\n", "")) == 4 then
+        if tonumber(epoch) ~= resetTime() then return end
+        content = body
+    elseif resetTime() > 0 then return end
     local start, kills, points, deaths = content:match("^(%d+)\n(%d+)\n(%d+)\n(%d+)$")
     start, kills, points, deaths = tonumber(start), tonumber(kills), tonumber(points), tonumber(deaths)
     if not start or not kills or not points or not deaths or #author > 100 then return end
@@ -262,6 +311,8 @@ GH:RegisterEventHandler("PLAYER_PVP_KILLS_CHANGED", function(_, unit)
 end)
 
 GH:RegisterHistoryProvider(function()
+    local reset = GH.bucket.pvpReset
+    if reset and reset.ts > 0 then GH:SendRecord("PR", "wipe", reset.ts, reset.by, "") end
     local list = GH.bucket.pvpKills or {}
     for i = math.min(#list, GH.maxItems), 1, -1 do
         local record = list[i]
@@ -337,6 +388,13 @@ end
 
 GH:RegisterCommand("pvp", function(rest)
     local action, name = rest:match("^(%S+)%s*(.*)$")
+    if (action or ""):lower() == "wipe" then
+        if not guildLeader(playerName()) then print("Guild Hall: Only the guild master can wipe PvP stats."); return end
+        if name ~= "CONFIRM" then print("Guild Hall: This erases all guild PvP points, kills, deaths, history and seasons. Type /gh pvp wipe CONFIRM to proceed."); return end
+        local _, result = GH:WipePvPStats()
+        print("Guild Hall: " .. result)
+        return
+    end
     if (action or ""):lower() ~= "season" then GH.activeTab = "PvP"; GH:Open(); return end
     local _, result = GH:StartPvPSeason(name)
     print("Guild Hall: " .. result)

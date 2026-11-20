@@ -45,6 +45,7 @@ Copy this folder into the client's `Interface/AddOns` directory, enable **Guild 
 - `/gh poll create Question | Option 1 | Option 2 [| Option 3 | Option 4]` creates a poll (officer).
 - `/gh poll vote # option#` votes; `/gh poll close #` closes a poll (officer).
 - `/gh pvp season Season name` starts a PvP season (officer).
+- `/gh pvp wipe CONFIRM` permanently clears all guild PvP points, kills, deaths, recent records, and seasons (guild master / rank 0 only). The saved reset syncs to updated members, including members who return later; older clients must update to honor resets. Repeat-victim history clears when a client receives the reset.
 - `/gh shout Player Name | Message` posts a shoutout.
 - `/gh map waypoint CharacterName` sets a waypoint to a member's latest shared location; `/gh map clear` clears it.
 - `/gh popout pvp`, `/gh popout level10` (also 20/30/40/50/60), or `/gh popout profession150` (also 225/300) previews a popout locally.
