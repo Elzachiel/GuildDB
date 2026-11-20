@@ -5,9 +5,31 @@ GH:RegisterBucket("pvpDeaths", function() return {} end)
 GH:RegisterBucket("pvpTotals", function() return {} end)
 GH:RegisterBucket("pvpSeason", function() return { name = "All-time", start = 0, ts = 0 } end)
 local seenPlayers = {}
+local honorCredits = {}
+local creditScheduled = false
 
 local function totalsKey(start, player)
     return tostring(start) .. "|" .. player
+end
+
+local function playerName()
+    return GH.PlayerName and GH:PlayerName() or (UnitName and UnitName("player") or "Guild member")
+end
+
+local function isOpenWorld()
+    if IsInInstance then
+        local ok, inside, kind = pcall(IsInInstance)
+        if not ok or inside then return false end
+        if type(kind) == "string" and kind ~= "" and kind ~= "none" then return false end
+    end
+    for _, name in ipairs({ "IsBattleground", "IsArena" }) do
+        local check = C_PvP and C_PvP[name]
+        if check then
+            local ok, active = pcall(check)
+            if not ok or active then return false end
+        end
+    end
+    return true
 end
 
 local function sendTotals(start, player, totals)
@@ -20,7 +42,7 @@ end
 
 local function addLocalStat(field, points)
     if not GH.bucket then return end
-    local player = UnitName and UnitName("player") or "Guild member"
+    local player = playerName()
     local season = GH.bucket.pvpSeason or { start = 0 }
     local starts = { 0 }
     if (season.start or 0) > 0 then starts[#starts + 1] = season.start end
@@ -79,7 +101,7 @@ local function historyFor(victim)
         end
         GuildHallDB.pvpHistoryPruned = now
     end
-    local player = UnitName and UnitName("player") or "Guild member"
+    local player = playerName()
     local key = normalizedName(player) .. "|" .. normalizedName(victim)
     local history = GuildHallDB.pvpHistory[key]
     if type(history) ~= "table" then history = {}; GuildHallDB.pvpHistory[key] = history end
@@ -91,18 +113,21 @@ local function historyFor(victim)
     return fresh, now
 end
 
-local function recordKill(victim, victimLevel)
-    if not GH.bucket or not victim or victim == "" then return end
+local function recordKill(victim, victimLevel, outdoors)
+    if not GH.bucket or not outdoors or not victim or victim == "" then return end
     local history, now = historyFor(victim)
     if #history > 0 and now - history[#history] < 300 then return end
     if #history >= 5 then return end
     history[#history + 1] = now
     local level = tonumber(victimLevel) or 0
+    local ownLevel = UnitLevel and tonumber(UnitLevel("player")) or 60
+    if level == -1 then level = math.min(60, ownLevel + 10)
+    elseif level <= 0 then level = ownLevel end
     local record = GH:NewRecord({ victim = victim, victimLevel = level, points = pointsForLevel(level) })
     record.id = tostring(time()) .. "-pvp-" .. tostring(math.random(100000, 999999))
     addLocalStat("kills", record.points)
     if GH.ShowPvPPopup then
-        local player = UnitName and UnitName("player") or "Guild member"
+        local player = playerName()
         local seasonStart = (GH.bucket.pvpSeason or {}).start or 0
         local totals = GH.bucket.pvpTotals[totalsKey(seasonStart, player)]
         GH:ShowPvPPopup(record.points, victim, level, totals and totals.points or record.points)
@@ -183,7 +208,7 @@ local function levelForVictim(name)
     local found
     for _, seen in pairs(seenPlayers) do
         local seenName = tostring(seen.name or "")
-        if normalizedName(seenName) == wanted or seenName:lower() == first then
+        if GetTime() - seen.seen <= 900 and (normalizedName(seenName) == wanted or seenName:lower() == first) then
             if found and found ~= seen then return 0 end
             found = seen
         end
@@ -191,9 +216,49 @@ local function levelForVictim(name)
     return found and found.level or 0
 end
 
+-- Honor messages and counter updates describe the same reward. Resolve one
+-- short batch together, retaining the location at the time of each signal.
+local function resolveCredits()
+    creditScheduled = false
+    local batch = honorCredits
+    honorCredits = {}
+    local names, counters, outdoorCounter = 0, 0, false
+    for _, reward in ipairs(batch) do
+        if reward.victim then
+            names = names + 1
+            recordKill(reward.victim, levelForVictim(reward.victim), reward.outdoors)
+        else
+            counters = counters + 1
+            outdoorCounter = outdoorCounter or reward.outdoors
+        end
+    end
+    if counters <= names or not outdoorCounter then return end
+    local candidate
+    for _, seen in pairs(seenPlayers) do
+        if seen.diedAt and GetTime() - seen.diedAt <= 12 then
+            -- Without a named message, multiple recent deaths are ambiguous.
+            if candidate then return end
+            candidate = seen
+        end
+    end
+    if candidate then recordKill(candidate.name, candidate.level, true) end
+end
+
+local function queueCredit(victim)
+    if not GH.bucket then return end
+    honorCredits[#honorCredits + 1] = { victim = victim, outdoors = isOpenWorld() }
+    if creditScheduled then return end
+    creditScheduled = true
+    C_Timer.After(0.8, resolveCredits)
+end
+
 GH:RegisterEventHandler("CHAT_MSG_COMBAT_HONOR_GAIN", function(_, message)
     local victim = victimFromHonorMessage(message)
-    if victim then recordKill(victim, levelForVictim(victim)) end
+    if victim then queueCredit(victim) end
+end)
+GH:RegisterEventHandler("PLAYER_PVP_KILLS_CHANGED", function(_, unit)
+    if unit and unit ~= "player" then return end
+    queueCredit(nil)
 end)
 
 GH:RegisterHistoryProvider(function()
@@ -217,16 +282,26 @@ GH:RegisterHistoryProvider(function()
     end
 end)
 
--- Forever blocks the combat log for addons. PARTY_KILL is the supported
--- killing-blow event, but supplies GUIDs only. Cache visible player units so
--- we can resolve the victim when that event arrives.
+-- Cache visible player units so honor messages can include the victim level
+-- when that player was recently visible.
 local function capturePlayer(unit)
     if not UnitExists or not UnitExists(unit) or not UnitIsPlayer or not UnitIsPlayer(unit) then return end
+    if UnitFactionGroup then
+        local faction = UnitFactionGroup(unit)
+        if not faction or faction == "Neutral" or faction == UnitFactionGroup("player") then return end
+    end
     local guid = UnitGUID and UnitGUID(unit)
     local name = UnitName and UnitName(unit)
     if type(guid) ~= "string" or type(name) ~= "string" or name == "" then return end
     local level = UnitLevel and tonumber(UnitLevel(unit)) or 0
-    seenPlayers[guid] = { name = name, level = level or 0, seen = GetTime and GetTime() or 0 }
+    local seen = seenPlayers[guid] or {}
+    seen.name, seen.level, seen.seen = name, level or 0, GetTime()
+    if UnitIsDeadOrGhost and UnitIsDeadOrGhost(unit) then
+        if seen.alive and not seen.diedAt then seen.diedAt = seen.seen end
+    else
+        seen.alive, seen.diedAt = true, nil
+    end
+    seenPlayers[guid] = seen
 end
 
 local function captureVisiblePlayers()
@@ -243,18 +318,11 @@ end
 GH:RegisterEventHandler("PLAYER_TARGET_CHANGED", captureVisiblePlayers)
 GH:RegisterEventHandler("UPDATE_MOUSEOVER_UNIT", captureVisiblePlayers)
 GH:RegisterEventHandler("NAME_PLATE_UNIT_ADDED", function(_, unit) capturePlayer(unit) end)
-GH:RegisterEventHandler("PARTY_KILL", function(_, attackerGUID, victimGUID)
-    if not GH.bucket or IsInInstance and IsInInstance() then return end
-    captureVisiblePlayers()
-    if type(attackerGUID) ~= "string" or type(victimGUID) ~= "string" then return end
-    local playerGUID = UnitGUID and UnitGUID("player")
-    local petGUID = UnitGUID and UnitGUID("pet")
-    if attackerGUID ~= playerGUID and attackerGUID ~= petGUID then return end
-    local victim = seenPlayers[victimGUID]
-    if not victim then return end
-    recordKill(victim.name, victim.level)
+GH:RegisterEventHandler("NAME_PLATE_UNIT_REMOVED", function(_, unit) capturePlayer(unit) end)
+GH:RegisterEventHandler("UNIT_HEALTH", function(_, unit)
+    if unit == "target" or unit == "focus" then capturePlayer(unit) end
 end)
-
+GH:RegisterEventHandler("PLAYER_ENTERING_WORLD", function() seenPlayers = {} end)
 function GH:StartPvPSeason(name)
     if not self:CanManage() then return false, "Only the guild leader or rank 1 can start a PvP season." end
     name = (name or ""):gsub("^%s+", ""):gsub("%s+$", "")
@@ -316,7 +384,7 @@ function GH:GetPvPLeaderboard(allTime)
         if a.kills ~= b.kills then return a.kills > b.kills end
         return a.name:lower() < b.name:lower()
     end)
-    local ownName = UnitName and UnitName("player")
+    local ownName = playerName()
     local ownScore, ownRank
     for rank, score in ipairs(ranking) do
         if ownName and score.name:lower() == ownName:lower() then ownScore, ownRank = score, rank; break end
