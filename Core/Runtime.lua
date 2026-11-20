@@ -2,7 +2,7 @@
 local ADDON, GH = ...
 _G.GuildHall = GH
 
-GH.version = "0.1.50"
+GH.version = "0.1.51"
 GH.prefix = "GHALL"
 GH.maxItems = 60
 GH.tabs = { "Roster" }
@@ -15,6 +15,8 @@ GH.commands = {}
 GH.fragments = {}
 GH.sendQueue = {}
 GH.nextSend = 0
+GH.sendTokens = 8
+GH.sendTokenAt = 0
 GH.nextPresence = 0
 GH.nextPresenceCleanup = 0
 GH.addonPresence = {}
@@ -153,11 +155,15 @@ local function ensureBucket()
 end
 
 local function sendRaw(message)
+    local send
     if C_ChatInfo and C_ChatInfo.SendAddonMessage then
-        C_ChatInfo.SendAddonMessage(GH.prefix, message, "GUILD")
+        send = C_ChatInfo.SendAddonMessage
     elseif SendAddonMessage then
-        SendAddonMessage(GH.prefix, message, "GUILD")
+        send = SendAddonMessage
     end
+    if not send then return false end
+    local ok, result = pcall(send, GH.prefix, message, "GUILD")
+    return ok and (result == nil or result == true or result == 0)
 end
 
 local function requestGuildRoster()
@@ -262,13 +268,23 @@ end
 frame:SetScript("OnUpdate", function(_, elapsed)
     local now = GetTime()
     cleanupPresence(now)
+    -- Guild addon messages share a per-prefix server allowance. Match GuildHQ's
+    -- burst + steady refill pacing so a sync queue doesn't outrun that limit.
+    if GH.sendTokenAt == 0 then GH.sendTokenAt = now end
+    GH.sendTokens = math.min(8, GH.sendTokens + math.max(0, now - GH.sendTokenAt) * 0.9)
+    GH.sendTokenAt = now
     if GH.bucket and now >= GH.nextPresence then
         GH:Enqueue("H|" .. GH.version)
         GH.nextPresence = now + 60
     end
-    if #GH.sendQueue > 0 and now >= GH.nextSend then
-        sendRaw(table.remove(GH.sendQueue, 1))
-        GH.nextSend = now + 0.4
+    if #GH.sendQueue > 0 and GH.sendTokens >= 1 and now >= GH.nextSend then
+        if sendRaw(GH.sendQueue[1]) then
+            table.remove(GH.sendQueue, 1)
+            GH.sendTokens = GH.sendTokens - 1
+        else
+            -- Keep the unsent frame queued and retry after a short pause.
+            GH.nextSend = now + 0.5
+        end
     end
     if GH.MapUpdate then GH:MapUpdate(now, elapsed) end
 end)
