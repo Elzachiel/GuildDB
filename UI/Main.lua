@@ -646,6 +646,7 @@ local function build()
                     seasonMenu:Hide()
                     showInputForm("PvP tracking details", {
                         { label = "Last tracking result", value = (GH.pvpTrackingStatus or "No honor or kill-credit event received this session.") .. "\n\nLast honor message:\n" .. (GH.pvpLastHonorMessage or "None received"), multiline = true, readOnly = true, max = 1000 },
+                        { label = "Client event support", value = "Honor: " .. ((GH.eventRegistration or {}).CHAT_MSG_COMBAT_HONOR_GAIN or "unknown") .. "\nKill credit: " .. ((GH.eventRegistration or {}).PLAYER_PVP_KILLS_CHANGED or "unknown"), multiline = true, readOnly = true, max = 300 },
                     }, function() return true end, "Done", true)
                     return
                 end

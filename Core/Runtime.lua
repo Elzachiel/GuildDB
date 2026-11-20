@@ -2,7 +2,7 @@
 local ADDON, GH = ...
 _G.GuildHall = GH
 
-GH.version = "0.1.75"
+GH.version = "0.1.77"
 GH.prefix = "GHALL"
 GH.maxItems = 60
 GH.tabs = { "Roster" }
@@ -400,10 +400,16 @@ SlashCmdList.GUILDHALL = slashCommand
 
 local frame = CreateFrame("Frame")
 GH.eventFrame = frame
-for _, event in ipairs({ "ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_GUILD_UPDATE", "GUILD_ROSTER_UPDATE", "CHAT_MSG_ADDON", "CHAT_MSG_COMBAT_HONOR_GAIN", "PLAYER_PVP_KILLS_CHANGED", "UNIT_HEALTH", "NAME_PLATE_UNIT_REMOVED", "PLAYER_ENTERING_WORLD", "NAME_PLATE_UNIT_ADDED", "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT", "SKILL_LINES_CHANGED", "TRADE_SKILL_UPDATE", "PLAYER_LEVEL_UP", "WORLD_MAP_OPEN" }) do
+GH.eventRegistration = {}
+for _, event in ipairs({ "ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_GUILD_UPDATE", "GUILD_ROSTER_UPDATE", "CHAT_MSG_ADDON", "CHAT_MSG_COMBAT_HONOR_GAIN", "PLAYER_PVP_KILLS_CHANGED", "PARTY_KILL", "UNIT_FLAGS", "UNIT_HEALTH", "NAME_PLATE_UNIT_REMOVED", "PLAYER_ENTERING_WORLD", "NAME_PLATE_UNIT_ADDED", "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT", "SKILL_LINES_CHANGED", "TRADE_SKILL_UPDATE", "PLAYER_LEVEL_UP", "WORLD_MAP_OPEN" }) do
     -- Some Forever builds omit optional retail/classic events. One unavailable
     -- event must not abort runtime setup and prevent /gh from opening.
-    pcall(frame.RegisterEvent, frame, event)
+    local ok = pcall(frame.RegisterEvent, frame, event)
+    if ok and frame.IsEventRegistered then
+        local checked, registered = pcall(frame.IsEventRegistered, frame, event)
+        if checked then ok = registered end
+    end
+    GH.eventRegistration[event] = ok and "registered" or "unavailable"
 end
 
 frame:SetScript("OnUpdate", function(_, elapsed)

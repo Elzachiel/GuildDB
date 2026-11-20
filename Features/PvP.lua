@@ -12,6 +12,23 @@ local creditScheduled = false
 local lastTarget
 local captureVisiblePlayers
 
+-- Combat unit APIs may return protected values on this client. Never let a
+-- failed optional unit read prevent an honor reward from being processed.
+local function readable(value)
+    if issecretvalue and issecretvalue(value) then return nil end
+    return value
+end
+
+local function unitValue(api, unit)
+    if not api then return nil end
+    local ok, value = pcall(api, unit)
+    if ok then return readable(value) end
+end
+
+local function refreshVisiblePlayers()
+    if captureVisiblePlayers then pcall(captureVisiblePlayers) end
+end
+
 local function trackingNote(message)
     GH.pvpTrackingStatus = message
 end
@@ -71,14 +88,15 @@ end
 local function isOpenWorld()
     if IsInInstance then
         local ok, inside, kind = pcall(IsInInstance)
-        if not ok or inside then return false end
+        if ok and readable(inside) then return false end
+        kind = ok and readable(kind) or nil
         if type(kind) == "string" and kind ~= "" and kind ~= "none" then return false end
     end
     for _, name in ipairs({ "IsBattleground", "IsArena" }) do
         local check = C_PvP and C_PvP[name]
         if check then
             local ok, active = pcall(check)
-            if not ok or active then return false end
+            if ok and readable(active) then return false end
         end
     end
     return true
@@ -176,7 +194,7 @@ local function recordKill(victim, victimLevel, outdoors)
     if #history >= 5 then trackingNote("Repeat victim: daily limit"); return end
     history[#history + 1] = now
     local level = tonumber(victimLevel) or 0
-    local ownLevel = UnitLevel and tonumber(UnitLevel("player")) or 60
+    local ownLevel = tonumber(unitValue(UnitLevel, "player")) or 60
     if level == -1 then level = math.min(60, ownLevel + 10)
     elseif level <= 0 then level = ownLevel end
     local record = GH:NewRecord({ victim = victim, victimLevel = level, points = pointsForLevel(level) })
@@ -321,18 +339,22 @@ local function resolveCredits()
         end
     end
     if counters <= names or not outdoorCounter then return end
+    refreshVisiblePlayers()
     local candidate
+    if lastTarget and GetTime() - lastTarget.targetAt <= 15 then
+        local guid = unitValue(UnitGUID, "target")
+        local dead = unitValue(UnitIsDeadOrGhost, "target")
+        if dead or (guid and guid ~= lastTarget.guid) or unitValue(UnitExists, "target") == false then
+            candidate = lastTarget
+        end
+    end
+    if candidate then recordKill(candidate.name, candidate.level, true); return end
     for _, seen in pairs(seenPlayers) do
         if seen.diedAt and GetTime() - seen.diedAt <= 12 then
             -- Without a named message, multiple recent deaths are ambiguous.
-            if candidate then return end
+            if candidate then trackingNote("Kill credit received: multiple enemy deaths, no named victim"); return end
             candidate = seen
         end
-    end
-    if not candidate and lastTarget and GetTime() - lastTarget.targetAt <= 15 then
-        local guid = UnitGUID and UnitGUID("target")
-        local dead = UnitIsDeadOrGhost and UnitIsDeadOrGhost("target")
-        if guid ~= lastTarget.guid or dead then candidate = lastTarget end
     end
     if candidate then recordKill(candidate.name, candidate.level, true)
     else trackingNote("Kill credit received; enemy could not be identified") end
@@ -347,9 +369,11 @@ local function queueCredit(victim)
 end
 
 GH:RegisterEventHandler("CHAT_MSG_COMBAT_HONOR_GAIN", function(_, message)
+    message = readable(message)
     GH.pvpLastHonorMessage = type(message) == "string" and message or "Honor event had no readable text"
-    if captureVisiblePlayers then captureVisiblePlayers() end
-    local victim = victimFromHonorMessage(message)
+    refreshVisiblePlayers()
+    local ok, victim = pcall(victimFromHonorMessage, message)
+    if not ok then victim = nil end
     if victim then queueCredit(victim)
     else
         trackingNote("Unrecognized honor message: " .. tostring(message))
@@ -359,8 +383,9 @@ GH:RegisterEventHandler("CHAT_MSG_COMBAT_HONOR_GAIN", function(_, message)
     end
 end)
 GH:RegisterEventHandler("PLAYER_PVP_KILLS_CHANGED", function(_, unit)
+    unit = readable(unit)
     if type(unit) == "string" and unit ~= "player" then return end
-    if captureVisiblePlayers then captureVisiblePlayers() end
+    refreshVisiblePlayers()
     queueCredit(nil)
 end)
 
@@ -391,21 +416,22 @@ end)
 -- Cache visible player units so honor messages can include the victim level
 -- when that player was recently visible.
 local function capturePlayer(unit)
-    if not UnitExists or not UnitExists(unit) or not UnitIsPlayer or not UnitIsPlayer(unit) then return end
+    if not unitValue(UnitExists, unit) or not unitValue(UnitIsPlayer, unit) then return end
     if UnitFactionGroup then
-        local faction = UnitFactionGroup(unit)
-        if not faction or faction == "Neutral" or faction == UnitFactionGroup("player") then return end
+        local faction = unitValue(UnitFactionGroup, unit)
+        if not faction or faction == "Neutral" or faction == unitValue(UnitFactionGroup, "player") then return end
     end
-    local guid = UnitGUID and UnitGUID(unit)
-    local name = UnitName and UnitName(unit)
+    local guid = unitValue(UnitGUID, unit)
+    local name = unitValue(GetUnitName, unit) or unitValue(UnitName, unit)
     if type(guid) ~= "string" or type(name) ~= "string" or name == "" then return end
-    local level = UnitLevel and tonumber(UnitLevel(unit)) or 0
+    local level = tonumber(unitValue(UnitLevel, unit)) or 0
     local seen = seenPlayers[guid] or {}
     seen.guid = guid
     seen.name, seen.level, seen.seen = name, level or 0, GetTime()
-    if UnitIsDeadOrGhost and UnitIsDeadOrGhost(unit) then
+    local dead = unitValue(UnitIsDeadOrGhost, unit)
+    if dead then
         if seen.alive and not seen.diedAt then seen.diedAt = seen.seen end
-    else
+    elseif dead == false then
         seen.alive, seen.diedAt = true, nil
     end
     seenPlayers[guid] = seen
@@ -423,12 +449,24 @@ captureVisiblePlayers = function()
     end
 end
 
-GH:RegisterEventHandler("PLAYER_TARGET_CHANGED", captureVisiblePlayers)
-GH:RegisterEventHandler("UPDATE_MOUSEOVER_UNIT", captureVisiblePlayers)
+GH:RegisterEventHandler("PLAYER_TARGET_CHANGED", refreshVisiblePlayers)
+GH:RegisterEventHandler("UPDATE_MOUSEOVER_UNIT", refreshVisiblePlayers)
 GH:RegisterEventHandler("NAME_PLATE_UNIT_ADDED", function(_, unit) capturePlayer(unit) end)
 GH:RegisterEventHandler("NAME_PLATE_UNIT_REMOVED", function(_, unit) capturePlayer(unit) end)
 GH:RegisterEventHandler("UNIT_HEALTH", function(_, unit)
     if unit == "target" or unit == "focus" then capturePlayer(unit) end
+end)
+GH:RegisterEventHandler("UNIT_FLAGS", function(_, unit)
+    if unit == "target" or unit == "focus" then capturePlayer(unit) end
+end)
+-- This event supplies death evidence only. Points still require the local
+-- player's own honor/kill credit, so a group member's killing blow cannot
+-- independently award points.
+GH:RegisterEventHandler("PARTY_KILL", function(_, attacker, victim)
+    victim = readable(victim)
+    if type(victim) ~= "string" then return end
+    local seen = seenPlayers[victim]
+    if seen then seen.diedAt = GetTime() end
 end)
 GH:RegisterEventHandler("PLAYER_ENTERING_WORLD", function() seenPlayers = {}; lastTarget = nil end)
 function GH:StartPvPSeason(name, endDate, restart)
