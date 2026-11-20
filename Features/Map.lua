@@ -292,6 +292,9 @@ local function attachMapProvider()
             map:RemoveAllPinsByTemplate("GuildHallMapPinTemplate")
         end
     end
+    function GH.mapDataProvider:OnMapChanged()
+        self:RefreshAllData()
+    end
     function GH.mapDataProvider:RefreshAllData()
         self:RemoveAllData()
         local map = self:GetMap()
