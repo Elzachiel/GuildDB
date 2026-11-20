@@ -7,6 +7,8 @@
 
 Core/Runtime.lua
 Features/Profiles.lua
+Features/Map.lua
+Features/Map.xml
 Features/Announcements.lua
 Features/Events.lua
 Features/Shoutouts.lua
@@ -17,6 +19,4 @@ Features/LookingFor.lua
 Features/Crafting.lua
 Features/Polls.lua
 Features/Settings.lua
-Features/Map.lua
-Features/Map.xml
 UI/Main.lua
