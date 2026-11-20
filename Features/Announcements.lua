@@ -110,7 +110,7 @@ function GH:EditAnnouncement(id, title, text)
     if not record then return false, "That announcement is no longer available." end
     title, text = clean(title, 120, true), clean(text, 600, false)
     if title == "" and text == "" then return false, "Enter an announcement title or message." end
-    record = { id = id, ts = math.max(time(), (record.ts or 0) + 1), by = UnitName and UnitName("player") or "Guild officer", title = title, text = text }
+    record = { id = id, ts = math.max(time(), (record.ts or 0) + 1), by = self:PlayerName(), title = title, text = text }
     self.bucket.announcements[index] = record
     self:SendRecord("AE", id, record.ts, record.by, encodePost(title, text))
     if self.RefreshUI then self:RefreshUI() end
@@ -121,7 +121,7 @@ function GH:DeleteAnnouncement(id)
     if not self:CanManage() then return false, "Only the guild leader or rank 1 can remove announcements." end
     local _, index = findPost(id)
     if not index then return false, "That announcement is no longer available." end
-    local player = UnitName and UnitName("player") or "Guild officer"
+    local player = self:PlayerName()
     local ts = math.max(time(), (self.bucket.announcements[index].ts or 0) + 1)
     table.remove(self.bucket.announcements, index)
     self.bucket.announcementDeletes = self.bucket.announcementDeletes or {}
@@ -185,6 +185,23 @@ GH:RegisterEventHandler("GUILD_ROSTER_UPDATE", function()
     if not pending or #pending == 0 then return end
     GH.pendingAnnouncementChecks = {}
     for _, callback in ipairs(pending) do callback() end
+end)
+
+-- Upgrade announcements made on WoW Forever builds where UnitName returned
+-- only the first part of the author's two-part character name. These records
+-- otherwise fail roster authorization or the live sender/author popup check.
+GH:RegisterEventHandler("PLAYER_LOGIN", function()
+    if not GH.bucket then return end
+    local fullName = GH:PlayerName()
+    local shortName = UnitName and UnitName("player")
+    if not fullName or fullName == "" or not shortName or shortName == fullName then return end
+    for _, record in ipairs(GH.bucket.announcements or {}) do
+        if record.by == shortName then
+            record.by = fullName
+            record.ts = math.max(time(), (record.ts or 0) + 1)
+            GH:SendRecord("AN", record.id, record.ts, record.by, encodePost(record.title or "", record.text or ""))
+        end
+    end
 end)
 
 GH:RegisterHistoryProvider(function()

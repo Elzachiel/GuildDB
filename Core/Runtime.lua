@@ -2,7 +2,7 @@
 local ADDON, GH = ...
 _G.GuildHall = GH
 
-GH.version = "0.1.68"
+GH.version = "0.1.69"
 GH.prefix = "GHALL"
 GH.maxItems = 60
 GH.tabs = { "Roster" }
@@ -50,8 +50,16 @@ end
 function GH:NewRecord(values)
     values.id = tostring(time()) .. "-" .. tostring(math.random(100000, 999999))
     values.ts = time()
-    values.by = UnitName and UnitName("player") or "Guild member"
+    values.by = self:PlayerName()
     return values
+end
+
+-- WoW Forever character names can contain two parts. UnitName may only return
+-- the first part, which cannot be matched reliably against guild roster names.
+function GH:PlayerName()
+    local fullName = GetUnitName and GetUnitName("player", false)
+    if type(fullName) == "string" and fullName ~= "" then return fullName end
+    return UnitName and UnitName("player") or "Guild member"
 end
 
 function GH:StoreRecord(bucketKey, record, kind, content)
