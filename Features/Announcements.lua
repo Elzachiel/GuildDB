@@ -21,7 +21,9 @@ local function decodePost(content)
 end
 
 local function isOfficer(name)
-    if not name or not GetNumGuildMembers or not GetGuildRosterInfo then return false end
+    if not name or not GetNumGuildMembers or not GetGuildRosterInfo then return nil end
+    local count = GetNumGuildMembers()
+    if not count or count == 0 then return nil end
     local wanted = (name:match("^([^-]+)") or name):lower():gsub("[%s%-]", "")
     local prefixMatch
     for index = 1, GetNumGuildMembers() do
@@ -36,6 +38,16 @@ local function isOfficer(name)
         end
     end
     return prefixMatch or false
+end
+
+local function deferUntilRoster(callback)
+    GH.pendingAnnouncementChecks = GH.pendingAnnouncementChecks or {}
+    GH.pendingAnnouncementChecks[#GH.pendingAnnouncementChecks + 1] = callback
+    if C_GuildInfo and C_GuildInfo.GuildRoster then
+        C_GuildInfo.GuildRoster()
+    elseif GuildRoster then
+        GuildRoster()
+    end
 end
 
 local function deleteTimestamp(id)
@@ -63,7 +75,12 @@ end
 
 local function storePost(id, ts, author, title, text)
     if #id > 100 or #author > 100 or #title > 120 or #text > 600 then return end
-    if not isOfficer(author) then return end
+    local officer = isOfficer(author)
+    if officer == nil then
+        deferUntilRoster(function() storePost(id, ts, author, title, text) end)
+        return "pending"
+    end
+    if not officer then return false end
     if deleteTimestamp(id) >= ts then return end
     local current, index = findPost(id)
     if current and (current.ts or 0) >= ts then return end
@@ -120,7 +137,20 @@ end)
 
 GH:RegisterRecordHandler("AN", function(id, ts, author, content, sender)
     local title, text = decodePost(content)
-    storePost(id, ts, author, title, text)
+    local result = storePost(id, ts, author, title, text)
+    if result == false then return end
+    if result == "pending" then
+        deferUntilRoster(function()
+            local senderName = tostring(sender or ""):match("^([^-]+)") or tostring(sender or "")
+            local authorName = tostring(author or ""):match("^([^-]+)") or tostring(author or "")
+            if senderName:lower():gsub("[%s%-]", "") ~= authorName:lower():gsub("[%s%-]", "") then return end
+            if not isOfficer(author) or GH.shownAnnouncementPopups and GH.shownAnnouncementPopups[id] then return end
+            GH.shownAnnouncementPopups = GH.shownAnnouncementPopups or {}
+            GH.shownAnnouncementPopups[id] = true
+            popAnnouncement(author, title, text)
+        end)
+        return
+    end
     -- Live posts are sent by their author. History syncs are relayed by a
     -- different guild member, so they update the announcement list without
     -- replaying old popups.
@@ -148,6 +178,13 @@ GH:RegisterRecordHandler("AD", function(id, ts, author)
     local _, index = findPost(id)
     if index then table.remove(GH.bucket.announcements, index) end
     if GH.RefreshUI then GH:RefreshUI() end
+end)
+
+GH:RegisterEventHandler("GUILD_ROSTER_UPDATE", function()
+    local pending = GH.pendingAnnouncementChecks
+    if not pending or #pending == 0 then return end
+    GH.pendingAnnouncementChecks = {}
+    for _, callback in ipairs(pending) do callback() end
 end)
 
 GH:RegisterHistoryProvider(function()
