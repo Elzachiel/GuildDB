@@ -9,10 +9,10 @@ local lastLocalStatus = "Waiting for a map position"
 local lastLocalPosition
 GH.mapReports = GH.mapReports or {}
 
-local function normalizeCharacterName(name)
-    local shortName = tostring(name or ""):match("^([^-]+)") or tostring(name or "")
-    local firstName = shortName:match("^(%S+)") or shortName
-    return firstName:lower():gsub("[%s%-]", "")
+local function normalizeMemberKey(name)
+    local value = tostring(name or "")
+    value = value:match("^([^%-]+)") or value
+    return value:lower():gsub("[%s%-]", "")
 end
 
 local function unitLocation()
@@ -53,13 +53,14 @@ GH:RegisterRecordHandler("ML", function(id, timestamp, author, content, sender)
     mapID, x, y = tonumber(mapID), tonumber(x), tonumber(y)
     if not mapID or not x or not y or not zone then reject("malformed location payload"); return end
     if x < 0 or x > 1 or y < 0 or y > 1 or #zone > 80 then reject("coordinates or zone out of range"); return end
-    local senderName = normalizeCharacterName(sender)
-    local authorName = normalizeCharacterName(author)
-    if senderName ~= authorName then reject("sender name did not match payload author"); return end
+    local senderName = normalizeMemberKey(sender)
+    -- CHAT_MSG_ADDON supplies the authenticated sender for the guild channel.
+    -- Payload authors can use another name form (including two-part names),
+    -- so don't discard a valid guild report when those strings differ.
     GH.mapValidReports = (GH.mapValidReports or 0) + 1
     GH.mapRejectReason = nil
     GH.mapReports[senderName] = {
-        name = sender, mapID = mapID, x = x, y = y, zone = zone,
+        name = sender, author = author, mapID = mapID, x = x, y = y, zone = zone,
         seen = GetTime and GetTime() or 0,
     }
     updateUI()
@@ -113,35 +114,13 @@ function GH:GetMapReports()
     return reports
 end
 
-local function setWaypoint(report)
-    if not report or not UiMapPoint or not UiMapPoint.CreateFromCoordinates or not C_Map or not C_Map.SetUserWaypoint then
-        print("Guild Hall: Waypoints are unavailable in this client.")
-        return
-    end
-    local point = UiMapPoint.CreateFromCoordinates(report.mapID, report.x, report.y)
-    if C_Map.SetUserWaypoint(point) then
-        if C_SuperTrack and C_SuperTrack.SetSuperTrackedUserWaypoint then C_SuperTrack.SetSuperTrackedUserWaypoint(true) end
-        if C_Map.OpenWorldMap then C_Map.OpenWorldMap(report.mapID) end
-        print(("Guild Hall: Waypoint set to %s in %s."):format(report.name, report.zone))
-    else
-        print("Guild Hall: The client could not set that waypoint.")
-    end
-end
-
 GH:RegisterCommand("map", function(rest)
-    local action, target = (rest or ""):match("^(%S+)%s*(.-)$")
+    local action = (rest or ""):match("^(%S+)")
     action = (action or ""):lower()
-    if action == "waypoint" and target ~= "" then
-        local wanted = normalizeCharacterName(target)
-        for _, report in ipairs(GH:GetMapReports()) do
-            local shortName = normalizeCharacterName(report.name)
-            if shortName == wanted then setWaypoint(report); return end
-        end
-        print("Guild Hall: No fresh location report found for " .. target .. ".")
-    elseif action == "clear" then
+    if action == "clear" then
         if C_Map and C_Map.ClearUserWaypoint then C_Map.ClearUserWaypoint() end
     else
-        print("Guild Hall: use /gh map waypoint CharacterName or /gh map clear.")
+        print("Guild Hall: Guild member locations are shown as live map pins. Use /gh map clear to remove an old WoW waypoint.")
     end
 end)
 
@@ -174,10 +153,10 @@ local function mapTabText()
             "Your sharing: " .. sharing .. "  ·  Your position: " .. positionText,
             sendText,
             inboundText,
-            "Reports expire after 45 seconds and pause in instances.",
+            "GuildHall pins update about every 15 seconds, expire after 45 seconds, and pause in instances.",
         }, "\n\n")
     end
-    local lines = { "Guild member locations (reports expire after 45 seconds):", "" }
+    local lines = { "Guild member locations (live pins; reports expire after 45 seconds):", "" }
     for _, report in ipairs(reports) do
         local age = math.max(0, math.floor((GetTime and GetTime() or 0) - report.seen))
         lines[#lines + 1] = ("%s  ·  %s  ·  %.1f, %.1f  ·  %ds old"):format(
@@ -187,7 +166,7 @@ local function mapTabText()
     lines[#lines + 1] = "Your sharing: " .. sharing .. "  ·  Your position: " .. positionText
     lines[#lines + 1] = sendText
     lines[#lines + 1] = inboundText
-    lines[#lines + 1] = "Set a navigation waypoint: /gh map waypoint CharacterName"
+    lines[#lines + 1] = "Pins update about every 15 seconds and can appear on zone and continent maps."
     return table.concat(lines, "\n")
 end
 GH:RegisterTab("Map", mapTabText)
@@ -212,13 +191,10 @@ local function attachMapProvider()
             GameTooltip:SetText(pin.memberName or "Guild member")
             GameTooltip:AddLine(pin.zone or "", 0.8, 0.85, 0.9)
             GameTooltip:AddLine(("%.1f, %.1f"):format((pin.x or 0) * 100, (pin.y or 0) * 100), 0.6, 0.8, 1)
-            GameTooltip:AddLine("Click to set waypoint", 0.6, 0.8, 1)
+            GameTooltip:AddLine("Live GuildHall location pin", 0.6, 0.8, 1)
             GameTooltip:Show()
         end)
         self:SetScript("OnLeave", function() GameTooltip:Hide() end)
-        self:SetScript("OnMouseUp", function(pin, button)
-            if button == "LeftButton" then setWaypoint(pin.report) end
-        end)
     end
     GuildHallMapPinMixin.OnAcquired = function(self, report)
         self.report = report
@@ -234,7 +210,23 @@ local function attachMapProvider()
         if not map or not map.GetMapID then return end
         local mapID = map:GetMapID()
         for _, report in ipairs(GH:GetMapReports()) do
-            if report.mapID == mapID then map:AcquirePin("GuildHallMapPinTemplate", report) end
+            local x, y
+            if report.mapID == mapID then
+                x, y = report.x, report.y
+            elseif C_Map and C_Map.GetWorldPosFromMapPos and C_Map.GetMapPosFromWorldPos then
+                local continentID, worldPosition = C_Map.GetWorldPosFromMapPos(report.mapID, { x = report.x, y = report.y })
+                if continentID and worldPosition then
+                    local convertedMapID, mapPosition = C_Map.GetMapPosFromWorldPos(continentID, worldPosition, mapID)
+                    if convertedMapID == mapID and mapPosition then
+                        if mapPosition.GetXY then x, y = mapPosition:GetXY() else x, y = mapPosition.x, mapPosition.y end
+                        if not x or not y or x < 0 or x > 1 or y < 0 or y > 1 then x, y = nil, nil end
+                    end
+                end
+            end
+            if x and y then
+                local pinReport = { name = report.name, zone = report.zone, mapID = mapID, x = x, y = y, seen = report.seen }
+                map:AcquirePin("GuildHallMapPinTemplate", pinReport)
+            end
         end
     end
     WorldMapFrame:AddDataProvider(GH.mapDataProvider)
