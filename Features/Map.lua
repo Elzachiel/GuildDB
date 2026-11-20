@@ -9,6 +9,11 @@ local lastLocalStatus = "Waiting for a map position"
 local lastLocalPosition
 GH.mapReports = GH.mapReports or {}
 
+local function normalizeCharacterName(name)
+    local shortName = tostring(name or ""):match("^([^-]+)") or tostring(name or "")
+    return shortName:lower():gsub("[%s%-]", "")
+end
+
 local function unitLocation()
     if not C_Map or not C_Map.GetBestMapForUnit or not C_Map.GetPlayerMapPosition then return end
     if IsInInstance then
@@ -47,8 +52,8 @@ GH:RegisterRecordHandler("ML", function(id, timestamp, author, content, sender)
     mapID, x, y = tonumber(mapID), tonumber(x), tonumber(y)
     if not mapID or not x or not y or not zone then reject("malformed location payload"); return end
     if x < 0 or x > 1 or y < 0 or y > 1 or #zone > 80 then reject("coordinates or zone out of range"); return end
-    local senderName = (sender:match("^([^-]+)") or sender):lower()
-    local authorName = (author:match("^([^-]+)") or author):lower()
+    local senderName = normalizeCharacterName(sender)
+    local authorName = normalizeCharacterName(author)
     if senderName ~= authorName then reject("sender name did not match payload author"); return end
     GH.mapValidReports = (GH.mapValidReports or 0) + 1
     GH.mapRejectReason = nil
@@ -126,9 +131,9 @@ GH:RegisterCommand("map", function(rest)
     local action, target = (rest or ""):match("^(%S+)%s*(.-)$")
     action = (action or ""):lower()
     if action == "waypoint" and target ~= "" then
-        local wanted = target:lower()
+        local wanted = normalizeCharacterName(target)
         for _, report in ipairs(GH:GetMapReports()) do
-            local shortName = (report.name:match("^([^-]+)") or report.name):lower()
+            local shortName = normalizeCharacterName(report.name)
             if shortName == wanted then setWaypoint(report); return end
         end
         print("Guild Hall: No fresh location report found for " .. target .. ".")
