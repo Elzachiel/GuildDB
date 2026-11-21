@@ -16,8 +16,8 @@ local captureVisiblePlayers
 local unmatchedCredit
 local retryGroupCredit
 local groupEvidence = {}
-local lastPvPAttack
 local deathRecorded = false
+local deathSerial = 0
 
 -- Combat unit APIs may return protected values on this client. Never let a
 -- failed optional unit read prevent an honor reward from being processed.
@@ -125,7 +125,6 @@ local function applyReset(stamp, author)
     GD.bucket.pvpSeason = { name = "All-time", start = 0, ts = stamp, by = author }
     honorCredits, seenPlayers = {}, {}
     unmatchedCredit, lastTarget, groupEvidence = nil, nil, {}
-    lastPvPAttack = nil
     if GDB then GDB.pvpHistory = {} end
     if GD.RefreshUI then GD:RefreshUI() end
 end
@@ -324,14 +323,10 @@ function GD:GetPvPRivals(allTime, selectedStart, guildWide, sortByDeaths)
     return result
 end
 
-local function recordDeath()
-    if deathRecorded then return end
+local function savePvPDeath(killer)
+    if deathRecorded or not GD.bucket or not isOpenWorld() then return end
     deathRecorded = true
-    local attack = lastPvPAttack
-    lastPvPAttack = nil
-    if not GD.bucket or not isOpenWorld() or not attack or attack.bucket ~= GD.bucket
-        or GetTime() - attack.at > 30 then return end
-    local record = GD:NewRecord({ killer = attack.name })
+    local record = GD:NewRecord({ killer = killer })
     record.id = tostring(time()) .. "-death-" .. tostring(math.random(100000, 999999))
     -- Update totals before adding the recent record, so migration cannot count it twice.
     addLocalStat("deaths")
@@ -341,39 +336,65 @@ local function recordDeath()
     trackingNote("Recorded PvP death: " .. record.killer)
 end
 
-local function combatLogEvent(_, event, _, sourceGUID, sourceName, sourceFlags, _, destGUID, _, _, _, ...)
-    event, sourceGUID, sourceName, sourceFlags, destGUID = readable(event), readable(sourceGUID),
-        readable(sourceName), readable(sourceFlags), readable(destGUID)
-    local ownGUID = unitValue(UnitGUID, "player")
-    if not ownGUID or destGUID ~= ownGUID then return end
-    if event == "UNIT_DIED" then recordDeath(); return end
-    if type(event) ~= "string" or (not event:match("_DAMAGE$") and event ~= "DAMAGE_SHIELD" and event ~= "DAMAGE_SPLIT")
-        or event == "ENVIRONMENTAL_DAMAGE" then return end
-    local amount = readable(select(event == "SWING_DAMAGE" and 1 or 4, ...))
-    if type(amount) ~= "number" or amount <= 0 or type(sourceGUID) ~= "string"
-        or sourceGUID == ownGUID or type(sourceName) ~= "string" or sourceName == "" then return end
-    -- Player-controlled pets also count as PvP attackers.
-    local playerControlled = type(sourceFlags) == "number"
-        and sourceFlags % 512 >= 256 -- COMBATLOG_OBJECT_CONTROL_PLAYER (0x100)
-    if not sourceGUID:match("^Player%-") and not playerControlled then return end
-    if not GD.bucket or not isOpenWorld() then return end
-    lastPvPAttack = { name = sourceName, at = GetTime(), bucket = GD.bucket }
+local function hasFlag(flags, mask)
+    return type(flags) == "number" and math.floor(flags / mask) % 2 == 1
 end
 
-GD:RegisterEventHandler("COMBAT_LOG_EVENT_UNFILTERED", function(_, ...)
-    -- Combat logs can be unavailable or protected on some builds. Optional
-    -- reads must never interrupt other addon events or the kill-credit path.
-    if CombatLogGetCurrentEventInfo then
-        pcall(function() combatLogEvent(CombatLogGetCurrentEventInfo()) end)
-    else
-        pcall(combatLogEvent, ...)
+local function recapPvPKiller()
+    if not C_DeathRecap or not C_DeathRecap.HasRecapEvents or not C_DeathRecap.GetRecapEvents then return end
+    local ok, hasEvents = pcall(C_DeathRecap.HasRecapEvents)
+    if not ok or hasEvents ~= true then return end
+    local read, events = pcall(C_DeathRecap.GetRecapEvents)
+    if not read or type(events) ~= "table" then return end
+
+    local latest, killingBlow, sawKillingBlow
+    for _, event in ipairs(events) do
+        local overkill = tonumber(readable(event.overkill))
+        if overkill and overkill >= 0 then sawKillingBlow = true end
+        local flags = readable(event.sourceFlags)
+        local name = readable(event.sourceName)
+        if type(name) == "string" and name ~= "" and hasFlag(flags, 0x40) and hasFlag(flags, 0x400) then
+            local timestamp = tonumber(readable(event.timestamp))
+            local candidate = { name = name, timestamp = timestamp }
+            if overkill and overkill >= 0 then
+                killingBlow = candidate
+            elseif not latest or (timestamp and (not latest.timestamp or timestamp >= latest.timestamp)) then
+                latest = candidate
+            end
+        end
     end
-end)
+    local candidate = killingBlow or (not sawKillingBlow and latest)
+    if candidate and candidate.timestamp and candidate.timestamp < time() - 60 then return end
+    return candidate and candidate.name
+end
+
+local function inspectDeathRecap(serial, attempt)
+    if serial ~= deathSerial or deathRecorded then return end
+    local killer = recapPvPKiller()
+    if killer then savePvPDeath(killer); return end
+    if attempt < 3 and C_Timer and C_Timer.After then
+        local delays = { 0.3, 1, 2 }
+        C_Timer.After(delays[attempt + 1] - delays[attempt], function()
+            inspectDeathRecap(serial, attempt + 1)
+        end)
+    end
+end
+
+local function recordDeath()
+    deathSerial = deathSerial + 1
+    local serial = deathSerial
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0.3, function() inspectDeathRecap(serial, 1) end)
+    else
+        inspectDeathRecap(serial, 1)
+    end
+end
+
 GD:RegisterEventHandler("PLAYER_DEAD", recordDeath)
 local function resetDeathTracking()
     -- PLAYER_ALIVE also fires on release; a ghost is still the same death.
     if unitValue(UnitIsDeadOrGhost, "player") ~= false then return end
-    deathRecorded, lastPvPAttack = false, nil
+    deathSerial, deathRecorded = deathSerial + 1, false
 end
 GD:RegisterEventHandler("PLAYER_ALIVE", resetDeathTracking)
 GD:RegisterEventHandler("PLAYER_UNGHOST", resetDeathTracking)
@@ -716,7 +737,7 @@ end)
 GD:RegisterEventHandler("PLAYER_ENTERING_WORLD", function()
     seenPlayers, groupEvidence = {}, {}
     lastTarget, unmatchedCredit = nil, nil
-    lastPvPAttack = nil
+    deathSerial = deathSerial + 1
     deathRecorded = unitValue(UnitIsDeadOrGhost, "player") == true
 end)
 function GD:StartPvPSeason(name, endDate, restart)
