@@ -296,11 +296,12 @@ print('PASS: real combat tab switching, view refresh, Analytics filtering, close
 -- Render and resize the PvP leaderboard with its K/D column.
 function GD:CanManagePvPSeason() return false end
 function GD:GetPvPSeasons() return {{name='All-time', start=0}} end
-local pvpScore = {name='Member Moon', kills=10, points=10, deaths=4, kd=2.5}
+local pvpScore = {name='Member Moon', kills=10, points=15, bountyPoints=5, deaths=4, kd=2.5}
 function GD:GetPvPLeaderboard() return {name='All-time', start=0}, {pvpScore}, pvpScore, 1 end
 GD.activeTab = 'PvP'
 GD:RefreshUI()
-assert(#GD.frame.pvpHeaders == 6 and GD.frame.pvpHeaders[5].text == 'K/D')
+assert(#GD.frame.pvpHeaders == 7 and GD.frame.pvpHeaders[6].text == 'K/D')
+assert(GD.frame.pvpRows[1].points.text == '15' and GD.frame.pvpRows[1].killCount.text == '10', 'points must remain separate from kills')
 assert(GD.frame.pvpRows[1].kd.text == '2.50', 'leaderboard must display the computed ratio')
 assert(GD.frame.pvpRows[1].kills.text == '4', 'deaths must remain visible beside K/D')
 assert(GD.frame.pvpSummary.text:find('4 deaths', 1, true) and GD.frame.pvpSummary.text:find('2.50 K/D', 1, true))
@@ -310,3 +311,44 @@ GD:RefreshUI()
 assert(GD.frame.pvpRows[1].kd.text == '2.00', 'reused rows must refresh the ratio')
 assert(not GD.frame.pvpInfo.text:find('5 per day', 1, true), 'remove obsolete kill caps from the UI')
 print('PASS: PvP K/D column, personal summary, row reuse, and resize layout')
+
+-- The subviews share rows, but keep their scope, headings and filters distinct.
+time = function() return 1000 end
+local rivalCalls, emptyRivals = {}, false
+function GD:GetPvPRivals(allTime, selectedStart, guildWide, deathsFirst)
+    rivalCalls = { allTime = allTime, start = selectedStart, guild = guildWide, deaths = deathsFirst }
+    if emptyRivals then return {} end
+    return {{ name='Enemy Moon-OtherRealm', kills=8, deaths=4, kd=2, last=1 }}
+end
+function GD:GetPvPBounties()
+    if emptyRivals then return {} end
+    return {{ name='Enemy Moon', deaths=5, reward=5, status='OPEN', last=1 }}
+end
+GD.frame.pvpSelectedStart = 900
+GD.frame.pvpMyOnly = true
+click(GD.frame.pvpViewButtons[3])
+assert(GD.frame.detailTitle.text == 'NEMESIS')
+assert(GD.frame.pvpRows[1].player.text == 'Enemy Moon-OtherRealm', 'enemy identities must not use guild profile aliases')
+assert(GD.frame.pvpRows[1].points.text == '8' and GD.frame.pvpRows[1].kills.text == '4')
+assert(GD.frame.pvpHeaders[2].text == 'ENEMY' and GD.frame.pvpHeaders[6].text == 'LAST ENCOUNTER')
+assert(GD.frame.pvpRivalSort.shown and not GD.frame.pvpMyButton.shown)
+assert(rivalCalls.start == 900 and not rivalCalls.guild and not rivalCalls.deaths)
+click(GD.frame.pvpRivalSort)
+assert(rivalCalls.deaths and GD.frame.pvpRivalSort.text == 'Killed me most')
+click(GD.frame.pvpViewButtons[2])
+assert(GD.frame.detailTitle.text == 'BOUNTY BOARD')
+assert(GD.frame.pvpRows[1].points.text == '5' and GD.frame.pvpRows[1].kills.text == '+5')
+assert(GD.frame.pvpRows[1].kd.text == 'OPEN' and not GD.frame.pvpScopeButton.shown)
+assert(not GD.frame.pvpRivalSort.shown)
+emptyRivals = true
+GD:RefreshUI()
+assert(GD.frame.pvpEmpty.shown and not GD.frame.pvpRows[1].shown)
+assert(GD.frame.pvpEmpty.text:find('Three guild deaths', 1, true))
+click(GD.frame.pvpViewButtons[1])
+assert(GD.frame.pvpHeaders[2].text == 'PLAYER' and GD.frame.pvpHeaders[7].text == 'LAST KILL')
+assert(GD.frame.pvpScopeButton.shown and GD.frame.pvpRows[1].killCount.shown)
+assert(GD.frame.pvpMyButton.shown and GD.frame.pvpRows[1].player.text ~= 'Enemy Moon-OtherRealm')
+GD.activeTab = 'Roster'
+GD:RefreshUI()
+assert(not GD.frame.pvpViewButtons[1].shown and not GD.frame.pvpRivalSort.shown)
+print('PASS: PvP subview switching, enemy identities, season scope, sort filters, empty states and restored leaderboard')

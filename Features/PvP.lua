@@ -3,6 +3,7 @@ local _, GD = ...
 GD:RegisterBucket("pvpKills", function() return {} end)
 GD:RegisterBucket("pvpDeaths", function() return {} end)
 GD:RegisterBucket("pvpTotals", function() return {} end)
+GD:RegisterBucket("pvpRivalries", function() return {} end)
 GD:RegisterBucket("pvpSeason", function() return { name = "All-time", start = 0, ts = 0 } end)
 GD:RegisterBucket("pvpReset", function() return { ts = 0 } end)
 GD:RegisterBucket("pvpSeasons", function() return {} end)
@@ -89,6 +90,9 @@ local function deleteSeason(start, stamp, author)
     for id, totals in pairs(GD.bucket.pvpTotals) do
         if totals.start == start then GD.bucket.pvpTotals[id] = nil end
     end
+    for id, totals in pairs(GD.bucket.pvpRivalries) do
+        if totals.start == start then GD.bucket.pvpRivalries[id] = nil end
+    end
     if GD.bucket.pvpSeason.start == start then
         GD.bucket.pvpSeason = { name = "All-time", start = 0, ts = stamp, by = author }
     end
@@ -116,6 +120,8 @@ local function applyReset(stamp, author)
     GD.bucket.pvpReset = { ts = stamp, by = author }
     GD.bucket.pvpSeasonDeletes = {}
     GD.bucket.pvpKills, GD.bucket.pvpDeaths, GD.bucket.pvpTotals, GD.bucket.pvpSeasons = {}, {}, {}, {}
+    GD.bucket.pvpRivalries = {}
+    GD.bucket.pvpBountyEvents, GD.pvpBountyCache = {}, nil
     GD.bucket.pvpSeason = { name = "All-time", start = 0, ts = stamp, by = author }
     honorCredits, seenPlayers = {}, {}
     unmatchedCredit, lastTarget, groupEvidence = nil, nil, {}
@@ -197,6 +203,127 @@ local function encodeKill(record)
     return table.concat({ record.victim, record.victimLevel or 0, record.points or 1 }, "\n")
 end
 
+-- Keep full enemy names (including realms) distinct. Only the owning member
+-- increments cumulative counters; peers merge snapshots with max, never sum.
+local function rivalName(name)
+    return tostring(name or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
+end
+
+local function rivalKey(start, author, enemy)
+    return table.concat({ start, rivalName(author), rivalName(enemy) }, "\n")
+end
+
+local function sendRivalry(row)
+    GD:SendRecord("PV", "rival", time(), row.by, table.concat({ resetTime(),
+        row.start, row.kills, row.deaths, row.last, row.enemy }, "\n"))
+end
+
+local function recentRivalries(start, finish, owner)
+    local rows = {}
+    for _, source in ipairs({ { "pvpKills", "victim", "kills" }, { "pvpDeaths", "killer", "deaths" } }) do
+        for _, record in ipairs(GD.bucket[source[1]] or {}) do
+            local enemy = record[source[2]]
+            if enemy and record.ts > resetTime() and record.ts >= start and record.ts < finish
+                and (not owner or rivalName(record.by) == rivalName(owner)) then
+                local key = rivalKey(start, record.by, enemy)
+                local row = rows[key] or { start = start, by = record.by, enemy = enemy, kills = 0, deaths = 0, last = 0 }
+                row[source[3]] = row[source[3]] + 1
+                row.last = math.max(row.last, record.ts)
+                rows[key] = row
+            end
+        end
+    end
+    return rows
+end
+
+function GD:SeedPvPRivalries()
+    if not self.bucket then return end
+    self.bucket.pvpRivalries = self.bucket.pvpRivalries or {}
+    for _, season in ipairs(self:GetPvPSeasons()) do
+        local finish = season.ends and season.ends > 0 and season.ends or math.huge
+        for key, row in pairs(recentRivalries(season.start, finish, playerName())) do
+            if not self.bucket.pvpRivalries[key] then self.bucket.pvpRivalries[key] = row end
+        end
+    end
+end
+
+local function addRivalry(enemy, field)
+    GD:SeedPvPRivalries()
+    local starts = { 0 }
+    local season = GD.bucket.pvpSeason or {}
+    if (season.start or 0) > 0 and (not season.ends or season.ends == 0 or time() < season.ends) then
+        starts[#starts + 1] = season.start
+    end
+    for _, start in ipairs(starts) do
+        local key = rivalKey(start, playerName(), enemy)
+        local row = GD.bucket.pvpRivalries[key] or { start = start, by = playerName(), enemy = enemy, kills = 0, deaths = 0, last = 0 }
+        row[field], row.last = row[field] + 1, time()
+        GD.bucket.pvpRivalries[key] = row
+        sendRivalry(row)
+    end
+end
+
+GD:RegisterRecordHandler("PV", function(_, ts, author, content)
+    local reset, start, kills, deaths, last, enemy = content:match("^(%d+)\n(%d+)\n(%d+)\n(%d+)\n(%d+)\n([^\n]+)$")
+    reset, start, kills, deaths, last = tonumber(reset), tonumber(start), tonumber(kills), tonumber(deaths), tonumber(last)
+    if not enemy or #enemy > 100 or rivalName(enemy) == "" or reset ~= resetTime()
+        or kills > 1000000000 or deaths > 1000000000 or start > ts or last < start
+        or ts <= resetTime() or ts > time() + 60 or last > ts or last <= resetTime()
+        or (start > 0 and (start <= resetTime() or GD.bucket.pvpSeasonDeletes[tostring(start)])) then return end
+    local key = rivalKey(start, author, enemy)
+    local current = GD.bucket.pvpRivalries[key]
+    GD.bucket.pvpRivalries[key] = { start = start, by = author, enemy = enemy,
+        kills = math.max(kills, current and current.kills or 0),
+        deaths = math.max(deaths, current and current.deaths or 0),
+        last = math.max(last, current and current.last or 0) }
+    if GD.RefreshUI then GD:RefreshUI() end
+end)
+
+function GD:GetPvPRivals(allTime, selectedStart, guildWide, sortByDeaths)
+    if not self.bucket then return {} end
+    self:SeedPvPRivalries()
+    local season = self.bucket.pvpSeason or { start = 0 }
+    if selectedStart ~= nil then
+        for _, choice in ipairs(self:GetPvPSeasons()) do
+            if choice.start == selectedStart then season, allTime = choice, selectedStart == 0; break end
+        end
+    end
+    local start = allTime and 0 or season.start
+    local finish = start > 0 and season.ends and season.ends > 0 and season.ends or math.huge
+    local rows = recentRivalries(start, finish)
+    for key, row in pairs(self.bucket.pvpRivalries) do
+        if row.start == start then
+            local recent = rows[key]
+            rows[key] = { by = row.by, enemy = row.enemy,
+                kills = math.max(row.kills, recent and recent.kills or 0),
+                deaths = math.max(row.deaths, recent and recent.deaths or 0),
+                last = math.max(row.last, recent and recent.last or 0) }
+        end
+    end
+    local enemies = {}
+    for _, row in pairs(rows) do
+        if guildWide or rivalName(row.by) == rivalName(playerName()) then
+            local key = rivalName(row.enemy)
+            local enemy = enemies[key] or { name = row.enemy, kills = 0, deaths = 0, last = 0 }
+            enemy.kills, enemy.deaths = enemy.kills + row.kills, enemy.deaths + row.deaths
+            enemy.last = math.max(enemy.last, row.last)
+            enemies[key] = enemy
+        end
+    end
+    local result = {}
+    for _, row in pairs(enemies) do
+        row.kd = row.kills / math.max(1, row.deaths)
+        if not guildWide or row.deaths > 0 then result[#result + 1] = row end
+    end
+    local primary, secondary = sortByDeaths and "deaths" or "kills", sortByDeaths and "kills" or "deaths"
+    table.sort(result, function(a, b)
+        if a[primary] ~= b[primary] then return a[primary] > b[primary] end
+        if a[secondary] ~= b[secondary] then return a[secondary] > b[secondary] end
+        return a.name:lower() < b.name:lower()
+    end)
+    return result
+end
+
 local function recordDeath()
     if deathRecorded then return end
     deathRecorded = true
@@ -208,6 +335,8 @@ local function recordDeath()
     record.id = tostring(time()) .. "-death-" .. tostring(math.random(100000, 999999))
     -- Update totals before adding the recent record, so migration cannot count it twice.
     addLocalStat("deaths")
+    addRivalry(record.killer, "deaths")
+    if GD.RecordPvPBountyEvent then GD:RecordPvPBountyEvent("D", record, true) end
     GD:StoreRecord("pvpDeaths", record, "X", record.killer)
     trackingNote("Recorded PvP death: " .. record.killer)
 end
@@ -265,6 +394,8 @@ local function recordKill(victim, victimLevel, outdoors)
     local record = GD:NewRecord({ victim = victim, victimLevel = level, points = 1 })
     record.id = tostring(time()) .. "-pvp-" .. tostring(math.random(100000, 999999))
     addLocalStat("kills", record.points)
+    addRivalry(victim, "kills")
+    if GD.RecordPvPBountyEvent then GD:RecordPvPBountyEvent("K", record, true) end
     trackingNote("Recorded " .. victim .. ": +" .. record.points .. " points")
     if GD.ShowPvPPopup then
         local player = playerName()
@@ -282,6 +413,7 @@ GD:RegisterRecordHandler("P", function(id, ts, author, content, sender)
     level, points = tonumber(level), tonumber(points)
     if not victim or victim == "" or #victim > 100 or not level or level > 100 or not points or points < 1 or points > 5 then return end
     GD:StoreRecord("pvpKills", { id = id, ts = ts, by = author, victim = victim, victimLevel = level, points = points })
+    if GD.RecordPvPBountyEvent then GD:RecordPvPBountyEvent("K", { id = id, ts = ts, by = author, victim = victim }) end
     if retryGroupCredit then retryGroupCredit(ts, author, sender, victim, level) end
 end)
 
@@ -290,6 +422,7 @@ GD:RegisterRecordHandler("X", function(id, ts, author, content)
     local killer = content:gsub("^%s+", ""):gsub("%s+$", "")
     if killer == "" or #killer > 100 then return end
     GD:StoreRecord("pvpDeaths", { id = id, ts = ts, by = author, killer = killer })
+    if GD.RecordPvPBountyEvent then GD:RecordPvPBountyEvent("D", { id = id, ts = ts, by = author, killer = killer }) end
 end)
 
 GD:RegisterRecordHandler("Y", function(id, ts, author, content)
@@ -493,6 +626,7 @@ GD:RegisterEventHandler("PLAYER_PVP_KILLS_CHANGED", function(_, unit)
 end)
 
 GD:RegisterHistoryProvider(function()
+    GD:SeedPvPRivalries()
     local reset = GD.bucket.pvpReset
     if reset and reset.ts > 0 then GD:SendRecord("PR", "wipe", reset.ts, reset.by, "") end
     for start, deleted in pairs(GD.bucket.pvpSeasonDeletes) do
@@ -517,6 +651,7 @@ GD:RegisterHistoryProvider(function()
     for _, totals in pairs(GD.bucket.pvpTotals or {}) do
         sendTotals(totals.start or 0, totals.by, totals)
     end
+    for _, row in pairs(GD.bucket.pvpRivalries) do sendRivalry(row) end
 end)
 
 -- Cache visible player units so honor messages can include the victim level
@@ -678,6 +813,7 @@ function GD:GetPvPLeaderboard(allTime, selectedStart)
             if choice.start == selectedStart then season = choice; allTime = selectedStart == 0; break end
         end
     end
+    if allTime then season = { name = "All-time", start = 0 } end
     local start = allTime and 0 or (season.start or 0)
     local finish = not allTime and season.ends and season.ends > 0 and season.ends or math.huge
     local scores, totalRows = {}, {}
@@ -711,9 +847,23 @@ function GD:GetPvPLeaderboard(allTime, selectedStart)
             scores[death.by] = score
         end
     end
+    local bonuses = self.GetPvPBountyPoints and self:GetPvPBountyPoints(start, finish) or {}
+    for _, bonus in pairs(bonuses) do
+        local score = scores[bonus.name]
+        if not score then
+            for name, candidate in pairs(scores) do
+                if name:lower() == bonus.name:lower() then score = candidate; break end
+            end
+        end
+        if not score then
+            score = { name = bonus.name, kills = 0, deaths = 0, recentPoints = { 0, 0, 0, 0, 0 } }
+            scores[bonus.name] = score
+        end
+        score.bountyPoints = bonus.points
+    end
     local ranking = {}
     for _, score in pairs(scores) do
-        score.points = score.kills
+        score.points = score.kills + (score.bountyPoints or 0)
         score.kd = score.kills / math.max(1, score.deaths)
         ranking[#ranking + 1] = score
     end
@@ -736,41 +886,14 @@ GD:RegisterTab("PvP", function()
     local deaths = GD.bucket.pvpDeaths or {}
     if #kills == 0 and #deaths == 0 and not next(GD.bucket.pvpTotals or {}) then return "No outdoor PvP kills recorded yet. Defeat an enemy player in the open world to earn points." end
     local season = GD.bucket.pvpSeason or { name = "All-time", start = 0 }
-    local scores, wanted = {}, {}
-    local totalRows = {}
-    for _, total in pairs(GD.bucket.pvpTotals or {}) do
-        if (total.start or 0) == (season.start or 0) then
-            local score = scores[total.by] or { name = total.by, points = 0, kills = 0, deaths = 0 }
-            score.points = math.max(score.points, total.points or 0)
-            score.kills = math.max(score.kills, total.kills or 0)
-            score.deaths = math.max(score.deaths, total.deaths or 0)
-            scores[total.by] = score
-            totalRows[total.by] = true
-        end
-    end
-    for _, kill in ipairs(kills) do
-        if not totalRows[kill.by] and kill.ts >= (season.start or 0) and (not season.ends or season.ends == 0 or kill.ts < season.ends) then
-            local score = scores[kill.by] or { name = kill.by, points = 0, kills = 0, deaths = 0 }
-            score.points, score.kills = score.points + (tonumber(kill.points) or 1), score.kills + 1
-            scores[kill.by] = score
-        end
-    end
+    local _, ranking = GD:GetPvPLeaderboard()
+    local wanted = {}
     for _, death in ipairs(deaths) do
-        if not totalRows[death.by] and death.ts >= (season.start or 0) and (not season.ends or season.ends == 0 or death.ts < season.ends) then
-            local score = scores[death.by] or { name = death.by, points = 0, kills = 0, deaths = 0 }
-            score.deaths = score.deaths + 1
-            scores[death.by] = score
+        if death.ts >= (season.start or 0) and (not season.ends or season.ends == 0 or death.ts < season.ends) then
             wanted[death.killer] = (wanted[death.killer] or 0) + 1
         end
     end
-    local ranking = {}
-    for _, score in pairs(scores) do score.points = score.kills; ranking[#ranking + 1] = score end
-    table.sort(ranking, function(a, b)
-        if a.points ~= b.points then return a.points > b.points end
-        if a.kills ~= b.kills then return a.kills > b.kills end
-        return a.name:lower() < b.name:lower()
-    end)
-    local lines = { "PvP season: " .. GD:Display(season.name or "All-time"), "Ranked by kills since season start", "" }
+    local lines = { "PvP season: " .. GD:Display(season.name or "All-time"), "Ranked by kills + bounty bonus points since season start", "" }
     for rank, score in ipairs(ranking) do
         lines[#lines + 1] = ("%d. %s — %d points · %d kills / %d deaths · %.2f K/D"):format(rank, GD:Display(score.name), score.points, score.kills, score.deaths, score.kills / math.max(1, score.deaths))
     end

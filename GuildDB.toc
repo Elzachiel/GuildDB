@@ -2,7 +2,7 @@
 ## Title: GuildDB
 ## Notes: A modular guild hub with member profiles, a raid calendar, PvP, crafting, polls, and more.
 ## Author: GuildDB Contributors
-## Version: 0.2.01
+## Version: 0.2.03
 ## SavedVariables: GDB
 
 Libs/LibStub/LibStub.lua
@@ -12,17 +12,18 @@ Libs/HereBeDragons/HereBeDragons-Pins-2.0.lua
 
 Core/Runtime.lua
 Features/Profiles.lua
-Features/Analytics.lua
 Features/Map.lua
 Features/Announcements.lua
 Features/Events.lua
-Features/Shoutouts.lua
 Features/PvP.lua
+Features/PvPBounties.lua
+Features/Shoutouts.lua
 Features/Popouts.lua
 Features/Guide.lua
 Features/LookingFor.lua
 Features/Crafting.lua
 Features/Polls.lua
+Features/Analytics.lua
 Features/Settings.lua
 UI/Main.lua
 Features/Home.lua

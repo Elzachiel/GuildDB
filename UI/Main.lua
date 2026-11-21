@@ -121,14 +121,23 @@ local function applyTheme(frame)
 end
 
 local pvpColumnWidths = { 0.06, 0.25, 0.10, 0.10, 0.10, 0.39 }
-local function layoutPvPColumn(text, index, parent, width, inset, header)
+local pvpScoreColumnWidths = { 0.05, 0.23, 0.10, 0.09, 0.09, 0.09, 0.35 }
+local function layoutPvPColumn(text, index, parent, width, inset, header, rivals)
+    local widths = rivals and pvpColumnWidths or pvpScoreColumnWidths
     local offset = 0
-    for column = 1, index - 1 do offset = offset + pvpColumnWidths[column] * width end
+    for column = 1, index - 1 do offset = offset + widths[column] * width end
     text:ClearAllPoints()
-    if header then text:SetPoint("TOPLEFT", parent, "TOPLEFT", inset + offset, -153)
+    if header then text:SetPoint("TOPLEFT", parent, "TOPLEFT", inset + offset, -187)
     else text:SetPoint("LEFT", parent, "LEFT", offset, 0) end
-    text:SetWidth(math.max(1, pvpColumnWidths[index] * width - 8))
+    text:SetWidth(math.max(1, widths[index] * width - 8))
     text:SetJustifyH("CENTER")
+end
+
+local function layoutPvPRow(row, width, rivals)
+    row.killCount:SetShown(not rivals)
+    local columns = rivals and { row.rank, row.player, row.points, row.kills, row.kd, row.last }
+        or { row.rank, row.player, row.points, row.killCount, row.kills, row.kd, row.last }
+    for index, text in ipairs(columns) do layoutPvPColumn(text, index, row, width, 0, false, rivals) end
 end
 
 local function rosterText()
@@ -990,22 +999,22 @@ local function build()
     frame.pvpTitleSeason:SetWordWrap(true)
     frame.pvpTitleSeason:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
     frame.pvpSummary = frame.detailPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    frame.pvpSummary:SetPoint("TOPLEFT", 18, -82)
+    frame.pvpSummary:SetPoint("TOPLEFT", 18, -116)
     frame.pvpInfo = frame.detailPanel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    frame.pvpInfo:SetPoint("TOPLEFT", 18, -106)
-    frame.pvpInfo:SetPoint("TOPRIGHT", -18, -106)
+    frame.pvpInfo:SetPoint("TOPLEFT", 18, -140)
+    frame.pvpInfo:SetPoint("TOPRIGHT", -18, -140)
     frame.pvpInfo:SetHeight(34)
     frame.pvpInfo:SetWordWrap(true)
     frame.pvpInfo:SetJustifyH("LEFT")
     frame.pvpTableRule = frame.detailPanel:CreateTexture(nil, "ARTWORK")
-    frame.pvpTableRule:SetPoint("TOPLEFT", 14, -172)
-    frame.pvpTableRule:SetPoint("TOPRIGHT", -14, -172)
+    frame.pvpTableRule:SetPoint("TOPLEFT", 14, -206)
+    frame.pvpTableRule:SetPoint("TOPRIGHT", -14, -206)
     frame.pvpTableRule:SetHeight(1)
     frame.pvpTableRule:SetColorTexture(0.12, 0.25, 0.37, 0.9)
     frame.pvpHeaders = {}
     local function addPvpHeader(text, x, width, justify)
         local header = frame.detailPanel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        header:SetPoint("TOPLEFT", x, -153)
+        header:SetPoint("TOPLEFT", x, -187)
         header:SetWidth(width)
         header:SetJustifyH(justify or "LEFT")
         header:SetText(text)
@@ -1018,16 +1027,39 @@ local function build()
     addPvpHeader("DEATHS", 370, 90, "CENTER")
     addPvpHeader("K/D", 440, 70, "CENTER")
     addPvpHeader("LAST KILL", 490, 280)
+    addPvpHeader("", 0, 1)
     frame.pvpRows = {}
+    frame.pvpViewButtons = {}
+    for index, view in ipairs({ "Leaderboard", "Bounty Board", "Nemesis" }) do
+        local button = CreateFrame("Button", nil, frame.detailPanel, "UIPanelButtonTemplate")
+        GD:StyleButton(button)
+        button:SetSize(112, 26)
+        button:SetPoint("TOPLEFT", 18 + (index - 1) * 120, -80)
+        button:SetText(view)
+        button:SetScript("OnClick", function()
+            frame.pvpView = view
+            frame.detailScroll:SetVerticalScroll(0)
+            GD:RefreshUI()
+        end)
+        frame.pvpViewButtons[index] = button
+    end
+    frame.pvpRivalSort = CreateFrame("Button", nil, frame.detailPanel, "UIPanelButtonTemplate")
+    GD:StyleButton(frame.pvpRivalSort)
+    frame.pvpRivalSort:SetSize(132, 26)
+    frame.pvpRivalSort:SetPoint("TOPRIGHT", -18, -80)
+    frame.pvpRivalSort:SetScript("OnClick", function()
+        frame.pvpRivalDeaths = not frame.pvpRivalDeaths
+        frame.detailScroll:SetVerticalScroll(0)
+        GD:RefreshUI()
+    end)
     frame.detailPanel:HookScript("OnSizeChanged", function(panel)
         local width = math.max(1, panel:GetWidth() - 28)
+        local rivals = frame.pvpView and frame.pvpView ~= "Leaderboard"
         for index, header in ipairs(frame.pvpHeaders) do
-            layoutPvPColumn(header, index, panel, width, 14, true)
+            if index <= (rivals and 6 or 7) then layoutPvPColumn(header, index, panel, width, 14, true, rivals) end
         end
         for _, row in ipairs(frame.pvpRows) do
-            for index, text in ipairs({ row.rank, row.player, row.points, row.kills, row.kd, row.last }) do
-                layoutPvPColumn(text, index, row, width, 0, false)
-            end
+            layoutPvPRow(row, width, rivals)
         end
     end)
     frame.pvpEmpty = frame.detailChild:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -1752,7 +1784,7 @@ function GD:RefreshUI()
     frame.detailMeta:SetShown(not isPvP and not isActionList)
     frame.detailScroll:ClearAllPoints()
     if isPvP then
-        frame.detailScroll:SetPoint("TOPLEFT", 10, -184)
+        frame.detailScroll:SetPoint("TOPLEFT", 10, -218)
         frame.detailScroll:SetPoint("BOTTOMRIGHT", -10, self:CanManagePvPSeason() and 54 or 12)
     else
         frame.detailScroll:SetPoint("TOPLEFT", 10, -66)
@@ -1761,6 +1793,8 @@ function GD:RefreshUI()
     for _, element in ipairs({ frame.pvpTitleSeason, frame.pvpSummary, frame.pvpInfo, frame.pvpTableRule, frame.pvpMyButton, frame.pvpSeasonButton, frame.pvpDeleteButton, frame.pvpWipeButton, frame.pvpScopeButton }) do
         element:SetShown(isPvP)
     end
+    for _, button in ipairs(frame.pvpViewButtons) do button:SetShown(isPvP) end
+    frame.pvpRivalSort:SetShown(isPvP and frame.pvpView == "Nemesis")
     frame.eventCreateButton:SetShown(isEvents and self:CanManage())
     frame.eventCreateTypeButton:Hide()
     local actionVisible = active == "Profiles" or active == "Looking For" or active == "Crafting" or (active == "Polls" and self:CanManage()) or ((active == "Announcements" or active == "Guide") and self:CanManage())
@@ -1853,8 +1887,16 @@ function GD:RefreshUI()
     elseif active == "PvP" then
         self:HideSettingsControls()
         frame.detailBody:Hide()
+        local view = frame.pvpView or "Leaderboard"
+        local isRivals, isBounty = view ~= "Leaderboard", view == "Bounty Board"
+        for index, button in ipairs(frame.pvpViewButtons) do
+            local selectedView = ({ "Leaderboard", "Bounty Board", "Nemesis" })[index] == view
+            self:StyleButton(button, selectedView and "primary" or nil)
+        end
+        frame.pvpMyButton:SetShown(not isRivals)
+        frame.pvpRivalSort:SetText(frame.pvpRivalDeaths and "Killed me most" or "Most killed")
         frame.detailTitle:SetWidth(math.min(390, math.max(250, frame.detailPanel:GetWidth() - 500)))
-        frame.detailTitle:SetText("PVP LEADERBOARD")
+        frame.detailTitle:SetText(isBounty and "BOUNTY BOARD" or isRivals and "NEMESIS" or "PVP LEADERBOARD")
         local season, ranking, ownScore, ownRank = self:GetPvPLeaderboard(frame.pvpAllTime, frame.pvpSelectedStart)
         local deadline = season.ends and season.ends > 0 and season.ends
         local seasonStatus = ""
@@ -1875,9 +1917,19 @@ function GD:RefreshUI()
         frame.pvpWipeButton:SetShown(self:CanManagePvPSeason())
         frame.pvpScopeButton:SetText("Seasons  v")
         local playerName = UnitName and UnitName("player") or "You"
-        frame.pvpSummary:SetText(ownScore and ("You: |cffffcc33%d kills|r  /  %d deaths  /  %.2f K/D  -  #%d"):format(ownScore.kills, ownScore.deaths, ownScore.kd, ownRank) or (playerName .. ": no PvP stats yet"))
-        frame.pvpInfo:SetText("Top 10 by honorable kills  |  Open world only  |  Every game-credited kill counts  |  K/D: kills / deaths (minimum 1)")
-        if frame.pvpMyOnly then
+        frame.pvpSummary:SetText(ownScore and ("You: |cffffcc33%d points|r (%d bounty) / %d kills / %d deaths / %.2f K/D - #%d"):format(ownScore.points, ownScore.bountyPoints or 0, ownScore.kills, ownScore.deaths, ownScore.kd, ownRank) or (playerName .. ": no PvP stats yet"))
+        frame.pvpInfo:SetText("Top 10 by total points  |  Points = kills + bounty bonus  |  Open world only  |  K/D uses kills and deaths")
+        if isBounty then
+            ranking = self:GetPvPBounties()
+            frame.pvpScopeButton:Hide()
+            frame.pvpTitleSeason:SetText("Guild-wide bounties - points count in the season when claimed")
+            frame.pvpSummary:SetText("3 guild deaths opens +3 points; each further death adds +1, up to +10")
+            frame.pvpInfo:SetText("Repeat victims count  |  Every credited member earns the full bonus once  |  Counter restarts after a claim")
+        elseif isRivals then
+            ranking = self:GetPvPRivals(frame.pvpAllTime, frame.pvpSelectedStart, false, frame.pvpRivalDeaths)
+            frame.pvpSummary:SetText("Your rivalries: enemies you defeat and enemies who kill you")
+            frame.pvpInfo:SetText("Kills: you defeated them  |  Deaths: they killed you  |  Use Seasons to change the period")
+        elseif frame.pvpMyOnly then
             local own = ownScore
             ranking = own and { own } or {}
         else
@@ -1904,8 +1956,15 @@ function GD:RefreshUI()
             end
         end
         local boardWidth = math.max(1, frame.detailPanel:GetWidth() - 28)
+        local labels = isBounty and { "#", "ENEMY", "DEATHS", "BONUS", "STATUS", "LAST ENCOUNTER" }
+            or isRivals and { "#", "ENEMY", "KILLS", "DEATHS", "K/D", "LAST ENCOUNTER" }
+            or { "#", "PLAYER", "POINTS", "KILLS", "DEATHS", "K/D", "LAST KILL" }
         for index, header in ipairs(frame.pvpHeaders) do
-            layoutPvPColumn(header, index, frame.detailPanel, boardWidth, 14, true)
+            header:SetShown(labels[index] ~= nil)
+            if labels[index] then
+                header:SetText(labels[index])
+                layoutPvPColumn(header, index, frame.detailPanel, boardWidth, 14, true, isRivals)
+            end
         end
         for i, score in ipairs(ranking) do
             local row = frame.pvpRows[i]
@@ -1917,32 +1976,32 @@ function GD:RefreshUI()
                 row.rank = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
                 row.player = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
                 row.points = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                row.killCount = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
                 row.kills = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
                 row.kd = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
                 row.last = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
                 frame.pvpRows[i] = row
             end
-            for index, text in ipairs({ row.rank, row.player, row.points, row.kills, row.kd, row.last }) do
-                layoutPvPColumn(text, index, row, boardWidth, 0, false)
-            end
+            layoutPvPRow(row, boardWidth, isRivals)
             row:ClearAllPoints()
             row:SetPoint("TOPLEFT", 4, -4 - (i - 1) * 36)
             row:SetPoint("RIGHT", frame.detailChild, "RIGHT", -4, 0)
             row.rank:SetText(tostring(i))
-            row.player:SetText(self:Display(leaderboardName(score.name)))
-            local classColor = RAID_CLASS_COLORS and RAID_CLASS_COLORS[classByName[characterKey(score.name)]]
+            row.player:SetText(self:Display(isRivals and score.name or leaderboardName(score.name)))
+            local classColor = not isRivals and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classByName[characterKey(score.name)]]
             if classColor then row.player:SetTextColor(classColor.r, classColor.g, classColor.b)
             else row.player:SetTextColor(CREAM[1], CREAM[2], CREAM[3]) end
-            row.points:SetText(tostring(score.points or 0))
+            row.points:SetText(tostring(isBounty and score.deaths or isRivals and score.kills or score.points or 0))
             row.points:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
-            row.kills:SetText(tostring(score.deaths or 0))
-            row.kd:SetText(("%.2f"):format(score.kd))
+            row.killCount:SetText(tostring(score.kills or 0))
+            row.kills:SetText(isBounty and (score.reward > 0 and ("+" .. score.reward) or "-") or tostring(score.deaths or 0))
+            row.kd:SetText(isBounty and score.status or ("%.2f"):format(score.kd))
             local last = score.lastKill
             local lastText = "-"
-            if last then
-                local age = math.max(0, time() - (last.ts or time()))
+            if last or isRivals and score.last > 0 then
+                local age = math.max(0, time() - (isRivals and score.last or last.ts or time()))
                 local ageText = age < 3600 and (math.floor(age / 60) .. "m") or age < 86400 and (math.floor(age / 3600) .. "h") or (math.floor(age / 86400) .. "d")
-                lastText = self:Display(last.victim or "Unknown") .. " (" .. tostring(last.victimLevel or "?") .. ")  " .. ageText .. " ago"
+                lastText = isRivals and (ageText .. " ago") or (self:Display(last.victim or "Unknown") .. " (" .. tostring(last.victimLevel or "?") .. ")  " .. ageText .. " ago")
             end
             row.last:SetText(lastText)
             row.last:SetTextColor(CREAM[1], CREAM[2], CREAM[3])
@@ -1951,7 +2010,7 @@ function GD:RefreshUI()
         end
         for i = #ranking + 1, #frame.pvpRows do frame.pvpRows[i]:Hide() end
         if #ranking == 0 then
-            frame.pvpEmpty:SetText(self.guildName and "No outdoor PvP kills recorded this season yet." or "Join a guild to see the PvP leaderboard.")
+            frame.pvpEmpty:SetText(not self.guildName and "Join a guild to see PvP stats." or isBounty and "No bounty activity yet. Three guild deaths to the same enemy opens a bounty." or isRivals and "No personal rivalries recorded in this period yet." or "No outdoor PvP kills recorded this season yet.")
             frame.pvpEmpty:Show()
         else
             frame.pvpEmpty:Hide()

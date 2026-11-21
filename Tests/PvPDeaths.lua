@@ -25,6 +25,7 @@ local function client()
     local gd = {}
     assert(loadfile('Core/Runtime.lua'))('GuildDB', gd)
     assert(loadfile('Features/PvP.lua'))('GuildDB', gd)
+    assert(loadfile('Features/PvPBounties.lua'))('GuildDB', gd)
     gd.bucket = {}
     for key, factory in pairs(gd.bucketDefaults) do gd.bucket[key] = factory() end
     gd.bucket.pvpSeason = {name = 'Season 1', start = 900, ends = 2000}
@@ -136,6 +137,18 @@ for _, packet in ipairs(packets) do
 end
 assert(#peer.bucket.pvpDeaths == 4, 'replayed history must not duplicate deaths')
 GD.bucket.pvpTotals['0|Player Moon'].kills = 10
+local function rivalDeaths(client, allTime)
+    local total = 0
+    for _, row in ipairs(client:GetPvPRivals(allTime)) do total = total + row.deaths end
+    return total
+end
+assert(rivalDeaths(GD, true) == 4 and rivalDeaths(peer, true) == 4, 'actual PvP deaths must update and sync rivalries once per life')
+assert(rivalDeaths(GD, false) == 3, 'rivalry deaths stop at the season cutoff')
+local bountyDeaths = 0
+for _, event in pairs(GD.bucket.pvpBountyEvents) do
+    if event.kind == 'D' then bountyDeaths = bountyDeaths + 1 end
+end
+assert(bountyDeaths == 4, 'only eligible outdoor deaths must enter the bounty ledger, once per life')
 local _, _, score = GD:GetPvPLeaderboard(true)
 assert(score.kd == 2.5, 'K/D must use cumulative totals')
 GD.bucket.pvpTotals['0|Player Moon'].deaths = 0
