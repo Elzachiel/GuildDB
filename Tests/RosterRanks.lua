@@ -1,10 +1,12 @@
 -- Run: npm.cmd exec --yes --package=fengari-node-cli -- fengari Tests/RosterRanks.lua
+unpack = unpack or table.unpack
 local GD = { guildName = 'Test Guild', activeTab = 'Roster' }
 local events = {}
 function GD:RegisterTab() end
 function GD:RegisterEventHandler(event, callback) events[event] = callback end
 function GD:Display(value) return tostring(value or '') end
 assert(loadfile('UI/Main.lua'))('GuildDB', GD)
+local refreshUI = GD.RefreshUI
 local ownRank, memberRank, combat = 0, 3, false
 local promoteAllowed, demoteAllowed = true, true
 GetGuildInfo = function() return 'Test Guild', 'Rank', ownRank end
@@ -66,8 +68,12 @@ methods.GetPushedTexture = methods.GetNormalTexture
 methods.GetHighlightTexture = methods.GetNormalTexture
 methods.GetDisabledTexture = methods.GetNormalTexture
 function methods:GetFrameLevel() return 1 end
+function methods:GetObjectType() return 'Button' end
 function methods:GetWidth() return 600 end
 function methods:GetHeight() return 500 end
+function methods:GetText() return self.text or '' end
+function methods:GetStringHeight() return 20 end
+function methods:GetVerticalScroll() return 0 end
 function methods:GetEffectiveScale() return 1 end
 function methods:GetLeft() return 100 end
 function methods:GetBottom() return 50 end
@@ -237,3 +243,52 @@ for _, timer in ipairs(timers) do if timer[1] == 10 then timer[2]() end end
 assert(not GD.pendingRosterRank and not GD.rosterRankTarget, 'timeout clears continuation')
 assert(serverRank == serverBeforeTimeout, 'timers must never issue more rank commands')
 print('PASS: one command per click, Member -> Veteran -> Officer with confirmed continuation, Officer -> Veteran, refreshed roster ranks, no overshoot, stable dropdown and stale selection protection')
+
+-- Exercise the real refresh and tab click handlers during combat. The rank
+-- layer is protected even while hidden, so reject all insecure mutations.
+function methods:SetShown(value)
+    assert(not combat or not protected(self), 'combat must not change protected visibility')
+    self.shown = value
+end
+local styleButton = GD.StyleButton
+function GD:StyleButton(button, variant)
+    assert(not combat or not protected(button), 'combat must not restyle protected buttons')
+    return styleButton(self, button, variant)
+end
+function GD:GetProfile() return nil end
+function GD:CanManage() return true end
+function GD:GetAddonVersion() return nil end
+function GD:HideSettingsControls() end
+local homeRefreshes = 0
+function GD:RefreshHome() homeRefreshes = homeRefreshes + 1 end
+assert(loadfile('Features/Analytics.lua'))('GuildDB', GD)
+GD.tabs = {'Home', 'Roster', 'Analytics', 'Guide'}
+GD.views = {
+    Home=function() return '' end, Roster=function() return '' end,
+    Analytics=function() return '' end, Guide=function() return 'Guild rules' end,
+}
+GD.RefreshUI = refreshUI
+combat = true
+GD.frame.rankLayer.shown = false
+GD.activeTab = 'Home'
+GD:RefreshUI()
+assert(homeRefreshes == 1, 'Home must refresh in combat')
+for _, tab in ipairs({'Analytics', 'Roster', 'Guide', 'Home', 'Analytics'}) do
+    click(GD.frame.tabButtons[tab])
+    assert(GD.activeTab == tab and GD.frame.activeTab == tab, 'tab click must render the selected view in combat')
+    assert(not GD.frame.rankLayer.shown, 'protected controls must stay hidden')
+    if tab == 'Analytics' then assert(GD.frame.analytics.shown)
+    else assert(not GD.frame.analytics.shown) end
+end
+click(GD.frame.analytics.filter)
+assert(GD.frame.analytics.onlineOnly, 'Analytics filtering must remain interactive during combat')
+GD.frame:Hide()
+GD.frame.hooks.OnHide()
+GD.frame:Show()
+GD.frame.hooks.OnShow()
+GD:RefreshUI()
+assert(GD.frame.shown and not GD.frame.rankLayer.shown)
+combat = false
+events.PLAYER_REGEN_ENABLED()
+assert(GD.frame.rankLayer.shown, 'protected layer must return after combat')
+print('PASS: real combat tab switching, view refresh, Analytics filtering, close/reopen and protected rank isolation')

@@ -53,7 +53,8 @@ local function applyAccent(frame)
     if frame.pvpTitleSeason then frame.pvpTitleSeason:SetTextColor(r, g, b) end
     for _, key in ipairs({ "pvpMyButton", "pvpSeasonButton", "pvpDeleteButton", "pvpWipeButton", "pvpScopeButton", "contentActionButton", "profileEditButton", "rosterInviteButton", "rosterRankDropdown", "craftSearchButton", "eventCreateButton", "eventCreateTypeButton" }) do
         local button = frame[key]
-        if button and button.GetObjectType and button:GetObjectType() == "Button" then
+        local combatRankControl = key == "rosterRankDropdown" and InCombatLockdown and InCombatLockdown()
+        if not combatRankControl and button and button.GetObjectType and button:GetObjectType() == "Button" then
             local primary = key == "pvpSeasonButton" or key == "contentActionButton" or key == "profileEditButton" or key == "craftSearchButton"
             GD:StyleButton(button, primary and "primary" or nil)
         end
@@ -239,7 +240,12 @@ local function rosterRankMenuContext(name, choices)
 end
 
 function GD:RefreshRosterRankControls(name)
-    if InCombatLockdown and InCombatLockdown() then return end
+    if InCombatLockdown and InCombatLockdown() then
+        if self.activeTab == "Roster" then
+            self.frame.detailScroll:SetPoint("BOTTOMRIGHT", -28, name and 90 or 54)
+        end
+        return
+    end
     local frame = self.frame
     local dropdown = frame.rosterRankDropdown
     local choices = self.activeTab == "Roster" and self:GetRosterRankChoices(name) or {}
@@ -1462,13 +1468,13 @@ end
 
 function GD:RefreshUI()
     if not self.frame then return end
-    -- The unprotected window can open/close in combat using its last view.
-    -- Defer layout and secure rank controls until PLAYER_REGEN_ENABLED.
-    if InCombatLockdown and InCombatLockdown() then return end
+    -- Ordinary views remain interactive in combat. Only the separate protected
+    -- rank layer must wait for PLAYER_REGEN_ENABLED.
+    local inCombat = InCombatLockdown and InCombatLockdown()
     updateTheme()
     updateAccent()
     local frame = self.frame
-    if frame.rankLayer then frame.rankLayer:SetShown(frame:IsShown()) end
+    if frame.rankLayer and not inCombat then frame.rankLayer:SetShown(frame:IsShown()) end
     applyTheme(frame)
     applyAccent(frame)
     local active = self.activeTab or "Home"
