@@ -4,13 +4,13 @@ local _, GH = ...
 local defaults = { onlineOnly = true, scale = 1, popups = true, levelGuildChat = false, shareMapLocation = false }
 
 local function settings()
-    if type(GuildHallDB) ~= "table" then GuildHallDB = {} end
-    if type(GuildHallDB.settings) ~= "table" then GuildHallDB.settings = {} end
+    if type(GuildDB) ~= "table" then GuildDB = {} end
+    if type(GuildDB.settings) ~= "table" then GuildDB.settings = {} end
     for key, value in pairs(defaults) do
-        if GuildHallDB.settings[key] == nil then GuildHallDB.settings[key] = value end
+        if GuildDB.settings[key] == nil then GuildDB.settings[key] = value end
     end
-    if type(GuildHallDB.settings.features) ~= "table" then GuildHallDB.settings.features = {} end
-    return GuildHallDB.settings
+    if type(GuildDB.settings.features) ~= "table" then GuildDB.settings.features = {} end
+    return GuildDB.settings
 end
 
 function GH:GetSetting(key)

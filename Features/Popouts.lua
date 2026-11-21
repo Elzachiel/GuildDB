@@ -265,10 +265,10 @@ local function scanProfessionMilestones()
         local _, professions = GH:GetPlayerProfessions()
         if type(professions) ~= "table" then return end
 
-        GuildHallDB = type(GuildHallDB) == "table" and GuildHallDB or {}
-        GuildHallDB.professionMilestoneRanks = type(GuildHallDB.professionMilestoneRanks) == "table" and GuildHallDB.professionMilestoneRanks or {}
+        GuildDB = type(GuildDB) == "table" and GuildDB or {}
+        GuildDB.professionMilestoneRanks = type(GuildDB.professionMilestoneRanks) == "table" and GuildDB.professionMilestoneRanks or {}
         local characterKey = UnitGUID and UnitGUID("player") or (UnitName and UnitName("player") or "player")
-        local previous = GuildHallDB.professionMilestoneRanks[characterKey]
+        local previous = GuildDB.professionMilestoneRanks[characterKey]
         local current = {}
         for _, skill in ipairs(professions) do
             local name, rank = tostring(skill.name or ""), tonumber(skill.rank) or 0
@@ -284,7 +284,7 @@ local function scanProfessionMilestones()
                 end
             end
         end
-        GuildHallDB.professionMilestoneRanks[characterKey] = current
+        GuildDB.professionMilestoneRanks[characterKey] = current
     end
     if C_Timer and C_Timer.After then C_Timer.After(1, scan) else scan() end
 end

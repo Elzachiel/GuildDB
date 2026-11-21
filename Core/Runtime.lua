@@ -163,8 +163,8 @@ local function ensureBucket()
     local key = guildKey(name, faction)
     if GH.guildKey ~= key then GH.addonPresence = {} end
     GH.guildKey = key
-    GuildHallDB.guilds[key] = GuildHallDB.guilds[key] or {}
-    GH.bucket = GuildHallDB.guilds[key]
+    GuildDB.guilds[key] = GuildDB.guilds[key] or {}
+    GH.bucket = GuildDB.guilds[key]
     for bucketKey, defaultValue in pairs(GH.bucketDefaults) do
         if type(GH.bucket[bucketKey]) ~= "table" then GH.bucket[bucketKey] = defaultValue() end
     end
@@ -445,8 +445,8 @@ frame:SetScript("OnEvent", function(_, event, ...)
     if event == "ADDON_LOADED" then
         local name = ...
         if name ~= ADDON then return end
-        GuildHallDB = type(GuildHallDB) == "table" and GuildHallDB or {}
-        GuildHallDB.guilds = type(GuildHallDB.guilds) == "table" and GuildHallDB.guilds or {}
+        GuildDB = type(GuildDB) == "table" and GuildDB or {}
+        GuildDB.guilds = type(GuildDB.guilds) == "table" and GuildDB.guilds or {}
         local register = C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix or RegisterAddonMessagePrefix
         if register then register(GH.prefix) end
     elseif event == "PLAYER_LOGIN" then
