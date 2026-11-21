@@ -3,6 +3,9 @@ local ADDON, GD = ...
 _G.GuildDB = GD
 
 GD.version = "0.1.88"
+-- New-member tracking begins with this release; keep this anchor on later bumps.
+GD.recentJoinsVersion = "0.1.88"
+GD.recentJoinsStart = 1795285809
 GD.prefix = "GDB"
 GD.maxItems = 60
 GD.tabs = { "Home", "Roster" }

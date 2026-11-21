@@ -90,6 +90,21 @@ local function updateTheme()
 end
 GD.GetThemeChoices = function() return THEMES end
 updateTheme()
+-- Feature panels use this palette instead of keeping their own fixed colors.
+function GD:GetAppearanceColors()
+    updateTheme()
+    updateAccent()
+    return { panel = PANEL, alternate = PANEL_ALT, window = FRAME_BG,
+        accent = GOLD, text = CREAM, muted = MUTED_GOLD }
+end
+local themedSurfaces = setmetatable({}, { __mode = "k" })
+function GD:StyleSurface(surface, kind)
+    themedSurfaces[surface] = kind or "panel"
+    local colors = self:GetAppearanceColors()
+    local background = kind == "window" and colors.window or colors.alternate
+    surface:SetBackdropColor(background[1], background[2], background[3], background[4] or 1)
+    surface:SetBackdropBorderColor(colors.accent[1], colors.accent[2], colors.accent[3], 0.9)
+end
 local function applyTheme(frame)
     if not frame then return end
     if frame.background then frame.background:SetColorTexture(FRAME_BG[1], FRAME_BG[2], FRAME_BG[3], FRAME_BG[4]) end
@@ -98,6 +113,8 @@ local function applyTheme(frame)
     if frame.listPanel and frame.listPanel.bg then frame.listPanel.bg:SetColorTexture(PANEL[1], PANEL[2], PANEL[3], PANEL[4]) end
     if frame.detailPanel and frame.detailPanel.bg then frame.detailPanel.bg:SetColorTexture(PANEL[1], PANEL[2], PANEL[3], PANEL[4]) end
     if frame.rosterSearch then frame.rosterSearch:SetBackdropColor(PANEL_ALT[1], PANEL_ALT[2], PANEL_ALT[3], 1) end
+    for surface, kind in pairs(themedSurfaces) do GD:StyleSurface(surface, kind) end
+    if frame.home and GD.RefreshHomeAppearance then GD:RefreshHomeAppearance() end
     if frame.close then GD:StyleButton(frame.close) end
     if frame.rosterOnlineCheck then GD:StyleButton(frame.rosterOnlineCheck) end
 end
@@ -278,7 +295,7 @@ local function createRaidDatePicker(dialog, field, offset)
     popup:SetClampedToScreen(true)
     popup:EnableMouse(true)
     popup:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8", edgeFile = "Interface/Tooltips/UI-Tooltip-Border", edgeSize = 12 })
-    popup:SetBackdropColor(0.025, 0.032, 0.043, 1)
+    GD:StyleSurface(popup)
     popup:SetBackdropBorderColor(GOLD[1], GOLD[2], GOLD[3], 0.9)
     popup:SetPoint("TOPLEFT", input, "BOTTOMLEFT", 0, -4)
     popup:Hide()
@@ -355,7 +372,7 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose, se
     dialog:EnableMouse(true)
     dialog:SetClampedToScreen(true)
     dialog:SetBackdrop({ bgFile = "Interface/Tooltips/UI-Tooltip-Background", edgeFile = "Interface/Tooltips/UI-Tooltip-Border", tile = true, tileSize = 16, edgeSize = 16, insets = { left = 4, right = 4, top = 4, bottom = 4 } })
-    dialog:SetBackdropColor(0.025, 0.032, 0.043, 0.98)
+    GD:StyleSurface(dialog, "window")
     dialog:SetBackdropBorderColor(GOLD[1], GOLD[2], GOLD[3], 0.9)
     dialog.title = dialog:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     dialog.title:SetPoint("TOPLEFT", 18, -14)
@@ -389,7 +406,7 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose, se
             popup:SetClampedToScreen(true)
             popup:EnableMouse(true)
             popup:SetBackdrop({ bgFile = "Interface/Tooltips/UI-Tooltip-Background", edgeFile = "Interface/Tooltips/UI-Tooltip-Border", tile = true, tileSize = 16, edgeSize = 12, insets = { left = 3, right = 3, top = 3, bottom = 3 } })
-            popup:SetBackdropColor(0.025, 0.032, 0.043, 1)
+            GD:StyleSurface(popup)
             popup:SetBackdropBorderColor(GOLD[1], GOLD[2], GOLD[3], 0.9)
             popup:SetPoint("TOPLEFT", input, "BOTTOMLEFT", 0, -2)
             popup:Hide()
@@ -947,7 +964,7 @@ local function build()
     seasonMenu:SetPoint("TOPRIGHT", frame.pvpScopeButton, "BOTTOMRIGHT", -24, -4)
     seasonMenu:SetFrameStrata("TOOLTIP")
     seasonMenu:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8" })
-    seasonMenu:SetBackdropColor(0.025, 0.032, 0.043, 1)
+    GD:StyleSurface(seasonMenu)
     local seasonOptions = CreateFrame("Frame", nil, seasonMenu)
     seasonOptions:SetSize(280, 220)
     seasonMenu:SetScrollChild(seasonOptions)
@@ -1588,7 +1605,7 @@ function GD:RefreshUI()
         frame.pvpScopeButton:SetText("Seasons  v")
         local playerName = UnitName and UnitName("player") or "You"
         frame.pvpSummary:SetText(ownScore and ("You: |cffffcc33%d kills|r  -  #%d"):format(ownScore.kills, ownRank) or (playerName .. ": no PvP kills yet"))
-        frame.pvpInfo:SetText("Top 10 by honorable kills  |  Open world only  |  1 kill per game-credited honorable kill  |  Same player: once per 5 min, 5 per day")
+        frame.pvpInfo:SetText("Top 10 by honorable kills  |  Open world only  |  1 kill per game-credited honorable kill  |  Same player: once per 1 min, 5 per day")
         if frame.pvpMyOnly then
             local own = ownScore
             ranking = own and { own } or {}

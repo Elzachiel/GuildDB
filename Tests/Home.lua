@@ -4,7 +4,7 @@
 local handlers, events, histories = {}, {}, {}
 local clock, rank, player = 1000, 0, 'Leader Moon'
 local roster = {{'Leader Moon','Leader',0},{'Officer Moon','Officer',1},{'Member Moon','Member',3}}
-local GD = {bucket={}, tabs={}, sent={}, frame=nil}
+local GD = {bucket={}, tabs={}, sent={}, frame=nil, recentJoinsVersion="0.1.88", recentJoinsStart=100}
 function GD:RegisterBucket(k,f) self.bucket[k]=f() end
 function GD:RegisterRecordHandler(k,f) assert(not handlers[k]); handlers[k]=f end
 function GD:RegisterHistoryProvider(f) histories[#histories+1]=f end
@@ -191,6 +191,7 @@ assert(not GD:SetHomeMOTD('Locked'))
 assert(currentNative=='Officer updated guild MOTD')
 print('PASS: modern-only and stale legacy getters, immediate native confirmation/display, unconditional Officer access, messaging-lock handling')
 -- Join notifications and historical guild joins must work without roster changes.
+clock=clock+100000
 C_ChatInfo=nil
 ERR_GUILD_JOIN_S='%s has joined the guild.'
 events.CHAT_MSG_SYSTEM('CHAT_MSG_SYSTEM','|Hplayer:Fresh Moon|h[Fresh Moon]|h has joined the guild.')
@@ -279,33 +280,70 @@ GD:RecordHomeJoin('Fresh Moon',time(),'system')
 rank,player=0,'Leader Moon'
 GD:RefreshHome()
 assert(GD.frame.home.joinText.text:find('|cff4080ffFresh Moon|r - Level 42',1,true))
-assert(GD.frame.home.clearJoins.shown,'GM must see Clear')
+assert(GD.frame.home.clearJoins==nil,'Clear button must be removed')
+assert(GD.frame.home.joinSince==nil,'tracking label must stay hidden')
 GD.roster={}
 GD:RefreshHome()
 assert(GD.frame.home.joinText.text:find('Level 42',1,true),'known level must survive a missing roster entry')
-rank,player=1,'Officer Moon'
+-- Existing saved data is filtered at the release boundary and stays filtered.
+GD.bucket.homeMembers.recent.older={name='Older Moon',ts=99}
+GD.bucket.homeMembers.clearedAt=clock
+GD.bucket.homeMembers.ignoredLog={newmoon=true}
 GD:RefreshHome()
-assert(not GD.frame.home.clearJoins.shown,'Officer must not see GM Clear')
-assert(not GD:ClearHomeRecentJoins())
-assert(GD.bucket.homeMembers.recent.freshmoon)
-rank,player=0,'Leader Moon'
-assert(GD:ClearHomeRecentJoins())
-assert(next(GD.bucket.homeMembers.recent)==nil)
-local clearedAt=GD.bucket.homeMembers.clearedAt
-clock=clock+20
+assert(not GD.bucket.homeMembers.recent.older)
+assert(GD.bucket.homeMembers.clearedAt==nil and GD.bucket.homeMembers.ignoredLog==nil)
+GD:RecordHomeJoin('Before Release',99,'system')
+GD:RecordHomeJoin('At Release',100,'system')
+assert(not GD.bucket.homeMembers.recent.beforerelease)
+assert(GD.bucket.homeMembers.recent.atrelease)
+local stableStart=GD.bucket.homeMembers.trackingSince
+clock=clock+100
+GD:RefreshHome()
+assert(GD.bucket.homeMembers.trackingSince==stableStart,'reload/refresh must not move release cutoff')
+local savedGetInfo=GetGuildEventInfo
+GetNumGuildEvents=function() return 2 end
+GetGuildEventInfo=function(i)
+    if i==1 then return 'join','Boundary Moon',nil,nil,0,0,0,0 end
+    return 'join','Definite Moon',nil,nil,0,0,0,0
+end
+local savedClock=clock
+clock=GD.recentJoinsStart+1000
 GD:ReadHomeGuildLog()
+assert(not GD.bucket.homeMembers.recent.boundarymoon,'ambiguous pre-release log entries must not leak into feed')
+clock=GD.recentJoinsStart+4000
+GD:ReadHomeGuildLog()
+assert(GD.bucket.homeMembers.recent.definitemoon)
+clock=savedClock
+print('PASS: class colors/levels, hidden tracking label, removed Clear, persisted release cutoff, pre-release exclusion, conservative guild-log boundary')
+-- Appearance changes recolor existing Home widgets without rebuilding them.
+function methods:SetBackdropColor(...) self.backdropColor={...} end
+function methods:SetBackdropBorderColor(...) self.borderColor={...} end
+function methods:SetTextColor(...) self.textColor={...} end
+local appearance={uiTheme=3,accentColor=3}
+GD.GetSetting=function(_,key) return appearance[key] end
+local existingHome=GD.frame.home
 GD:RefreshHome()
-assert(next(GD.bucket.homeMembers.recent)==nil,'cached guild history must not refill a cleared list')
-GD:RecordHomeJoin('Next Moon',time(),'system')
-assert(GD.bucket.homeMembers.recent.nextmoon,'new joins after Clear must still appear')
-handlers.HC('recent-joins',clock+1,'Officer Moon','')
-assert(GD.bucket.homeMembers.recent.nextmoon,'officer-authored resets must be rejected')
-handlers.HC('recent-joins',clearedAt-1,'Leader Moon','')
-assert(GD.bucket.homeMembers.recent.nextmoon,'stale resets must be ignored')
-handlers.HC('recent-joins',clock+1,'Leader Moon','')
-assert(next(GD.bucket.homeMembers.recent)==nil,'GM resets must apply on receiving clients')
-GD.sent={};histories[1]()
-local syncedClear=false
-for _,record in ipairs(GD.sent) do if record[1]=='HC' then syncedClear=true end end
-assert(syncedClear,'reset must survive history sync')
-print('PASS: class colors/levels, persisted member details, GM-only Clear visibility/authorization, history suppression, new joins after reset, reset sync')
+local forest=GD:GetThemeChoices()[3]
+local violet=GD:GetAccentChoices()[3]
+for _,panel in ipairs({existingHome.motd,existingHome.posts,existingHome.joins}) do
+    assert(panel.backdropColor[1]==forest.alternate[1] and panel.backdropColor[2]==forest.alternate[2])
+    assert(panel.title.textColor[1]==violet[1] and panel.borderColor[2]==violet[2]*0.5)
+end
+local surface=widget()
+GD:StyleSurface(surface,'window')
+assert(surface.backdropColor[1]==forest.frame[1])
+appearance.uiTheme,appearance.accentColor=4,6
+GD:RefreshHome()
+GD:StyleSurface(surface,'window')
+local ember=GD:GetThemeChoices()[4]
+local amber=GD:GetAccentChoices()[6]
+assert(GD.frame.home==existingHome,'appearance must refresh existing widgets')
+assert(existingHome.motd.backdropColor[1]==ember.alternate[1])
+assert(existingHome.motd.title.textColor[1]==amber[1])
+assert(existingHome.rows[1].title.textColor[1]==amber[1],'reused announcement rows must follow accent')
+assert(surface.backdropColor[1]==ember.frame[1] and surface.borderColor[1]==amber[1])
+GD.roster={{name='Fresh Moon',level=42,classFile='MAGE'}}
+GD:RecordHomeJoin('Fresh Moon',time(),'system')
+GD:RefreshHome()
+assert(existingHome.joinText.text:find('|cff4080ffFresh Moon|r',1,true),'member class colors must survive appearance changes')
+print('PASS: Home theme/accent refresh, reused announcement styles, dialog palette, preserved member class colors')

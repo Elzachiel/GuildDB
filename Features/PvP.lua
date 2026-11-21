@@ -232,7 +232,7 @@ local function recordKill(victim, victimLevel, outdoors)
     if not outdoors then trackingNote("Reward ignored: instanced area"); return end
     if not victim or victim == "" then trackingNote("Reward received without an identified enemy"); return end
     local history, now = historyFor(victim)
-    if #history > 0 and now - history[#history] < 300 then trackingNote("Repeat victim: five-minute limit"); return end
+    if #history > 0 and now - history[#history] < 60 then trackingNote("Repeat victim: one-minute limit"); return end
     if #history >= 5 then trackingNote("Repeat victim: daily limit"); return end
     history[#history + 1] = now
     local level = tonumber(victimLevel) or 0

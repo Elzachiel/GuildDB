@@ -177,47 +177,25 @@ end)
 GD:RegisterHistoryProvider(function()
     if not GD.bucket then return end
     local motd = GD.bucket.homeMOTD
-    local members = GD.bucket.homeMembers
-    if members.clearedAt and members.clearedBy then
-        GD:SendRecord("HC", "recent-joins", members.clearedAt, members.clearedBy, "")
-    end
     if motd.ts then GD:SendRecord("HM", "motd", motd.ts, motd.by, motd.text or "") end
 end, false)
 
-function GD:IsHomeGuildMaster()
-    if not self.bucket or not GetGuildInfo then return false end
-    local _, _, rank = GetGuildInfo("player")
-    return rank == 0
-end
-
-local function applyRecentClear(ts, author)
+local function joinTracking()
+    if not GD.bucket then return end
     local db = GD.bucket.homeMembers
-    if ts <= (db.clearedAt or 0) then return end
-    db.ignoredLog = db.ignoredLog or {}
-    for id in pairs(db.members or {}) do db.ignoredLog[id] = true end
-    local remaining = {}
-    for id, record in pairs(db.recent or {}) do
-        if (record.ts or 0) > ts then remaining[id] = record
-        else db.ignoredLog[id] = true end
+    if db.trackingVersion ~= GD.recentJoinsVersion then
+        db.trackingVersion = GD.recentJoinsVersion
+        -- First scan of this release is a baseline, not a wave of new joins.
+        db.members, db.initialized = {}, false
     end
-    db.recent, db.clearedAt, db.clearedBy = remaining, ts, author
+    db.trackingSince = GD.recentJoinsStart
+    db.clearedAt, db.clearedBy, db.ignoredLog = nil, nil, nil
+    db.members, db.recent = db.members or {}, db.recent or {}
+    for id, record in pairs(db.recent) do
+        if (record.ts or 0) < db.trackingSince then db.recent[id] = nil end
+    end
+    return db
 end
-
-function GD:ClearHomeRecentJoins()
-    if not self:IsHomeGuildMaster() then return false, "Only the guild master can clear recently joined members." end
-    local ts = math.max(time(), (self.bucket.homeMembers.clearedAt or 0) + 1)
-    applyRecentClear(ts, self:PlayerName())
-    self:SendRecord("HC", "recent-joins", ts, self:PlayerName(), "")
-    refresh()
-    return true, "Recently joined members cleared and shared with GuildDB users."
-end
-
-GD:RegisterRecordHandler("HC", function(id, ts, author, content)
-    if not GD.bucket or id ~= "recent-joins" or content ~= "" then return end
-    if not rosterReady("HC", id, ts, author, content) or rankOf(author) ~= 0 then return end
-    applyRecentClear(ts, author)
-    refresh()
-end)
 
 local function memberDetails(name)
     local wanted = key(name)
@@ -234,14 +212,12 @@ end
 
 function GD:RecordHomeJoin(name, timestamp, source)
     if not self.bucket or type(name) ~= "string" or name == "" then return end
-    local db = self.bucket.homeMembers
-    db.members, db.recent = db.members or {}, db.recent or {}
+    local db = joinTracking()
     local id = key(name)
     if id == "" then return end
     local previous = db.recent[id]
     timestamp = tonumber(timestamp) or time()
-    if source == "log" and ((db.ignoredLog or {})[id] or (db.clearedAt and timestamp <= db.clearedAt)) then return end
-    if source == "system" and db.ignoredLog then db.ignoredLog[id] = nil end
+    if timestamp < db.trackingSince then return end
     if time() - timestamp > 30 * 86400 then return end
     -- Re-reading the log must not reset join times on every refresh.
     if not previous or not previous.joined or (source == "system") then
@@ -264,7 +240,11 @@ function GD:ReadHomeGuildLog()
         if got and kind == "join" and not (issecretvalue and issecretvalue(name)) then
             local age = (tonumber(years) or 0) * 365 * 86400 + (tonumber(months) or 0) * 30 * 86400
                 + (tonumber(days) or 0) * 86400 + (tonumber(hours) or 0) * 3600
-            self:RecordHomeJoin(name, time() - age, "log")
+            -- The guild log rounds age down to whole hours. Exclude records
+            -- whose possible join interval crosses the release boundary.
+            if time() - age - 3599 >= GD.recentJoinsStart then
+                self:RecordHomeJoin(name, time() - age, "log")
+            end
         end
     end
 end
@@ -309,7 +289,7 @@ function GD:TrackHomeMembers()
     if not self.bucket or not GetNumGuildMembers or not GetGuildRosterInfo then return end
     local count = GetNumGuildMembers(true)
     if not count or count == 0 then return end
-    local db, names = self.bucket.homeMembers, {}
+    local db, names = joinTracking(), {}
     -- Baseline only a complete roster, including offline members.
     for i = 1, count do
         local name = GetGuildRosterInfo(i)
@@ -438,11 +418,6 @@ local function buildHome(frame)
     home.edit:SetPoint("TOPRIGHT", -12, -10)
     home.newPost = button(home.posts, "New post", 86, function() announcementForm() end)
     home.newPost:SetPoint("TOPRIGHT", -12, -10)
-    home.clearJoins = button(home.joins, "Clear", 56, function()
-        local _, message = GD:ClearHomeRecentJoins()
-        print("GuildDB: " .. tostring(message))
-    end)
-    home.clearJoins:SetPoint("TOPRIGHT", -12, -10)
     home.motdText = label(home.motd.content, "")
     home.motdText:SetPoint("TOPLEFT", 2, -2)
     home.motdText:SetPoint("TOPRIGHT", -2, -2)
@@ -454,9 +429,33 @@ local function buildHome(frame)
     return home
 end
 
+function GD:RefreshHomeAppearance()
+    local home = self.frame and self.frame.home
+    if not home or not self.GetAppearanceColors then return end
+    local colors = self:GetAppearanceColors()
+    for _, panel in ipairs({ home.motd, home.posts, home.joins }) do
+        panel:SetBackdropColor(colors.alternate[1], colors.alternate[2], colors.alternate[3], colors.alternate[4] or 1)
+        panel:SetBackdropBorderColor(colors.accent[1] * 0.5, colors.accent[2] * 0.5, colors.accent[3] * 0.5, 1)
+        panel.title:SetTextColor(colors.accent[1], colors.accent[2], colors.accent[3])
+    end
+    for _, text in ipairs({ home.motdText, home.joinText }) do
+        text:SetTextColor(colors.text[1], colors.text[2], colors.text[3])
+    end
+    if home.empty then home.empty:SetTextColor(colors.muted[1], colors.muted[2], colors.muted[3]) end
+    self:StyleButton(home.edit)
+    self:StyleButton(home.newPost, "primary")
+    for _, row in ipairs(home.rows) do
+        row.title:SetTextColor(colors.accent[1], colors.accent[2], colors.accent[3])
+        row.body:SetTextColor(colors.text[1], colors.text[2], colors.text[3])
+        self:StyleButton(row.edit)
+        self:StyleButton(row.delete)
+    end
+end
+
 function GD:RefreshHome()
     local frame = self.frame
     local home = frame.home or buildHome(frame)
+    joinTracking()
     self:ReadHomeGuildLog()
     self:RequestHomeGuildLog()
     frame.detailScroll:Hide()
@@ -468,7 +467,6 @@ function GD:RefreshHome()
     home.posts:SetWidth(math.max(180, (frame.detailPanel:GetWidth() - 32) / 2))
     home.joins:SetWidth(home.posts:GetWidth())
     home.edit:SetShown(self:CanEditHomeMOTD())
-    home.clearJoins:SetShown(self:IsHomeGuildMaster())
     home.newPost:SetShown(self.bucket ~= nil and self:CanManage())
     local text = self.bucket and self:GetHomeMOTD() or ""
     home.motdText:SetText(self:Display(text ~= "" and text or (self.bucket and "No message of the day set." or "Join a guild to view your Home page.")))
@@ -489,7 +487,7 @@ function GD:RefreshHome()
         local levelText = tonumber(member.level) and tonumber(member.level) > 0 and ("Level " .. member.level) or "Level unknown"
         lines[#lines + 1] = name .. " - " .. levelText .. (member.joined and "\nJoined " or "\nFirst seen ") .. date("%b %d, %I:%M %p", member.ts)
     end
-    home.joinText:SetText(#lines > 0 and table.concat(lines, "\n\n") or "No recent joins found.\n\nNew members are detected from guild notifications and the guild activity log.")
+    home.joinText:SetText(#lines > 0 and table.concat(lines, "\n\n") or "No recent joins yet.")
     home.joins.content:SetHeight(math.max(100, home.joinText:GetStringHeight() + 12))
     local posts = {}
     for _, post in ipairs(self.bucket and self.bucket.announcements or {}) do posts[#posts + 1] = post end
@@ -534,4 +532,5 @@ function GD:RefreshHome()
     end
     home.empty:SetShown(#posts == 0)
     home.posts.content:SetHeight(math.max(100, y))
+    self:RefreshHomeAppearance()
 end
