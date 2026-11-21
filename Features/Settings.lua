@@ -1,19 +1,19 @@
 -- Personal preferences plus per-guild, officer-managed feature visibility.
-local _, GH = ...
+local _, GD = ...
 
 local defaults = { onlineOnly = true, scale = 1, popups = true, levelGuildChat = false, shareMapLocation = false }
 
 local function settings()
-    if type(GuildHallDB) ~= "table" then GuildHallDB = {} end
-    if type(GuildHallDB.settings) ~= "table" then GuildHallDB.settings = {} end
+    if type(GDB) ~= "table" then GDB = {} end
+    if type(GDB.settings) ~= "table" then GDB.settings = {} end
     for key, value in pairs(defaults) do
-        if GuildHallDB.settings[key] == nil then GuildHallDB.settings[key] = value end
+        if GDB.settings[key] == nil then GDB.settings[key] = value end
     end
-    if type(GuildHallDB.settings.features) ~= "table" then GuildHallDB.settings.features = {} end
-    return GuildHallDB.settings
+    if type(GDB.settings.features) ~= "table" then GDB.settings.features = {} end
+    return GDB.settings
 end
 
-function GH:GetSetting(key)
+function GD:GetSetting(key)
     local db = settings()
     if key:sub(1, 8) == "feature:" then
         local tab = key:sub(9)
@@ -26,7 +26,7 @@ function GH:GetSetting(key)
     return db[key]
 end
 
-function GH:SetSetting(key, value)
+function GD:SetSetting(key, value)
     local db = settings()
     if key:sub(1, 8) == "feature:" then
         if not self:CanManage() or not self.bucket then return end
@@ -93,8 +93,8 @@ local function isGuildOfficer(name)
     return false
 end
 
-GH:RegisterRecordHandler("F", function(id, ts, author, content, sender)
-    if id ~= "features" or not GH.bucket or not isGuildOfficer(sender) or not isGuildOfficer(author) then return end
+GD:RegisterRecordHandler("F", function(id, ts, author, content, sender)
+    if id ~= "features" or not GD.bucket or not isGuildOfficer(sender) or not isGuildOfficer(author) then return end
     if #content > 1000 then return end
     local features, found = {}, false
     for line in (content .. "\n"):gmatch("(.-)\n") do
@@ -104,23 +104,23 @@ GH:RegisterRecordHandler("F", function(id, ts, author, content, sender)
         found = true
     end
     if not found then return end
-    local current = GH.bucket.guildSettings or {}
+    local current = GD.bucket.guildSettings or {}
     if (current.ts or 0) > ts or ((current.ts or 0) == ts and tostring(current.by or "") > author) then return end
-    GH.bucket.guildSettings = { features = features, ts = ts, by = author }
-    if GH.RefreshUI then GH:RefreshUI() end
+    GD.bucket.guildSettings = { features = features, ts = ts, by = author }
+    if GD.RefreshUI then GD:RefreshUI() end
 end)
 
-GH:RegisterHistoryProvider(function()
-    if not GH:CanManage() then return end
-    local config = GH.bucket and GH.bucket.guildSettings
+GD:RegisterHistoryProvider(function()
+    if not GD:CanManage() then return end
+    local config = GD.bucket and GD.bucket.guildSettings
     if not config or not config.features or not config.ts or config.ts <= 0 then return end
     local lines = {}
-    for _, tab in ipairs(GH.tabs or {}) do
+    for _, tab in ipairs(GD.tabs or {}) do
         if tab ~= "Settings" then
             lines[#lines + 1] = tab .. "\t" .. (config.features[tab] and "1" or "0")
         end
     end
-    GH:SendRecord("F", "features", config.ts, config.by or "Guild officer", table.concat(lines, "\n"))
+    GD:SendRecord("F", "features", config.ts, config.by or "Guild officer", table.concat(lines, "\n"))
 end, false)
 
 local function label(parent, text, x, y, font, list)
@@ -164,16 +164,16 @@ local function check(parent, text, key, x, y, list, officerOnly)
     button.text = label(parent, text, x + 26, y - 2, "GameFontNormal", list)
     list[#list + 1] = button
     local function update()
-        local enabled = GH:GetSetting(key)
+        local enabled = GD:GetSetting(key)
         button.mark:SetShown(enabled)
         button:GetNormalTexture():SetVertexColor(0.075, 0.09, 0.12, 1)
         for _, edge in ipairs(button.border) do edge:SetColorTexture(0.16, 0.25, 0.34, 1) end
-        local permitted = not officerOnly or GH:CanManage()
+        local permitted = not officerOnly or GD:CanManage()
         button:SetEnabled(permitted)
         button.text:SetTextColor(permitted and 0.88 or 0.38, permitted and 0.84 or 0.40, permitted and 0.73 or 0.45)
     end
     button:SetScript("OnClick", function()
-        GH:SetSetting(key, not GH:GetSetting(key))
+        GD:SetSetting(key, not GD:GetSetting(key))
         update()
     end)
     button.update = update
@@ -182,7 +182,7 @@ end
 
 local function makeButton(parent, text, width, x, y, callback, list)
     local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-    if GH.StyleButton then GH:StyleButton(button, text == "Re-sync now" and "primary" or nil) end
+    if GD.StyleButton then GD:StyleButton(button, text == "Re-sync now" and "primary" or nil) end
     button:SetSize(width, 26)
     button:SetPoint("TOPLEFT", x, y)
     button:SetText(text)
@@ -193,7 +193,7 @@ end
 
 local function build(parent)
     local list = {}
-    GH.settingsControls = list
+    GD.settingsControls = list
     label(parent, "Personal", 12, -10, "GameFontNormalLarge", list)
     check(parent, "Show online members only", "onlineOnly", 12, -42, list)
     check(parent, "Show GuildDB popups", "popups", 12, -72, list)
@@ -202,14 +202,14 @@ local function build(parent)
     label(parent, "Window scale", 12, -178, "GameFontNormal", list)
     local scaleText = label(parent, "", 105, -178, "GameFontHighlight", list)
     local function updateScale()
-        scaleText:SetText(("%d%%"):format(math.floor((GH:GetSetting("scale") or 1) * 100 + 0.5)))
+        scaleText:SetText(("%d%%"):format(math.floor((GD:GetSetting("scale") or 1) * 100 + 0.5)))
     end
     local scaleDown = makeButton(parent, "-", 32, 160, -170, function()
-        GH:SetSetting("scale", math.max(0.8, math.floor(((GH:GetSetting("scale") or 1) - 0.1) * 10 + 0.5) / 10))
+        GD:SetSetting("scale", math.max(0.8, math.floor(((GD:GetSetting("scale") or 1) - 0.1) * 10 + 0.5) / 10))
         updateScale()
     end, list)
     local scaleUp = makeButton(parent, "+", 32, 200, -170, function()
-        GH:SetSetting("scale", math.min(1.2, math.floor(((GH:GetSetting("scale") or 1) + 0.1) * 10 + 0.5) / 10))
+        GD:SetSetting("scale", math.min(1.2, math.floor(((GD:GetSetting("scale") or 1) + 0.1) * 10 + 0.5) / 10))
         updateScale()
     end, list)
     scaleDown:GetFontString():SetFontObject("GameFontNormalLarge")
@@ -218,11 +218,11 @@ local function build(parent)
 
     label(parent, "Data", 12, -220, "GameFontNormalLarge", list)
     makeButton(parent, "Re-sync now", 120, 12, -250, function()
-        local _, message = GH:RequestSync()
+        local _, message = GD:RequestSync()
         print("GuildDB: " .. tostring(message))
     end, list)
     local records = 0
-    for key, bucket in pairs(GH.bucket or {}) do
+    for key, bucket in pairs(GD.bucket or {}) do
         if key ~= "pvpSeason" and key ~= "guildSettings" and type(bucket) == "table" then
             for _ in pairs(bucket) do records = records + 1 end
         end
@@ -232,7 +232,7 @@ local function build(parent)
     label(parent, "Officer settings", 350, -10, "GameFontNormalLarge", list)
     label(parent, "Feature switches (guild-wide; GM or rank 1)", 350, -38, "GameFontDisableSmall", list)
     local tabs = {}
-    for _, tab in ipairs(GH.tabs or {}) do
+    for _, tab in ipairs(GD.tabs or {}) do
         if tab ~= "Settings" then tabs[#tabs + 1] = tab end
     end
     local split = math.ceil(#tabs / 2)
@@ -241,19 +241,19 @@ local function build(parent)
         local row = index > split and index - split or index
         check(parent, tab == "Events" and "Raid Info" or tab, "feature:" .. tab, 350 + column * 155, -70 - (row - 1) * 30, list, true)
     end
-    label(parent, GH:CanManage() and "Online users update now; offline users on next sync." or "Only the guild leader or rank 1 can change these switches.", 350, -70 - (split + 1) * 30, "GameFontDisableSmall", list)
+    label(parent, GD:CanManage() and "Online users update now; offline users on next sync." or "Only the guild leader or rank 1 can change these switches.", 350, -70 - (split + 1) * 30, "GameFontDisableSmall", list)
 
     makeButton(parent, "Reset personal settings", 172, 12, -330, function()
-        for key, value in pairs(defaults) do GH:SetSetting(key, value) end
+        for key, value in pairs(defaults) do GD:SetSetting(key, value) end
         updateScale()
-        GH:RefreshUI()
+        GD:RefreshUI()
     end, list)
     for _, item in ipairs(list) do
         if item.update then item.update() end
     end
 end
 
-function GH:ShowSettingsControls(parent)
+function GD:ShowSettingsControls(parent)
     if not self.settingsControls then build(parent) end
     for _, item in ipairs(self.settingsControls) do
         item:Show()
@@ -261,10 +261,10 @@ function GH:ShowSettingsControls(parent)
     end
 end
 
-function GH:HideSettingsControls()
+function GD:HideSettingsControls()
     for _, item in ipairs(self.settingsControls or {}) do item:Hide() end
 end
 
-GH:RegisterTab("Settings", function()
+GD:RegisterTab("Settings", function()
     return "Personal preferences and officer feature visibility."
 end)

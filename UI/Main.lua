@@ -1,5 +1,5 @@
 -- Dark guild workspace with a compact navigation rail and single content pane. - TEST
-local _, GH = ...
+local _, GD = ...
 
 local GOLD = { 0.20, 0.62, 0.98 }
 local MUTED_GOLD = { 0.48, 0.60, 0.70 }
@@ -19,21 +19,21 @@ local function layoutPvPColumn(text, index, parent, width, inset, header)
 end
 
 local function rosterText()
-    if not GH.guildName then return "Join a guild to view its roster and GuildDB." end
-    if not GH.roster or #GH.roster == 0 then return "Loading the guild roster..." end
+    if not GD.guildName then return "Join a guild to view its roster and GuildDB." end
+    if not GD.roster or #GD.roster == 0 then return "Loading the guild roster..." end
     local lines = {}
-    for _, member in ipairs(GH.roster) do
+    for _, member in ipairs(GD.roster) do
         lines[#lines + 1] = member.name .. "  ·  " .. member.rank
     end
     return #lines > 0 and table.concat(lines, "\n") or "No guild members found."
 end
-GH:RegisterTab("Roster", rosterText)
+GD:RegisterTab("Roster", rosterText)
 
 local function setTextColor(font, color)
     font:SetTextColor(color[1], color[2], color[3])
 end
 
-function GH:StyleButton(button, variant)
+function GD:StyleButton(button, variant)
     if not button then return end
     local primary = variant == "primary"
     local normalColor = primary and { 0.10, 0.32, 0.50 } or { 0.075, 0.09, 0.12 }
@@ -53,7 +53,7 @@ function GH:StyleButton(button, variant)
     if highlight then highlight:SetAllPoints(button); highlight:SetVertexColor(0.22, 0.52, 0.78, 0.20) end
     if disabled then disabled:SetAllPoints(button); disabled:SetVertexColor(0.08, 0.09, 0.11, 0.65) end
 
-    if not button.guildHallBorder then
+    if not button.GuildDBBorder then
         local edges = {}
         for index = 1, 4 do
             edges[index] = button:CreateTexture(nil, "OVERLAY")
@@ -63,9 +63,9 @@ function GH:StyleButton(button, variant)
         edges[2]:SetPoint("BOTTOMLEFT"); edges[2]:SetPoint("BOTTOMRIGHT"); edges[2]:SetHeight(1)
         edges[3]:SetPoint("TOPLEFT"); edges[3]:SetPoint("BOTTOMLEFT"); edges[3]:SetWidth(1)
         edges[4]:SetPoint("TOPRIGHT"); edges[4]:SetPoint("BOTTOMRIGHT"); edges[4]:SetWidth(1)
-        button.guildHallBorder = edges
+        button.GuildDBBorder = edges
     else
-        for _, edge in ipairs(button.guildHallBorder) do edge:SetColorTexture(borderColor[1], borderColor[2], borderColor[3], 1) end
+        for _, edge in ipairs(button.GuildDBBorder) do edge:SetColorTexture(borderColor[1], borderColor[2], borderColor[3], 1) end
     end
     local text = button:GetFontString()
     if text then
@@ -78,7 +78,7 @@ local function styleRaidButton(button, width, variant)
     if not button:GetFontString() then
         button:SetFontString(button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"))
     end
-    GH:StyleButton(button, variant)
+    GD:StyleButton(button, variant)
     button:SetSize(width, 28)
     button:SetNormalFontObject("GameFontHighlightSmall")
     button:SetHighlightFontObject("GameFontHighlightSmall")
@@ -98,7 +98,7 @@ end
 
 local function styleRaidInviteCheck(button)
     -- Match the plain button, border, and blue check used in Settings.
-    GH:StyleButton(button)
+    GD:StyleButton(button)
     button:SetSize(22, 22)
     button.mark = button:CreateTexture(nil, "OVERLAY")
     button.mark:SetTexture("Interface/Buttons/UI-CheckBox-Check")
@@ -107,33 +107,33 @@ local function styleRaidInviteCheck(button)
     button.mark:SetVertexColor(0.25, 0.68, 1, 1)
 end
 
-function GH:StyleEditBox(editBox, multiline)
+function GD:StyleEditBox(editBox, multiline)
     if not editBox then return end
     editBox:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8" })
     editBox:SetBackdropColor(PANEL_ALT[1], PANEL_ALT[2], PANEL_ALT[3], 1)
     editBox:SetFontObject(multiline and "GameFontHighlight" or "GameFontHighlightSmall")
     editBox:SetTextInsets(8, 8, multiline and 6 or 0, multiline and 6 or 0)
     editBox:SetTextColor(CREAM[1], CREAM[2], CREAM[3])
-    editBox.guildHallBorder = editBox.guildHallBorder or {}
+    editBox.GuildDBBorder = editBox.GuildDBBorder or {}
     for index = 1, 4 do
-        local edge = editBox.guildHallBorder[index]
+        local edge = editBox.GuildDBBorder[index]
         if not edge then
             edge = editBox:CreateTexture(nil, "OVERLAY")
-            editBox.guildHallBorder[index] = edge
+            editBox.GuildDBBorder[index] = edge
         end
         edge:SetColorTexture(0.16, 0.25, 0.34, 1)
     end
-    local border = editBox.guildHallBorder
+    local border = editBox.GuildDBBorder
     border[1]:SetPoint("TOPLEFT"); border[1]:SetPoint("TOPRIGHT"); border[1]:SetHeight(1)
     border[2]:SetPoint("BOTTOMLEFT"); border[2]:SetPoint("BOTTOMRIGHT"); border[2]:SetHeight(1)
     border[3]:SetPoint("TOPLEFT"); border[3]:SetPoint("BOTTOMLEFT"); border[3]:SetWidth(1)
     border[4]:SetPoint("TOPRIGHT"); border[4]:SetPoint("BOTTOMRIGHT"); border[4]:SetWidth(1)
-    function editBox:SetGuildHallFocusState(focused)
+    function editBox:SetGuildDBFocusState(focused)
         local color = focused and GOLD or { 0.16, 0.25, 0.34 }
-        for _, edge in ipairs(self.guildHallBorder) do edge:SetColorTexture(color[1], color[2], color[3], 1) end
+        for _, edge in ipairs(self.GuildDBBorder) do edge:SetColorTexture(color[1], color[2], color[3], 1) end
     end
-    editBox:HookScript("OnEditFocusGained", function(self) self:SetGuildHallFocusState(true) end)
-    editBox:HookScript("OnEditFocusLost", function(self) self:SetGuildHallFocusState(false) end)
+    editBox:HookScript("OnEditFocusGained", function(self) self:SetGuildDBFocusState(true) end)
+    editBox:HookScript("OnEditFocusLost", function(self) self:SetGuildDBFocusState(false) end)
     if multiline then
         editBox:SetMultiLine(true)
         editBox:SetJustifyH("LEFT")
@@ -249,7 +249,7 @@ end
 local dialogCounter = 0
 local function showInputForm(title, fields, onAccept, acceptLabel, hideClose)
     dialogCounter = dialogCounter + 1
-    local name = "GuildHallActionDialog" .. dialogCounter
+    local name = "GuildDBActionDialog" .. dialogCounter
     local dialog = CreateFrame("Frame", name, UIParent, "BackdropTemplate")
     local contentHeight = 0
     for _, field in ipairs(fields) do contentHeight = contentHeight + (field.multiline and 116 or 56) end
@@ -280,7 +280,7 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose)
             input = createRaidDatePicker(dialog, field, offset)
         elseif field.options then
             input = CreateFrame("Button", nil, dialog, "UIPanelButtonTemplate")
-            GH:StyleButton(input)
+            GD:StyleButton(input)
             input:SetSize(370, 24)
             input:SetPoint("TOPLEFT", 20, -offset - 16)
             input.selectedValue = field.value or field.options[1]
@@ -337,7 +337,7 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose)
             input = CreateFrame("EditBox", nil, dialog, "BackdropTemplate")
             input:SetSize(370, height)
             input:SetPoint("TOPLEFT", 20, -offset - 16)
-            GH:StyleEditBox(input, field.multiline)
+            GD:StyleEditBox(input, field.multiline)
         end
         if not field.options and not field.calendar then
             input:SetAutoFocus(false)
@@ -357,13 +357,13 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose)
         close:SetScript("OnClick", function() dialog:Hide() end)
     end
     local cancel = CreateFrame("Button", nil, dialog, "UIPanelButtonTemplate")
-    GH:StyleButton(cancel)
+    GD:StyleButton(cancel)
     cancel:SetSize(92, 26)
     cancel:SetPoint("BOTTOMRIGHT", -120, 14)
     cancel:SetText("Cancel")
     cancel:SetScript("OnClick", function() dialog:Hide() end)
     local accept = CreateFrame("Button", nil, dialog, "UIPanelButtonTemplate")
-    GH:StyleButton(accept, "primary")
+    GD:StyleButton(accept, "primary")
     accept:SetSize(92, 26)
     accept:SetPoint("LEFT", cancel, "RIGHT", 8, 0)
     accept:SetText(acceptLabel or "Save")
@@ -402,9 +402,9 @@ end
 
 local function openProfileEditor()
     local player = UnitName and UnitName("player") or ""
-    GH:RefreshPlayerProfessions()
-    local profile = GH:GetProfile(player) or {}
-    local firstName, lastName = GH:GetPlayerNameParts()
+    GD:RefreshPlayerProfessions()
+    local profile = GD:GetProfile(player) or {}
+    local firstName, lastName = GD:GetPlayerNameParts()
     local playerRace = UnitRace and UnitRace("player") or ""
     local timezoneAliases = { ET = "Eastern Time (ET)", CT = "Central Time (CT)", MT = "Mountain Time (MT)", PT = "Pacific Time (PT)", UTC = "UTC" }
     local roleValue = profile.role and profile.role ~= "" and profile.role or "Flex"
@@ -419,7 +419,7 @@ local function openProfileEditor()
         { label = "Race", value = playerRace or profile.race or "", max = 60, readOnly = true },
         { label = "Professions", value = profile.professions or "Detected automatically from your Skills tab", max = 250, readOnly = true },
     }, function(values)
-        return GH:SetProfile(values[1], values[2], values[3], values[4], values[5], values[6], profile.professions, values[7])
+        return GD:SetProfile(values[1], values[2], values[3], values[4], values[5], values[6], profile.professions, values[7])
     end)
 end
 
@@ -436,16 +436,16 @@ local function enableWheel(scroll, child)
 end
 
 local function build()
-    if GH.frame then return end
-    local frame = CreateFrame("Frame", "GuildHallMainFrame", UIParent)
+    if GD.frame then return end
+    local frame = CreateFrame("Frame", "GuildDBMainFrame", UIParent)
     UISpecialFrames = UISpecialFrames or {}
     local escapeRegistered = false
     for _, frameName in ipairs(UISpecialFrames) do
-        if frameName == "GuildHallMainFrame" then escapeRegistered = true; break end
+        if frameName == "GuildDBMainFrame" then escapeRegistered = true; break end
     end
-    if not escapeRegistered then table.insert(UISpecialFrames, "GuildHallMainFrame") end
+    if not escapeRegistered then table.insert(UISpecialFrames, "GuildDBMainFrame") end
     frame:SetSize(1080, 680)
-    frame:SetScale(GH.GetSetting and GH:GetSetting("scale") or 1)
+    frame:SetScale(GD.GetSetting and GD:GetSetting("scale") or 1)
     frame:SetPoint("CENTER")
     frame:SetMovable(true)
     frame:SetFrameStrata("DIALOG")
@@ -453,7 +453,7 @@ local function build()
     frame.background = frame:CreateTexture(nil, "BACKGROUND")
     frame.background:SetAllPoints()
     frame.background:SetColorTexture(0.025, 0.032, 0.043, 0.99)
-    GH.frame = frame
+    GD.frame = frame
 
     frame.header = CreateFrame("Frame", nil, frame)
     frame.header:SetPoint("TOPLEFT", 1, -1)
@@ -483,14 +483,14 @@ local function build()
     setTextColor(frame.logoText, CREAM)
     frame.version = frame.header:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     frame.version:SetPoint("TOPLEFT", frame.logoText, "BOTTOMLEFT", 0, -1)
-    frame.version:SetText("GuildDB - v" .. tostring(GH.version))
+    frame.version:SetText("GuildDB - v" .. tostring(GD.version))
     frame.headerStatus = frame.header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     frame.headerStatus:SetJustifyH("RIGHT")
     frame.close = CreateFrame("Button", nil, frame.header)
     frame.close:SetSize(30, 30)
     frame.close:SetPoint("RIGHT", -12, 0)
     frame.close:SetText("X")
-    GH:StyleButton(frame.close)
+    GD:StyleButton(frame.close)
     frame.close:GetFontString():SetFontObject("GameFontNormalLarge")
     frame.close:GetFontString():SetTextColor(0.92, 0.96, 1)
     frame.close:GetFontString():ClearAllPoints()
@@ -532,22 +532,22 @@ local function build()
     frame.rosterSearch:SetPoint("TOPLEFT", 12, -10)
     frame.rosterSearch:SetAutoFocus(false)
     frame.rosterSearch:SetMaxLetters(80)
-    GH:StyleEditBox(frame.rosterSearch)
+    GD:StyleEditBox(frame.rosterSearch)
     frame.rosterSearch:SetText("Search...")
     frame.rosterSearch:SetTextColor(MUTED_GOLD[1], MUTED_GOLD[2], MUTED_GOLD[3])
     frame.rosterSearch:SetScript("OnEditFocusGained", function(self)
         if self:GetText() == "Search..." then self:SetText(""); self:SetTextColor(CREAM[1], CREAM[2], CREAM[3]) end
-        self:SetGuildHallFocusState(true)
+        self:SetGuildDBFocusState(true)
     end)
     frame.rosterSearch:SetScript("OnEditFocusLost", function(self)
         if self:GetText() == "" then self:SetText("Search..."); self:SetTextColor(MUTED_GOLD[1], MUTED_GOLD[2], MUTED_GOLD[3]) end
-        self:SetGuildHallFocusState(false)
+        self:SetGuildDBFocusState(false)
     end)
     frame.rosterSearch:SetScript("OnTextChanged", function(self)
-        if self:HasFocus() then GH:RefreshUI() end
+        if self:HasFocus() then GD:RefreshUI() end
     end)
     frame.rosterOnlineOnly = true
-    if GH.GetSetting then frame.rosterOnlineOnly = GH:GetSetting("onlineOnly") ~= false end
+    if GD.GetSetting then frame.rosterOnlineOnly = GD:GetSetting("onlineOnly") ~= false end
     frame.rosterOnlineCheck = CreateFrame("Button", nil, frame.listPanel)
     frame.rosterOnlineCheck:SetSize(22, 22)
     frame.rosterOnlineCheck:SetPoint("LEFT", frame.rosterSearch, "RIGHT", 8, 0)
@@ -582,7 +582,7 @@ local function build()
     frame.rosterOnlineCheck:SetScript("OnClick", function(self)
         frame.rosterOnlineOnly = not frame.rosterOnlineOnly
         self.mark:SetShown(frame.rosterOnlineOnly)
-        if GH.SetSetting then GH:SetSetting("onlineOnly", frame.rosterOnlineOnly) else GH:RefreshUI() end
+        if GD.SetSetting then GD:SetSetting("onlineOnly", frame.rosterOnlineOnly) else GD:RefreshUI() end
     end)
     frame.rosterHeaders = {}
     for _, column in ipairs({ { "NAME", "name", 10, 130 }, { "LEVEL", "level", 145, 60 }, { "RANK", "rank", 215, 82 }, { "ZONE", "zone", 300, 120 }, { "ROLE", "role", 425, 58 }, { "GDB", "hq", 490, 55 } }) do
@@ -596,15 +596,15 @@ local function build()
         header.title:SetText(column[1])
         header.title:SetTextColor(MUTED_GOLD[1], MUTED_GOLD[2], MUTED_GOLD[3])
         header:SetScript("OnEnter", function(self) self.title:SetTextColor(CREAM[1], CREAM[2], CREAM[3]) end)
-        header:SetScript("OnLeave", function() GH:RefreshUI() end)
+        header:SetScript("OnLeave", function() GD:RefreshUI() end)
         header:SetScript("OnClick", function(self)
-            if GH.rosterSortField == self.sortKey then
-                GH.rosterSortAscending = not GH.rosterSortAscending
+            if GD.rosterSortField == self.sortKey then
+                GD.rosterSortAscending = not GD.rosterSortAscending
             else
-                GH.rosterSortField = self.sortKey
-                GH.rosterSortAscending = true
+                GD.rosterSortField = self.sortKey
+                GD.rosterSortAscending = true
             end
-            GH:RefreshUI()
+            GD:RefreshUI()
         end)
         frame.rosterHeaders[#frame.rosterHeaders + 1] = header
     end
@@ -725,44 +725,44 @@ local function build()
     frame.pvpEmpty:SetPoint("TOPLEFT", 12, -14)
     frame.pvpEmpty:SetTextColor(CREAM[1], CREAM[2], CREAM[3])
     frame.pvpMyButton = CreateFrame("Button", nil, frame.detailPanel, "UIPanelButtonTemplate")
-    GH:StyleButton(frame.pvpMyButton)
+    GD:StyleButton(frame.pvpMyButton)
     frame.pvpMyButton:SetSize(98, 26)
     frame.pvpMyButton:SetPoint("TOPRIGHT", -142, -12)
     frame.pvpMyButton:SetScript("OnClick", function()
         frame.pvpMyOnly = not frame.pvpMyOnly
-        GH:RefreshUI()
+        GD:RefreshUI()
     end)
     frame.pvpSeasonButton = CreateFrame("Button", nil, frame.detailPanel, "UIPanelButtonTemplate")
-    GH:StyleButton(frame.pvpSeasonButton, "primary")
+    GD:StyleButton(frame.pvpSeasonButton, "primary")
     frame.pvpSeasonButton:SetSize(112, 26)
     frame.pvpSeasonButton:SetPoint("BOTTOMLEFT", 18, 12)
     frame.pvpSeasonButton:SetText("New Season")
     frame.pvpSeasonButton:SetScript("OnClick", function()
-        if not GH:CanManagePvPSeason() then return end
-        local currentName = GH.bucket and GH.bucket.pvpSeason and GH.bucket.pvpSeason.name or ""
+        if not GD:CanManagePvPSeason() then return end
+        local currentName = GD.bucket and GD.bucket.pvpSeason and GD.bucket.pvpSeason.name or ""
         local currentNumber = tonumber(currentName:match("(%d+)$")) or 0
         showInputForm("Start a PvP season", {
             { label = "Season name", value = "Season " .. tostring(currentNumber + 1), max = 80 },
             { label = "End date (includes this day)", value = date("%d-%m-%Y", time() + 30 * 86400), calendar = true },
         }, function(values)
-            local ok, result = GH:StartPvPSeason(values[1], values[2])
+            local ok, result = GD:StartPvPSeason(values[1], values[2])
             if ok then
                 frame.pvpSelectedStart = nil; frame.pvpAllTime = false
-                GH:RefreshUI()
+                GD:RefreshUI()
             end
             return ok, result
         end, "Start", true)
     end)
     frame.pvpDeleteButton = CreateFrame("Button", nil, frame.detailPanel, "UIPanelButtonTemplate")
-    GH:StyleButton(frame.pvpDeleteButton)
+    GD:StyleButton(frame.pvpDeleteButton)
     frame.pvpDeleteButton:SetSize(116, 26)
     frame.pvpDeleteButton:SetPoint("LEFT", frame.pvpSeasonButton, "RIGHT", 8, 0)
     frame.pvpDeleteButton:SetText("Delete Season")
     frame.pvpDeleteButton:SetScript("OnClick", function()
-        if not GH:CanManagePvPSeason() then return end
+        if not GD:CanManagePvPSeason() then return end
         local options, starts, selectedLabel = {}, {}, nil
-        local selected = GH:GetPvPLeaderboard(frame.pvpAllTime, frame.pvpSelectedStart)
-        for _, season in ipairs(GH:GetPvPSeasons()) do
+        local selected = GD:GetPvPLeaderboard(frame.pvpAllTime, frame.pvpSelectedStart)
+        for _, season in ipairs(GD:GetPvPSeasons()) do
             if season.start > 0 then
                 local label = season.name .. " (" .. date("%d-%m-%Y %H:%M:%S", season.start) .. ")"
                 options[#options + 1], starts[label] = label, season.start
@@ -774,34 +774,34 @@ local function build()
             { label = "Season to permanently delete", value = selectedLabel or options[1], options = options },
             { label = "All-time stats will be kept.", value = "This removes the season and its leaderboard.", readOnly = true },
         }, function(values)
-            local ok, result = GH:DeletePvPSeason(starts[values[1]])
+            local ok, result = GD:DeletePvPSeason(starts[values[1]])
             if ok then
                 frame.pvpSelectedStart, frame.pvpAllTime = 0, true
-                GH:RefreshUI()
+                GD:RefreshUI()
             end
             return ok, result
         end, "Delete", true)
     end)
     frame.pvpWipeButton = CreateFrame("Button", nil, frame.detailPanel, "UIPanelButtonTemplate")
-    GH:StyleButton(frame.pvpWipeButton)
+    GD:StyleButton(frame.pvpWipeButton)
     frame.pvpWipeButton:SetSize(120, 26)
     frame.pvpWipeButton:SetPoint("LEFT", frame.pvpDeleteButton, "RIGHT", 8, 0)
     frame.pvpWipeButton:SetText("Wipe All Stats")
     frame.pvpWipeButton:SetScript("OnClick", function()
-        if not GH:CanManagePvPSeason() then return end
+        if not GD:CanManagePvPSeason() then return end
         showInputForm("Wipe All PvP Stats?", {
             { label = "Permanently erases PvP stats for the whole guild.", value = "All-time totals, kills, deaths, history and every season will be erased. You can then start a new Season 1.", multiline = true, readOnly = true },
         }, function()
-            local ok, result = GH:WipePvPStats()
+            local ok, result = GD:WipePvPStats()
             if ok then
                 frame.pvpSelectedStart, frame.pvpAllTime = nil, false
-                GH:RefreshUI()
+                GD:RefreshUI()
             end
             return ok, result
         end, "Wipe All", true)
     end)
     frame.pvpScopeButton = CreateFrame("Button", nil, frame.detailPanel, "UIPanelButtonTemplate")
-    GH:StyleButton(frame.pvpScopeButton)
+    GD:StyleButton(frame.pvpScopeButton)
     frame.pvpScopeButton:SetSize(116, 26)
     frame.pvpScopeButton:SetPoint("TOPRIGHT", -18, -12)
     local seasonMenu = CreateFrame("ScrollFrame", nil, UIParent, "UIPanelScrollFrameTemplate,BackdropTemplate")
@@ -819,13 +819,13 @@ local function build()
     frame.pvpScopeButton:HookScript("OnHide", function() seasonMenu:Hide() end)
     frame.pvpScopeButton:SetScript("OnClick", function()
         if seasonMenu:IsShown() then seasonMenu:Hide(); return end
-        local choices = GH:GetPvPSeasons()
+        local choices = GD:GetPvPSeasons()
         choices[#choices + 1] = { name = "Tracking details", tracking = true }
         for index, choice in ipairs(choices) do
             local option = seasonMenu.buttons[index]
             if not option then
                 option = CreateFrame("Button", nil, seasonOptions, "UIPanelButtonTemplate")
-                GH:StyleButton(option)
+                GD:StyleButton(option)
                 option:SetSize(276, 28)
                 option:SetPoint("TOPLEFT", 2, -(index - 1) * 30)
                 seasonMenu.buttons[index] = option
@@ -837,15 +837,15 @@ local function build()
                 if tracking then
                     seasonMenu:Hide()
                     showInputForm("PvP tracking details", {
-                        { label = "Last tracking result", value = (GH.pvpTrackingStatus or "No honor or kill-credit event received this session.") .. "\n\nLast honor message:\n" .. (GH.pvpLastHonorMessage or "None received"), multiline = true, readOnly = true, max = 1000 },
-                        { label = "Client event support", value = "Honor: " .. ((GH.eventRegistration or {}).CHAT_MSG_COMBAT_HONOR_GAIN or "unknown") .. "\nKill credit: " .. ((GH.eventRegistration or {}).PLAYER_PVP_KILLS_CHANGED or "unknown"), multiline = true, readOnly = true, max = 300 },
+                        { label = "Last tracking result", value = (GD.pvpTrackingStatus or "No honor or kill-credit event received this session.") .. "\n\nLast honor message:\n" .. (GD.pvpLastHonorMessage or "None received"), multiline = true, readOnly = true, max = 1000 },
+                        { label = "Client event support", value = "Honor: " .. ((GD.eventRegistration or {}).CHAT_MSG_COMBAT_HONOR_GAIN or "unknown") .. "\nKill credit: " .. ((GD.eventRegistration or {}).PLAYER_PVP_KILLS_CHANGED or "unknown"), multiline = true, readOnly = true, max = 300 },
                     }, function() return true end, "Done", true)
                     return
                 end
                 frame.pvpSelectedStart = start
                 frame.pvpAllTime = start == 0
                 seasonMenu:Hide()
-                GH:RefreshUI()
+                GD:RefreshUI()
             end)
             option:Show()
         end
@@ -871,17 +871,17 @@ local function build()
             { label = "Guild calendar", value = "Create guild calendar event", options = { "Create guild calendar event", "GuildDB only" } },
         }, function(values)
             local settings = { category = "Raid", raidSize = tonumber(values[4]), locked = values[5] == "Locked" }
-            local ok, result, eventId = GH:PostEventFields(values[2], values[3], values[1], values[6], "raid", settings)
+            local ok, result, eventId = GD:PostEventFields(values[2], values[3], values[1], values[6], "raid", settings)
             if not ok then return false, result end
             if values[7] == "Create guild calendar event" then
-                local exported, message = GH:AddEventToGameCalendar(eventId)
+                local exported, message = GD:AddEventToGameCalendar(eventId)
                 result = result .. " " .. (exported and message or ("Calendar copy could not be created: " .. message .. " Use Create calendar on the raid to retry."))
             end
             return true, result
         end, "Create raid")
     end)
     frame.eventCreateTypeButton = CreateFrame("Button", nil, frame.detailPanel, "UIPanelButtonTemplate")
-    GH:StyleButton(frame.eventCreateTypeButton)
+    GD:StyleButton(frame.eventCreateTypeButton)
     frame.eventCreateTypeButton:SetSize(82, 26)
     frame.eventCreateTypeButton:SetPoint("RIGHT", frame.eventCreateButton, "LEFT", -8, 0)
     frame.eventCreateTypeButton:SetText("Event")
@@ -892,7 +892,7 @@ local function build()
     -- Parent the primary action to the main window rather than the detail panel.
     -- The detail scroll frame can otherwise sit above this button in older clients.
     frame.contentActionButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    GH:StyleButton(frame.contentActionButton, "primary")
+    GD:StyleButton(frame.contentActionButton, "primary")
     frame.contentActionButton:SetSize(130, 26)
     frame.contentActionButton:RegisterForClicks("LeftButtonUp")
     frame.contentActionButton:SetFrameStrata("DIALOG")
@@ -904,24 +904,24 @@ local function build()
             showInputForm("Post an announcement", {
                 { label = "Title", value = "", max = 120 },
                 { label = "Message", value = "", max = 600, multiline = true },
-            }, function(values) return GH:PostAnnouncement(values[1], values[2]) end, "Post")
+            }, function(values) return GD:PostAnnouncement(values[1], values[2]) end, "Post")
         elseif tab == "Guide" then
-            local guide = GH.bucket and GH.bucket.guide or {}
+            local guide = GD.bucket and GD.bucket.guide or {}
             showInputForm("Edit guild guide", {
                 { label = "Guild rules", value = guide.rules or "", max = 700, multiline = true },
                 { label = "Loot rules", value = guide.loot or "", max = 700, multiline = true },
-            }, function(values) return GH:SetGuide(values[1], values[2]) end)
+            }, function(values) return GD:SetGuide(values[1], values[2]) end)
         elseif tab == "Looking For" then
             showInputForm("Post a group request", {
                 { label = "Role", value = "DPS", max = 60 },
                 { label = "Activity", value = "", max = 100 },
                 { label = "Details", value = "", max = 250, multiline = true },
-            }, function(values) return GH:PostLookingRequest(values[1], values[2], values[3]) end)
+            }, function(values) return GD:PostLookingRequest(values[1], values[2], values[3]) end)
         elseif tab == "Crafting" then
             showInputForm("Request a craft", {
                 { label = "Item or recipe", value = "", max = 100 },
                 { label = "Details", value = "", max = 300, multiline = true },
-            }, function(values) return GH:PostCraftingRequest(values[1], values[2]) end)
+            }, function(values) return GD:PostCraftingRequest(values[1], values[2]) end)
         elseif tab == "Polls" then
             showInputForm("Create a guild poll", {
                 { label = "Question", value = "", max = 120 },
@@ -932,7 +932,7 @@ local function build()
             }, function(values)
                 local options = {}
                 for i = 2, 5 do if values[i] and values[i]:match("%S") then options[#options + 1] = values[i] end end
-                return GH:CreatePoll(values[1], options)
+                return GD:CreatePoll(values[1], options)
             end)
         end
     end)
@@ -943,7 +943,7 @@ local function build()
     frame.actionLayer:EnableMouse(false)
     frame.actionLayer:SetFrameLevel(frame:GetFrameLevel() + 30)
     frame.profileEditButton = CreateFrame("Button", nil, frame.actionLayer, "UIPanelButtonTemplate")
-    GH:StyleButton(frame.profileEditButton, "primary")
+    GD:StyleButton(frame.profileEditButton, "primary")
     frame.profileEditButton:SetSize(242, 28)
     frame.profileEditButton:SetPoint("BOTTOMLEFT", frame.detailPanel, "BOTTOMLEFT", 14, 12)
     frame.profileEditButton:SetFrameStrata("DIALOG")
@@ -959,14 +959,14 @@ local function build()
         end
     end)
     frame.rosterInviteButton = CreateFrame("Button", nil, frame.actionLayer, "UIPanelButtonTemplate")
-    GH:StyleButton(frame.rosterInviteButton)
+    GD:StyleButton(frame.rosterInviteButton)
     frame.rosterInviteButton:SetSize(242, 28)
     frame.rosterInviteButton:SetPoint("BOTTOMLEFT", frame.profileEditButton, "TOPLEFT", 0, 8)
     frame.rosterInviteButton:SetFrameLevel(frame.actionLayer:GetFrameLevel() + 1)
     frame.rosterInviteButton:RegisterForClicks("LeftButtonUp")
     frame.rosterInviteButton:SetText("Invite to group")
     frame.rosterInviteButton:SetScript("OnClick", function()
-        local name = GH.selectedRosterName
+        local name = GD.selectedRosterName
         if not name then
             print("GuildDB: Select a roster member first.")
             return
@@ -985,10 +985,10 @@ local function build()
         end
 
         local ok, err = pcall(invite, name)
-        if not ok then print("GuildDB: Could not invite " .. GH:Display(name) .. ": " .. tostring(err)) end
+        if not ok then print("GuildDB: Could not invite " .. GD:Display(name) .. ": " .. tostring(err)) end
     end)
     frame.craftSearchButton = CreateFrame("Button", nil, frame.detailPanel, "UIPanelButtonTemplate")
-    GH:StyleButton(frame.craftSearchButton, "primary")
+    GD:StyleButton(frame.craftSearchButton, "primary")
     frame.craftSearchButton:SetSize(112, 26)
     frame.craftSearchButton:SetPoint("RIGHT", frame.contentActionButton, "LEFT", -8, 0)
     frame.craftSearchButton:SetText("Find crafter")
@@ -996,7 +996,7 @@ local function build()
         showInputForm("Find an online crafter", {
             { label = "Profession or recipe", value = "", max = 80 },
         }, function(values)
-            local matches = GH:FindGuildCrafters(values[1])
+            local matches = GD:FindGuildCrafters(values[1])
             print(#matches > 0 and ("GuildDB crafters: " .. table.concat(matches, "; ")) or "GuildDB: No online member lists that profession or recipe in their profile.")
             return true
         end)
@@ -1014,7 +1014,7 @@ local function build()
     frame.footer:SetPoint("BOTTOMLEFT", frame.detailPanel, "BOTTOMLEFT", 14, 10)
     frame.footer:SetText("/gd for commands")
 end
-GH.BuildUI = build
+GD.BuildUI = build
 
 local function makeTabButton(parent, tab, index)
     local button = CreateFrame("Button", nil, parent)
@@ -1035,24 +1035,24 @@ local function makeTabButton(parent, tab, index)
     button.label:SetJustifyH("LEFT")
     button.label:SetText(tab == "Events" and "Raid Info" or tab)
     button:SetScript("OnEnter", function(self)
-        if GH.activeTab ~= tab then self.bg:SetColorTexture(0.08, 0.15, 0.22, 1) end
+        if GD.activeTab ~= tab then self.bg:SetColorTexture(0.08, 0.15, 0.22, 1) end
     end)
-    button:SetScript("OnLeave", function() GH:RefreshUI() end)
+    button:SetScript("OnLeave", function() GD:RefreshUI() end)
     button:SetScript("OnClick", function()
-        if tab == "Profiles" then GH.profileTarget = nil end
+        if tab == "Profiles" then GD.profileTarget = nil end
         if tab == "Roster" then
-            GH.profileTarget = nil
-            GH.selectedRosterName = nil
-            GH.selectedSection = 1
+            GD.profileTarget = nil
+            GD.selectedRosterName = nil
+            GD.selectedSection = 1
         end
-        GH.activeTab = tab
-        GH.selectedSection = nil
-        GH:RefreshUI()
+        GD.activeTab = tab
+        GD.selectedSection = nil
+        GD:RefreshUI()
     end)
     return button
 end
 
-function GH:RefreshUI()
+function GD:RefreshUI()
     if not self.frame then return end
     local frame = self.frame
     local active = self.activeTab or "Roster"
@@ -1235,9 +1235,9 @@ function GH:RefreshUI()
                 row.columns[columnIndex] = cell
             end
             row:SetScript("OnClick", function(self)
-                GH.selectedSection = self.sectionIndex
-                GH.selectedRosterName = self.rosterName
-                GH:RefreshUI()
+                GD.selectedSection = self.sectionIndex
+                GD.selectedRosterName = self.rosterName
+                GD:RefreshUI()
             end)
             row:EnableMouseWheel(true)
             row:SetScript("OnMouseWheel", function(_, delta)
@@ -1427,7 +1427,7 @@ function GH:RefreshUI()
         frame.pvpTitleSeason:SetText((season.name or "Season 1") .. seasonStatus)
         if not frame.pvpCountdownTicker and C_Timer.NewTicker then
             frame.pvpCountdownTicker = C_Timer.NewTicker(60, function()
-                if frame:IsShown() and GH.activeTab == "PvP" then GH:RefreshUI() end
+                if frame:IsShown() and GD.activeTab == "PvP" then GD:RefreshUI() end
             end)
         end
         frame.pvpMyButton:SetText(frame.pvpMyOnly and "Guild board" or "My stats")
@@ -1597,7 +1597,7 @@ function GH:RefreshUI()
                 row.inviteButton:SetPoint("TOPRIGHT", -16, -216)
                 row.inviteButton:SetText("Invite selected")
                 row.inviteButton:SetScript("OnClick", function(button)
-                    local _, result = GH:InviteRaidSelections(button.eventId)
+                    local _, result = GD:InviteRaidSelections(button.eventId)
                     if result then print("GuildDB: " .. result) end
                 end)
                 row.signupRows = {}
@@ -1606,7 +1606,7 @@ function GH:RefreshUI()
                 styleRaidButton(row.calendarButton, 128, "secondary")
                 row.calendarButton:SetPoint("TOPLEFT", 16, -184)
                 row.calendarButton:SetScript("OnClick", function(self)
-                    local _, result = GH:AddEventToGameCalendar(self.eventId)
+                    local _, result = GD:AddEventToGameCalendar(self.eventId)
                     if result then print("GuildDB: " .. result) end
                 end)
                 row.editButton = CreateFrame("Button", nil, row)
@@ -1615,7 +1615,7 @@ function GH:RefreshUI()
                 row.editButton:SetText("Edit")
                 row.editButton:SetScript("OnClick", function(self)
                     local event
-                    for _, candidate in ipairs(GH.bucket and GH.bucket.events or {}) do
+                    for _, candidate in ipairs(GD.bucket and GD.bucket.events or {}) do
                         if candidate.id == self.eventId then event = candidate; break end
                     end
                     if not event then return end
@@ -1634,11 +1634,11 @@ function GH:RefreshUI()
                         { label = "Details", value = event.details or "", max = 300, multiline = true },
                         { label = "Raid size target", value = tostring(settings.raidSize or 40), options = { "10", "20", "25", "40" } },
                     }, function(values)
-                        local at, reason = GH:ParseEventTimeFields(values[2], values[3])
+                        local at, reason = GD:ParseEventTimeFields(values[2], values[3])
                         if not at then return false, reason end
                         local updatedSettings = calendarSettingsFromForm(values, 4)
                         updatedSettings.raidSize = tonumber(values[9])
-                        return GH:EditEvent(self.eventId, at, values[1], values[8], updatedSettings)
+                        return GD:EditEvent(self.eventId, at, values[1], values[8], updatedSettings)
                     end)
                 end)
                 row.deleteButton = CreateFrame("Button", nil, row)
@@ -1652,7 +1652,7 @@ function GH:RefreshUI()
                         if tostring(values[1] or ""):upper() ~= "REMOVE" then
                             return false, "Type REMOVE to confirm event removal."
                         end
-                        return GH:DeleteEvent(self.eventId)
+                        return GD:DeleteEvent(self.eventId)
                     end)
                 end)
                 row.withdrawButton = CreateFrame("Button", nil, row)
@@ -1660,7 +1660,7 @@ function GH:RefreshUI()
                 row.withdrawButton:SetPoint("TOPRIGHT", -16, -184)
                 row.withdrawButton:SetText("Withdraw")
                 row.withdrawButton:SetScript("OnClick", function(button)
-                    local _, result = GH:RemoveRaidSignup(button.eventId)
+                    local _, result = GD:RemoveRaidSignup(button.eventId)
                     if result then print("GuildDB: " .. result) end
                 end)
                 for buttonIndex, state in ipairs({ { "Sign up / Change", "going" } }) do
@@ -1671,13 +1671,13 @@ function GH:RefreshUI()
                     button.status = state[2]
                     button:SetScript("OnClick", function(self)
                         local eventId = self.eventId
-                        local profile = GH.GetProfile and GH:GetProfile(player) or {}
+                        local profile = GD.GetProfile and GD:GetProfile(player) or {}
                         local current
-                        for _, candidate in ipairs(GH.bucket and GH.bucket.events or {}) do
+                        for _, candidate in ipairs(GD.bucket and GD.bucket.events or {}) do
                             if candidate.id == eventId then current = candidate.rsvps and candidate.rsvps[player]; break end
                         end
                         current = type(current) == "table" and current or {}
-                        local className = GH:GetRaidPlayerClass(player)
+                        local className = GD:GetRaidPlayerClass(player)
                         local attendance = current.status == "tentative" and "Maybe" or current.status == "absent" and "Absent" or "Going"
                         showInputForm("Your raid signup", {
                             { label = "Attendance", value = attendance, options = { "Going", "Maybe", "Absent" } },
@@ -1687,7 +1687,7 @@ function GH:RefreshUI()
                             { label = "Note (availability, late arrival, etc.)", value = current.note or "", max = 100 },
                         }, function(values)
                             local attendanceStatus = values[1] == "Going" and "going" or values[1] == "Maybe" and "tentative" or "absent"
-                            return GH:SetRSVPForEvent(eventId, attendanceStatus, values[4], values[5], values[3])
+                            return GD:SetRSVPForEvent(eventId, attendanceStatus, values[4], values[5], values[3])
                         end, "Save signup")
                     end)
                     row.rsvpButtons[buttonIndex] = button
@@ -1720,7 +1720,7 @@ function GH:RefreshUI()
             local actionX = event.by == player and 152 or 16
             row.editButton:ClearAllPoints()
             row.editButton:SetPoint("TOPLEFT", row, "TOPLEFT", actionX, -184)
-            local calendarExports = GuildHallDB and GuildHallDB.calendarExports
+            local calendarExports = GDB and GDB.calendarExports
             if calendarExports and calendarExports[event.id] then
                 row.calendarButton:SetText("Calendar added")
                 row.calendarButton:Disable()
@@ -1807,10 +1807,10 @@ function GH:RefreshUI()
                         local eventId, target = button.eventId, button.player
                         showInputForm("Remove raid signup", {
                             { label = "Player", value = target, readOnly = true },
-                        }, function() return GH:RemoveRaidSignup(eventId, target) end, "Remove")
+                        }, function() return GD:RemoveRaidSignup(eventId, target) end, "Remove")
                     end)
                     signup:SetScript("OnClick", function(button)
-                        local _, result = GH:SetRaidSelection(button.eventId, button.player, not button.selected)
+                        local _, result = GD:SetRaidSelection(button.eventId, button.player, not button.selected)
                         if result then print("GuildDB: " .. result) end
                     end)
                     row.signupRows[index] = signup
@@ -1824,10 +1824,10 @@ function GH:RefreshUI()
                 signup.eventId, signup.player = event.id, name
                 signup.selected = response.status == "going" and selection and selection.selected or false
                 signup.mark:SetShown(signup.selected)
-                signup:SetEnabled(not event.preview and GH:IsRaidGM() and response.status == "going")
-                local className, classFile = GH:GetRaidPlayerClass(name)
+                signup:SetEnabled(not event.preview and GD:IsRaidGM() and response.status == "going")
+                local className, classFile = GD:GetRaidPlayerClass(name)
                 local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
-                local values = { GH:Display(name), GH:Display(className), GH:Display(response.spec ~= "" and response.spec or "Not set"), response.role or "Not set", response.status == "going" and "Going" or response.status == "tentative" and "Maybe" or "Absent" }
+                local values = { GD:Display(name), GD:Display(className), GD:Display(response.spec ~= "" and response.spec or "Not set"), response.role or "Not set", response.status == "going" and "Going" or response.status == "tentative" and "Maybe" or "Absent" }
                 local widths = { 0.24, 0.18, 0.25, 0.14, 0.19 }
                 local available, x = math.max(300, frame.detailChild:GetWidth() - 140), 8
                 for column, text in ipairs(signup.columns) do
@@ -1845,12 +1845,12 @@ function GH:RefreshUI()
                     x = x + available * widths[column]
                 end
                 signup.note:SetWidth(available)
-                signup.note:SetText(GH:Display(response.note or ""))
-                signup.tooltipText = GH:Display(className) .. " - " .. GH:Display(response.spec or "Spec not set") .. "\n" .. (response.role or "Role not set") .. " - " .. values[5] .. ((response.note or "") ~= "" and ("\n" .. GH:Display(response.note)) or "")
+                signup.note:SetText(GD:Display(response.note or ""))
+                signup.tooltipText = GD:Display(className) .. " - " .. GD:Display(response.spec or "Spec not set") .. "\n" .. (response.role or "Role not set") .. " - " .. values[5] .. ((response.note or "") ~= "" and ("\n" .. GD:Display(response.note)) or "")
                 if response.status == "going" and selection and selection.selected then signup.band:SetColorTexture(0.07, 0.16, 0.22, 1) end
                 signup.remove:SetPoint("TOPRIGHT", row, "TOPRIGHT", -16, -281 - (index - 1) * 44)
                 signup.remove.eventId, signup.remove.player = event.id, name
-                signup.remove:SetShown(not event.preview and (GH:IsRaidGM() or name == player))
+                signup.remove:SetShown(not event.preview and (GD:IsRaidGM() or name == player))
                 signup:Show()
             end
             for index = #names + 1, #row.signupRows do row.signupRows[index]:Hide(); row.signupRows[index].remove:Hide() end
@@ -1977,12 +1977,12 @@ function GH:RefreshUI()
                 local button = row.buttons[buttonIndex]
                 if not button then
                     button = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-                    GH:StyleButton(button, "primary")
+                    GD:StyleButton(button, "primary")
                     button:SetSize(76, 22)
                     row.buttons[buttonIndex] = button
                 end
                 button:SetText(action.label)
-                GH:StyleButton(button, action.label == "Delete" and "secondary" or "primary")
+                GD:StyleButton(button, action.label == "Delete" and "secondary" or "primary")
                 button:SetPoint("TOPRIGHT", row, "TOPRIGHT", -8 - (buttonIndex - 1) * 82, -8)
                 button:SetScript("OnClick", action.click)
                 button:Show()
@@ -2072,7 +2072,7 @@ function GH:RefreshUI()
 end
 
 local function rebuildRoster()
-    if not GH.guildName or not GetNumGuildMembers or not GetGuildRosterInfo then return end
+    if not GD.guildName or not GetNumGuildMembers or not GetGuildRosterInfo then return end
     local roster = {}
     for i = 1, GetNumGuildMembers() do
         local name, rankName, rankIndex, level, className, zone, _, _, online, _, classFile = GetGuildRosterInfo(i)
@@ -2084,15 +2084,15 @@ local function rebuildRoster()
         if a.online ~= b.online then return a.online end
         return a.name:lower() < b.name:lower()
     end)
-    GH.roster = roster
-    GH:RefreshUI()
+    GD.roster = roster
+    GD:RefreshUI()
 end
-GH.RebuildRoster = rebuildRoster
-GH:RegisterEventHandler("PLAYER_LOGIN", function() build(); rebuildRoster() end)
-GH:RegisterEventHandler("GUILD_ROSTER_UPDATE", function() build(); rebuildRoster() end)
-GH:RegisterEventHandler("PLAYER_GUILD_UPDATE", function() build(); rebuildRoster() end)
+GD.RebuildRoster = rebuildRoster
+GD:RegisterEventHandler("PLAYER_LOGIN", function() build(); rebuildRoster() end)
+GD:RegisterEventHandler("GUILD_ROSTER_UPDATE", function() build(); rebuildRoster() end)
+GD:RegisterEventHandler("PLAYER_GUILD_UPDATE", function() build(); rebuildRoster() end)
 
-function GH:IsSyncResponder(requester)
+function GD:IsSyncResponder(requester)
     if not self.roster or #self.roster == 0 then return false end
     local function syncNameKey(name)
         name = tostring(name or "")

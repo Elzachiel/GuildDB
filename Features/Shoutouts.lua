@@ -1,12 +1,12 @@
 -- Guild member shoutouts.
-local _, GH = ...
-GH:RegisterBucket("shoutouts", function() return {} end)
+local _, GD = ...
+GD:RegisterBucket("shoutouts", function() return {} end)
 
 local function clean(value)
     return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
 end
 
-function GH:PostShoutout(target, text)
+function GD:PostShoutout(target, text)
     if not self.bucket then return false, "Join a guild first." end
     target, text = clean(target), clean(text)
     if target == "" or text == "" then return false, "Use /gd shout Player Name | message" end
@@ -15,22 +15,22 @@ function GH:PostShoutout(target, text)
     return true, "Shoutout saved and sent to online GuildDB users."
 end
 
-GH:RegisterRecordHandler("S", function(id, ts, author, content)
+GD:RegisterRecordHandler("S", function(id, ts, author, content)
     local target, text = content:match("^(.-)\n(.*)$")
     if not target or target == "" or #target > 80 or #text > 250 then return end
-    GH:StoreRecord("shoutouts", { id = id, ts = ts, by = author, target = target, text = text })
+    GD:StoreRecord("shoutouts", { id = id, ts = ts, by = author, target = target, text = text })
 end)
 
-GH:RegisterHistoryProvider(function()
-    local list = GH.bucket.shoutouts or {}
+GD:RegisterHistoryProvider(function()
+    local list = GD.bucket.shoutouts or {}
     for i = math.min(#list, 12), 1, -1 do
         local record = list[i]
-        GH:SendRecord("S", record.id, record.ts, record.by, record.target .. "\n" .. record.text)
+        GD:SendRecord("S", record.id, record.ts, record.by, record.target .. "\n" .. record.text)
     end
 end)
 
-GH:RegisterCommand("shout", function(rest)
+GD:RegisterCommand("shout", function(rest)
     local target, text = rest:match("^(.-)%s*|%s*(.*)$")
-    local _, result = GH:PostShoutout(target, text)
+    local _, result = GD:PostShoutout(target, text)
     print("GuildDB: " .. result)
 end)

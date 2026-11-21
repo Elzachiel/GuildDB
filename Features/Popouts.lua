@@ -1,5 +1,5 @@
 -- Compact, queued screen notifications for PvP rewards and GuildDB news.
-local _, GH = ...
+local _, GD = ...
 
 local WIDTH, HEIGHT = 340, 68
 local DEFAULT_DURATION, FADE_DURATION, MAX_QUEUE = 6, 0.7, 6
@@ -17,7 +17,7 @@ end
 
 local function nextToast()
     if not toast then
-        toast = CreateFrame("Frame", "GuildHallAnnouncementPopout", UIParent, "BackdropTemplate")
+        toast = CreateFrame("Frame", "GuildDBAnnouncementPopout", UIParent, "BackdropTemplate")
         toast:SetSize(WIDTH, HEIGHT)
         toast:SetFrameStrata("DIALOG")
         toast:SetClampedToScreen(true)
@@ -96,7 +96,7 @@ local function nextToast()
     toast:Show()
 end
 
-function GH:ShowPopout(category, title, message, icon, onClick, duration, largeText)
+function GD:ShowPopout(category, title, message, icon, onClick, duration, largeText)
     if self.GetSetting and self:GetSetting("popups") == false then return false end
     queue[#queue + 1] = {
         title = tostring(title or category or "GuildDB"),
@@ -112,12 +112,12 @@ end
 
 -- PvP rewards use their own compact popup, matching GuildDB's stacking behavior
 -- and blue and dark color scheme.
-function GH:ShowPvPPopup(points, victim, level, totalPoints)
+function GD:ShowPvPPopup(points, victim, level, totalPoints)
     if self.GetSetting and self:GetSetting("popups") == false then return end
     points = tonumber(points) or 0
     if points <= 0 then return end
     if not pvpPopup then
-        pvpPopup = CreateFrame("Frame", "GuildHallPvPPointsPopout", UIParent, "BackdropTemplate")
+        pvpPopup = CreateFrame("Frame", "GuildDBPvPPointsPopout", UIParent, "BackdropTemplate")
         pvpPopup:SetSize(350, 78)
         pvpPopup:SetFrameStrata("DIALOG")
         pvpPopup:SetClampedToScreen(true)
@@ -197,20 +197,20 @@ end
 
 local function milestoneToast(kind, value, author, profession, isTest)
     if kind == "L" then
-        GH:ShowPopout(isTest and "Level milestone test" or "Level milestone", isTest and "Level " .. value .. " test" or "Level " .. value .. " reached!", isTest and ("GuildDB test popup for " .. author .. ".") or (author .. " reached level " .. value .. "."), "Interface/Icons/Achievement_Level_" .. value, nil, 8, true)
+        GD:ShowPopout(isTest and "Level milestone test" or "Level milestone", isTest and "Level " .. value .. " test" or "Level " .. value .. " reached!", isTest and ("GuildDB test popup for " .. author .. ".") or (author .. " reached level " .. value .. "."), "Interface/Icons/Achievement_Level_" .. value, nil, 8, true)
     elseif kind == "P" then
-        GH:ShowPopout(isTest and "Profession milestone test" or "Profession milestone", isTest and (profession .. " " .. value .. " test") or (profession .. " " .. value .. "!"), isTest and ("GuildDB test popup for " .. author .. ".") or (author .. " reached " .. value .. " in " .. profession .. "."), iconForProfession(profession), nil, 8, true)
+        GD:ShowPopout(isTest and "Profession milestone test" or "Profession milestone", isTest and (profession .. " " .. value .. " test") or (profession .. " " .. value .. "!"), isTest and ("GuildDB test popup for " .. author .. ".") or (author .. " reached " .. value .. " in " .. profession .. "."), iconForProfession(profession), nil, 8, true)
     end
 end
 
 local function broadcastMilestone(kind, value, profession, isTest)
-    if not GH.bucket then return end
-    local author = GH:PlayerName()
+    if not GD.bucket then return end
+    local author = GD:PlayerName()
     local wireKind = isTest and ("T" .. kind) or kind
     local content = kind == "L" and (wireKind .. "\n" .. value) or (wireKind .. "\n" .. profession .. "\n" .. value)
     local id = (isTest and "milestone-test:" or "milestone:") .. tostring(time()) .. ":" .. tostring(math.random(100000, 999999))
     seenMilestones[id] = true
-    GH:SendRecord("MP", id, time(), author, content)
+    GD:SendRecord("MP", id, time(), author, content)
     milestoneToast(kind, value, author, profession, isTest)
 end
 
@@ -222,8 +222,8 @@ local function samePlayerName(left, right)
     return key(left) ~= "" and key(left) == key(right)
 end
 
-GH:RegisterRecordHandler("MP", function(id, ts, author, content, sender)
-    if not GH.bucket or seenMilestones[id] then return end
+GD:RegisterRecordHandler("MP", function(id, ts, author, content, sender)
+    if not GD.bucket or seenMilestones[id] then return end
     if not samePlayerName(sender, author) then return end
 
     local kind, first = content:match("^(T?L)\n(%d+)$")
@@ -245,11 +245,11 @@ GH:RegisterRecordHandler("MP", function(id, ts, author, content, sender)
 end)
 
 local levelMilestones = { [10] = true, [20] = true, [30] = true, [40] = true, [50] = true, [60] = true }
-GH:RegisterEventHandler("PLAYER_LEVEL_UP", function(_, newLevel)
+GD:RegisterEventHandler("PLAYER_LEVEL_UP", function(_, newLevel)
     local level = tonumber(newLevel) or (UnitLevel and tonumber(UnitLevel("player")))
     if not level or not levelMilestones[level] then return end
     broadcastMilestone("L", level)
-    if GH:GetSetting("levelGuildChat") and IsInGuild and IsInGuild() and SendChatMessage then
+    if GD:GetSetting("levelGuildChat") and IsInGuild and IsInGuild() and SendChatMessage then
         SendChatMessage("Ding! " .. (UnitName and UnitName("player") or "A guild member") .. " hit level " .. level .. "!", "GUILD")
     end
 end)
@@ -261,14 +261,14 @@ local function scanProfessionMilestones()
     professionScanPending = true
     local function scan()
         professionScanPending = false
-        if not GH.GetPlayerProfessions then return end
-        local _, professions = GH:GetPlayerProfessions()
+        if not GD.GetPlayerProfessions then return end
+        local _, professions = GD:GetPlayerProfessions()
         if type(professions) ~= "table" then return end
 
-        GuildHallDB = type(GuildHallDB) == "table" and GuildHallDB or {}
-        GuildHallDB.professionMilestoneRanks = type(GuildHallDB.professionMilestoneRanks) == "table" and GuildHallDB.professionMilestoneRanks or {}
+        GDB = type(GDB) == "table" and GDB or {}
+        GDB.professionMilestoneRanks = type(GDB.professionMilestoneRanks) == "table" and GDB.professionMilestoneRanks or {}
         local characterKey = UnitGUID and UnitGUID("player") or (UnitName and UnitName("player") or "player")
-        local previous = GuildHallDB.professionMilestoneRanks[characterKey]
+        local previous = GDB.professionMilestoneRanks[characterKey]
         local current = {}
         for _, skill in ipairs(professions) do
             local name, rank = tostring(skill.name or ""), tonumber(skill.rank) or 0
@@ -284,23 +284,23 @@ local function scanProfessionMilestones()
                 end
             end
         end
-        GuildHallDB.professionMilestoneRanks[characterKey] = current
+        GDB.professionMilestoneRanks[characterKey] = current
     end
     if C_Timer and C_Timer.After then C_Timer.After(1, scan) else scan() end
 end
 
-GH:RegisterEventHandler("PLAYER_LOGIN", scanProfessionMilestones)
-GH:RegisterEventHandler("SKILL_LINES_CHANGED", scanProfessionMilestones)
-GH:RegisterEventHandler("TRADE_SKILL_UPDATE", scanProfessionMilestones)
+GD:RegisterEventHandler("PLAYER_LOGIN", scanProfessionMilestones)
+GD:RegisterEventHandler("SKILL_LINES_CHANGED", scanProfessionMilestones)
+GD:RegisterEventHandler("TRADE_SKILL_UPDATE", scanProfessionMilestones)
 
 local function showPopupTest(id, author)
-    GH.popupTestIds = GH.popupTestIds or {}
-    if GH.popupTestIds[id] then return end
-    GH.popupTestIds[id] = true
-    GH:ShowPopout("Guild-wide test", "Popup test", "GuildDB popup test from " .. author .. ".", "Interface/Icons/INV_Letter_15")
+    GD.popupTestIds = GD.popupTestIds or {}
+    if GD.popupTestIds[id] then return end
+    GD.popupTestIds[id] = true
+    GD:ShowPopout("Guild-wide test", "Popup test", "GuildDB popup test from " .. author .. ".", "Interface/Icons/INV_Letter_15")
 end
 
-GH:RegisterRecordHandler("PT", function(id, ts, author, content, sender)
+GD:RegisterRecordHandler("PT", function(id, ts, author, content, sender)
     if #id > 100 or #author > 100 or #content > 100 then return end
     local senderName = tostring(sender or ""):match("^([^-]+)") or tostring(sender or "")
     local authorName = tostring(author or ""):match("^([^-]+)") or tostring(author or "")
@@ -308,7 +308,7 @@ GH:RegisterRecordHandler("PT", function(id, ts, author, content, sender)
     showPopupTest(id, author)
 end)
 
-GH:RegisterCommand("popout", function(rest)
+GD:RegisterCommand("popout", function(rest)
     local action, milestone = (rest or ""):lower():match("^(%S+)%s*(.-)$")
     -- Accept the previous `test <kind>` form too, while making each preview
     -- directly available as `/gd popout pvp`, `/gd popout level10`, etc.
@@ -321,48 +321,48 @@ GH:RegisterCommand("popout", function(rest)
     if (action == "level" or action == "profession") and milestone ~= "" then
         selected = action .. milestone
     end
-    local player = GH:PlayerName()
+    local player = GD:PlayerName()
     selected = (selected or ""):gsub("%s+", "")
     if selected == "pvp" then
         local playerPoints = 0
-        local seasonStart = GH.bucket and GH.bucket.pvpSeason and GH.bucket.pvpSeason.start or 0
-        local totals = GH.bucket and GH.bucket.pvpTotals and GH.bucket.pvpTotals[tostring(seasonStart) .. "|" .. player]
+        local seasonStart = GD.bucket and GD.bucket.pvpSeason and GD.bucket.pvpSeason.start or 0
+        local totals = GD.bucket and GD.bucket.pvpTotals and GD.bucket.pvpTotals[tostring(seasonStart) .. "|" .. player]
         if totals then playerPoints = totals.points or 0 end
-        GH:ShowPvPPopup(3, "Enemy Player", 60, playerPoints + 3)
+        GD:ShowPvPPopup(3, "Enemy Player", 60, playerPoints + 3)
         return
     end
 
     if selected == "guild" or selected == "all" then
-        if not GH:CanManage() then
+        if not GD:CanManage() then
             print("GuildDB: Only the guild leader or rank 1 can broadcast a popup test.")
             return
         end
-        GH.popupTestIds = GH.popupTestIds or {}
+        GD.popupTestIds = GD.popupTestIds or {}
         local id = tostring(time()) .. "-popup-test-" .. tostring(math.random(100000, 999999))
-        GH.popupTestIds[id] = true
-        GH:SendRecord("PT", id, time(), player, player)
-        GH:ShowPopout("Guild-wide test", "Popup test", "GuildDB popup test from " .. player .. ".", "Interface/Icons/INV_Letter_15")
+        GD.popupTestIds[id] = true
+        GD:SendRecord("PT", id, time(), player, player)
+        GD:ShowPopout("Guild-wide test", "Popup test", "GuildDB popup test from " .. player .. ".", "Interface/Icons/INV_Letter_15")
         print("GuildDB: Popup test sent to online GuildDB users.")
         return
     end
 
     local level = tonumber(selected:match("^level(%d+)$"))
     if level and (level == 10 or level == 20 or level == 30 or level == 40 or level == 50 or level == 60) then
-        GH:ShowPopout("Level milestone", "Level " .. level .. " reached!", player .. " reached level " .. level .. ".", "Interface/Icons/Achievement_Level_" .. level)
+        GD:ShowPopout("Level milestone", "Level " .. level .. " reached!", player .. " reached level " .. level .. ".", "Interface/Icons/Achievement_Level_" .. level)
         return
     end
 
     local profession = tonumber(selected:match("^profession(%d+)$"))
     if profession and (profession == 150 or profession == 225 or profession == 300) then
-        GH:ShowPopout("Profession milestone", profession .. " skill reached!", player .. " reached " .. profession .. " skill in a profession.", "Interface/Icons/Trade_BlackSmithing")
+        GD:ShowPopout("Profession milestone", profession .. " skill reached!", player .. " reached " .. profession .. " skill in a profession.", "Interface/Icons/Trade_BlackSmithing")
         return
     end
 
     print("GuildDB: use /gd popout guild, /gd popout pvp, /gd popout level10/20/30/40/50/60, or /gd popout profession150/225/300.")
 end)
 
-GH:RegisterCommand("testpopout", function(rest)
-    if not GH:CanManage() then
+GD:RegisterCommand("testpopout", function(rest)
+    if not GD:CanManage() then
         print("GuildDB: Only the guild leader or rank 1 can broadcast milestone popup tests.")
         return
     end

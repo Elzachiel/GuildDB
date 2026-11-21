@@ -1,12 +1,12 @@
 -- Outdoor player-versus-player kill tracking and leaderboard.
-local _, GH = ...
-GH:RegisterBucket("pvpKills", function() return {} end)
-GH:RegisterBucket("pvpDeaths", function() return {} end)
-GH:RegisterBucket("pvpTotals", function() return {} end)
-GH:RegisterBucket("pvpSeason", function() return { name = "All-time", start = 0, ts = 0 } end)
-GH:RegisterBucket("pvpReset", function() return { ts = 0 } end)
-GH:RegisterBucket("pvpSeasons", function() return {} end)
-GH:RegisterBucket("pvpSeasonDeletes", function() return {} end)
+local _, GD = ...
+GD:RegisterBucket("pvpKills", function() return {} end)
+GD:RegisterBucket("pvpDeaths", function() return {} end)
+GD:RegisterBucket("pvpTotals", function() return {} end)
+GD:RegisterBucket("pvpSeason", function() return { name = "All-time", start = 0, ts = 0 } end)
+GD:RegisterBucket("pvpReset", function() return { ts = 0 } end)
+GD:RegisterBucket("pvpSeasons", function() return {} end)
+GD:RegisterBucket("pvpSeasonDeletes", function() return {} end)
 local seenPlayers = {}
 local honorCredits = {}
 local creditScheduled = false
@@ -34,7 +34,7 @@ local function refreshVisiblePlayers()
 end
 
 local function trackingNote(message)
-    GH.pvpTrackingStatus = message
+    GD.pvpTrackingStatus = message
 end
 
 local function totalsKey(start, player)
@@ -42,11 +42,11 @@ local function totalsKey(start, player)
 end
 
 local function playerName()
-    return GH.PlayerName and GH:PlayerName() or (UnitName and UnitName("player") or "Guild member")
+    return GD.PlayerName and GD:PlayerName() or (UnitName and UnitName("player") or "Guild member")
 end
 
 local function resetTime()
-    return (GH.bucket.pvpReset or {}).ts or 0
+    return (GD.bucket.pvpReset or {}).ts or 0
 end
 
 local function guildLeader(name)
@@ -61,18 +61,18 @@ local function guildLeader(name)
     return false
 end
 
-function GH:CanManagePvPSeason()
+function GD:CanManagePvPSeason()
     return self.bucket ~= nil and guildLeader(playerName())
 end
 
 -- Keep administrative actions ordered even when several happen in one second.
 -- Deleted season IDs must never be reused by a replacement season.
 local function nextSeasonStamp()
-    local stamp = math.max(time(), resetTime() + 1, (GH.bucket.pvpSeason.ts or 0) + 1)
-    for _, season in pairs(GH.bucket.pvpSeasons) do
+    local stamp = math.max(time(), resetTime() + 1, (GD.bucket.pvpSeason.ts or 0) + 1)
+    for _, season in pairs(GD.bucket.pvpSeasons) do
         stamp = math.max(stamp, (season.start or 0) + 1, (season.ts or 0) + 1)
     end
-    for start, deleted in pairs(GH.bucket.pvpSeasonDeletes) do
+    for start, deleted in pairs(GD.bucket.pvpSeasonDeletes) do
         stamp = math.max(stamp, (tonumber(start) or 0) + 1, (deleted.ts or 0) + 1)
     end
     return stamp
@@ -80,20 +80,20 @@ end
 
 local function deleteSeason(start, stamp, author)
     local key = tostring(start)
-    local previous = GH.bucket.pvpSeasonDeletes[key]
+    local previous = GD.bucket.pvpSeasonDeletes[key]
     if previous and previous.ts >= stamp then return end
-    GH.bucket.pvpSeasonDeletes[key] = { ts = stamp, by = author }
-    GH.bucket.pvpSeasons[key] = nil
-    for id, totals in pairs(GH.bucket.pvpTotals) do
-        if totals.start == start then GH.bucket.pvpTotals[id] = nil end
+    GD.bucket.pvpSeasonDeletes[key] = { ts = stamp, by = author }
+    GD.bucket.pvpSeasons[key] = nil
+    for id, totals in pairs(GD.bucket.pvpTotals) do
+        if totals.start == start then GD.bucket.pvpTotals[id] = nil end
     end
-    if GH.bucket.pvpSeason.start == start then
-        GH.bucket.pvpSeason = { name = "All-time", start = 0, ts = stamp, by = author }
+    if GD.bucket.pvpSeason.start == start then
+        GD.bucket.pvpSeason = { name = "All-time", start = 0, ts = stamp, by = author }
     end
-    if GH.RefreshUI then GH:RefreshUI() end
+    if GD.RefreshUI then GD:RefreshUI() end
 end
 
-function GH:DeletePvPSeason(start)
+function GD:DeletePvPSeason(start)
     if not self:CanManagePvPSeason() then return false, "Only the guild master can delete seasons." end
     start = tonumber(start)
     if not start or start <= 0 then return false, "Select a season first. All-time cannot be deleted here." end
@@ -103,7 +103,7 @@ function GH:DeletePvPSeason(start)
     return true, "Season deleted. All-time stats were kept."
 end
 
-GH:RegisterRecordHandler("PD", function(id, ts, author)
+GD:RegisterRecordHandler("PD", function(id, ts, author)
     local start = tonumber(id)
     if not start or start <= 0 or not guildLeader(author) or ts <= resetTime() or ts > time() + 60 then return end
     deleteSeason(start, ts, author)
@@ -111,22 +111,22 @@ end)
 
 local function applyReset(stamp, author)
     if stamp <= resetTime() then return end
-    GH.bucket.pvpReset = { ts = stamp, by = author }
-    GH.bucket.pvpSeasonDeletes = {}
-    GH.bucket.pvpKills, GH.bucket.pvpDeaths, GH.bucket.pvpTotals, GH.bucket.pvpSeasons = {}, {}, {}, {}
-    GH.bucket.pvpSeason = { name = "All-time", start = 0, ts = stamp, by = author }
+    GD.bucket.pvpReset = { ts = stamp, by = author }
+    GD.bucket.pvpSeasonDeletes = {}
+    GD.bucket.pvpKills, GD.bucket.pvpDeaths, GD.bucket.pvpTotals, GD.bucket.pvpSeasons = {}, {}, {}, {}
+    GD.bucket.pvpSeason = { name = "All-time", start = 0, ts = stamp, by = author }
     honorCredits, seenPlayers = {}, {}
     unmatchedCredit, lastTarget, groupEvidence = nil, nil, {}
-    if GuildHallDB then GuildHallDB.pvpHistory = {} end
-    if GH.RefreshUI then GH:RefreshUI() end
+    if GDB then GDB.pvpHistory = {} end
+    if GD.RefreshUI then GD:RefreshUI() end
 end
 
-GH:RegisterRecordHandler("PR", function(id, ts, author)
+GD:RegisterRecordHandler("PR", function(id, ts, author)
     if id ~= "wipe" or not guildLeader(author) or ts > time() + 60 then return end
     applyReset(ts, author)
 end)
 
-function GH:WipePvPStats()
+function GD:WipePvPStats()
     if not self.bucket then return false, "Join a guild first." end
     if not guildLeader(playerName()) then return false, "Only the guild master can wipe PvP stats." end
     local stamp = nextSeasonStamp()
@@ -156,36 +156,36 @@ local function sendTotals(start, player, totals)
     totals.id = "totals:" .. totalsKey(start, player)
     totals.ts = time()
     totals.by = player
-    GH:SendRecord("Z", totals.id, totals.ts, player,
+    GD:SendRecord("Z", totals.id, totals.ts, player,
         table.concat({ start, totals.kills or 0, totals.kills or 0, totals.deaths or 0, resetTime() }, "\n"))
 end
 
 local function addLocalStat(field, points)
-    if not GH.bucket then return end
+    if not GD.bucket then return end
     local player = playerName()
-    local season = GH.bucket.pvpSeason or { start = 0 }
+    local season = GD.bucket.pvpSeason or { start = 0 }
     local starts = { 0 }
     if (season.start or 0) > 0 and (not season.ends or season.ends == 0 or time() < season.ends) then
         starts[#starts + 1] = season.start
     end
     for _, start in ipairs(starts) do
         local key = totalsKey(start, player)
-        local totals = GH.bucket.pvpTotals[key]
+        local totals = GD.bucket.pvpTotals[key]
         if not totals then
             totals = { start = start, by = player, kills = 0, points = 0, deaths = 0 }
-            for _, kill in ipairs(GH.bucket.pvpKills or {}) do
+            for _, kill in ipairs(GD.bucket.pvpKills or {}) do
                 if kill.by == player and kill.ts >= start then
                     totals.kills = totals.kills + 1
                     totals.points = totals.points + (tonumber(kill.points) or 1)
                 end
             end
-            for _, death in ipairs(GH.bucket.pvpDeaths or {}) do
+            for _, death in ipairs(GD.bucket.pvpDeaths or {}) do
                 if death.by == player and death.ts >= start then totals.deaths = totals.deaths + 1 end
             end
         end
         totals[field] = (totals[field] or 0) + 1
         totals.points = totals.kills or 0
-        GH.bucket.pvpTotals[key] = totals
+        GD.bucket.pvpTotals[key] = totals
         sendTotals(start, player, totals)
     end
 end
@@ -200,35 +200,35 @@ local function normalizedName(name)
 end
 
 local function historyFor(victim)
-    if type(GuildHallDB) ~= "table" then GuildHallDB = {} end
-    if type(GuildHallDB.pvpHistory) ~= "table" then GuildHallDB.pvpHistory = {} end
+    if type(GDB) ~= "table" then GDB = {} end
+    if type(GDB.pvpHistory) ~= "table" then GDB.pvpHistory = {} end
     local now = time()
-    if now - (GuildHallDB.pvpHistoryPruned or 0) > 3600 then
-        for key, stamps in pairs(GuildHallDB.pvpHistory) do
+    if now - (GDB.pvpHistoryPruned or 0) > 3600 then
+        for key, stamps in pairs(GDB.pvpHistory) do
             local fresh = {}
             if type(stamps) == "table" then
                 for _, stamp in ipairs(stamps) do
                     if type(stamp) == "number" and now - stamp < 86400 then fresh[#fresh + 1] = stamp end
                 end
             end
-            GuildHallDB.pvpHistory[key] = #fresh > 0 and fresh or nil
+            GDB.pvpHistory[key] = #fresh > 0 and fresh or nil
         end
-        GuildHallDB.pvpHistoryPruned = now
+        GDB.pvpHistoryPruned = now
     end
     local player = playerName()
     local key = normalizedName(player) .. "|" .. normalizedName(victim)
-    local history = GuildHallDB.pvpHistory[key]
-    if type(history) ~= "table" then history = {}; GuildHallDB.pvpHistory[key] = history end
+    local history = GDB.pvpHistory[key]
+    if type(history) ~= "table" then history = {}; GDB.pvpHistory[key] = history end
     local fresh = {}
     for _, stamp in ipairs(history) do
         if type(stamp) == "number" and now - stamp < 86400 then fresh[#fresh + 1] = stamp end
     end
-    GuildHallDB.pvpHistory[key] = fresh
+    GDB.pvpHistory[key] = fresh
     return fresh, now
 end
 
 local function recordKill(victim, victimLevel, outdoors)
-    if not GH.bucket then trackingNote("No guild data available"); return end
+    if not GD.bucket then trackingNote("No guild data available"); return end
     if not outdoors then trackingNote("Reward ignored: instanced area"); return end
     if not victim or victim == "" then trackingNote("Reward received without an identified enemy"); return end
     local history, now = historyFor(victim)
@@ -239,66 +239,66 @@ local function recordKill(victim, victimLevel, outdoors)
     local ownLevel = tonumber(unitValue(UnitLevel, "player")) or 60
     if level == -1 then level = math.min(60, ownLevel + 10)
     elseif level <= 0 then level = ownLevel end
-    local record = GH:NewRecord({ victim = victim, victimLevel = level, points = 1 })
+    local record = GD:NewRecord({ victim = victim, victimLevel = level, points = 1 })
     record.id = tostring(time()) .. "-pvp-" .. tostring(math.random(100000, 999999))
     addLocalStat("kills", record.points)
     trackingNote("Recorded " .. victim .. ": +" .. record.points .. " points")
-    if GH.ShowPvPPopup then
+    if GD.ShowPvPPopup then
         local player = playerName()
-        local seasonStart = (GH.bucket.pvpSeason or {}).start or 0
-        local totals = GH.bucket.pvpTotals[totalsKey(seasonStart, player)]
-        GH:ShowPvPPopup(record.points, victim, level, totals and totals.kills or 1)
+        local seasonStart = (GD.bucket.pvpSeason or {}).start or 0
+        local totals = GD.bucket.pvpTotals[totalsKey(seasonStart, player)]
+        GD:ShowPvPPopup(record.points, victim, level, totals and totals.kills or 1)
     end
-    GH:StoreRecord("pvpKills", record, "P", encodeKill(record))
+    GD:StoreRecord("pvpKills", record, "P", encodeKill(record))
     return true
 end
 
-GH:RegisterRecordHandler("P", function(id, ts, author, content, sender)
+GD:RegisterRecordHandler("P", function(id, ts, author, content, sender)
     if ts <= resetTime() then return end
     local victim, level, points = content:match("^(.-)\n(%d+)\n(%d+)$")
     level, points = tonumber(level), tonumber(points)
     if not victim or victim == "" or #victim > 100 or not level or level > 100 or not points or points < 1 or points > 5 then return end
-    GH:StoreRecord("pvpKills", { id = id, ts = ts, by = author, victim = victim, victimLevel = level, points = points })
+    GD:StoreRecord("pvpKills", { id = id, ts = ts, by = author, victim = victim, victimLevel = level, points = points })
     if retryGroupCredit then retryGroupCredit(ts, author, sender, victim, level) end
 end)
 
-GH:RegisterRecordHandler("X", function(id, ts, author, content)
+GD:RegisterRecordHandler("X", function(id, ts, author, content)
     if ts <= resetTime() then return end
     local killer = content:gsub("^%s+", ""):gsub("%s+$", "")
     if killer == "" or #killer > 100 then return end
-    GH:StoreRecord("pvpDeaths", { id = id, ts = ts, by = author, killer = killer })
+    GD:StoreRecord("pvpDeaths", { id = id, ts = ts, by = author, killer = killer })
 end)
 
-GH:RegisterRecordHandler("Y", function(id, ts, author, content)
+GD:RegisterRecordHandler("Y", function(id, ts, author, content)
     if ts <= resetTime() then return end
     if not guildLeader(author) then return end
     local name, start, ends = content:match("^(.-)\n(%d+)\n(%d+)$")
     if not name then name, start = content:match("^(.-)\n(%d+)$") end
     start = tonumber(start)
     if start and start > 0 and start <= resetTime() then return end
-    if start and GH.bucket.pvpSeasonDeletes[tostring(start)] then return end
+    if start and GD.bucket.pvpSeasonDeletes[tostring(start)] then return end
     ends = tonumber(ends) or 0
     if not name or name == "" or #name > 80 or not start then return end
     if id ~= "season" and id ~= "season:" .. tostring(start) then return end
     if ends ~= 0 and ends <= start then return end
-    local current = GH.bucket.pvpSeason or {}
-    local saved = GH.bucket.pvpSeasons[tostring(start)]
+    local current = GD.bucket.pvpSeason or {}
+    local saved = GD.bucket.pvpSeasons[tostring(start)]
     local incoming = { name = name, start = start, ends = ends, ts = ts, by = author }
-    if not saved or (saved.ts or 0) <= ts then GH.bucket.pvpSeasons[tostring(start)] = incoming end
+    if not saved or (saved.ts or 0) <= ts then GD.bucket.pvpSeasons[tostring(start)] = incoming end
     if id == "season" and (current.ts or 0) <= ts then
         if (current.start or 0) > 0 then
-            local previous = GH.bucket.pvpSeasons[tostring(current.start)]
+            local previous = GD.bucket.pvpSeasons[tostring(current.start)]
             if not previous or (previous.ts or 0) < (current.ts or 0) then
-                GH.bucket.pvpSeasons[tostring(current.start)] = current
+                GD.bucket.pvpSeasons[tostring(current.start)] = current
             end
         end
-        GH.bucket.pvpSeason = incoming
-        GH.bucket.pvpSeasons[tostring(start)] = incoming
+        GD.bucket.pvpSeason = incoming
+        GD.bucket.pvpSeasons[tostring(start)] = incoming
     end
-    if GH.RefreshUI then GH:RefreshUI() end
+    if GD.RefreshUI then GD:RefreshUI() end
 end)
 
-GH:RegisterRecordHandler("Z", function(id, ts, author, content)
+GD:RegisterRecordHandler("Z", function(id, ts, author, content)
     local body, epoch = content:match("^(.*)\n(%d+)$")
     if body and select(2, content:gsub("\n", "")) == 4 then
         if tonumber(epoch) ~= resetTime() then return end
@@ -307,13 +307,13 @@ GH:RegisterRecordHandler("Z", function(id, ts, author, content)
     local start, kills, points, deaths = content:match("^(%d+)\n(%d+)\n(%d+)\n(%d+)$")
     start, kills, points, deaths = tonumber(start), tonumber(kills), tonumber(points), tonumber(deaths)
     if start and start > 0 and start <= resetTime() then return end
-    if start and GH.bucket.pvpSeasonDeletes[tostring(start)] then return end
+    if start and GD.bucket.pvpSeasonDeletes[tostring(start)] then return end
     if not start or not kills or not points or not deaths or #author > 100 then return end
     local key = totalsKey(start, author)
-    local current = GH.bucket.pvpTotals[key]
+    local current = GD.bucket.pvpTotals[key]
     if not current or kills > (current.kills or 0) or points > (current.points or 0) or deaths > (current.deaths or 0) then
-        GH.bucket.pvpTotals[key] = { start = start, by = author, kills = math.max(kills, current and current.kills or 0), points = math.max(points, current and current.points or 0), deaths = math.max(deaths, current and current.deaths or 0), ts = ts }
-        if GH.RefreshUI then GH:RefreshUI() end
+        GD.bucket.pvpTotals[key] = { start = start, by = author, kills = math.max(kills, current and current.kills or 0), points = math.max(points, current and current.points or 0), deaths = math.max(deaths, current and current.deaths or 0), ts = ts }
+        if GD.RefreshUI then GD:RefreshUI() end
     end
 end)
 
@@ -439,16 +439,16 @@ retryGroupCredit = function(stamp, author, sender, victim, level)
 end
 
 local function queueCredit(victim)
-    if not GH.bucket then return end
+    if not GD.bucket then return end
     honorCredits[#honorCredits + 1] = { victim = victim, outdoors = isOpenWorld() }
     if creditScheduled then return end
     creditScheduled = true
     C_Timer.After(0.8, resolveCredits)
 end
 
-GH:RegisterEventHandler("CHAT_MSG_COMBAT_HONOR_GAIN", function(_, message)
+GD:RegisterEventHandler("CHAT_MSG_COMBAT_HONOR_GAIN", function(_, message)
     message = readable(message)
-    GH.pvpLastHonorMessage = type(message) == "string" and message or "Honor event had no readable text"
+    GD.pvpLastHonorMessage = type(message) == "string" and message or "Honor event had no readable text"
     refreshVisiblePlayers()
     local ok, victim = pcall(victimFromHonorMessage, message)
     if not ok then victim = nil end
@@ -462,36 +462,36 @@ GH:RegisterEventHandler("CHAT_MSG_COMBAT_HONOR_GAIN", function(_, message)
         end
     end
 end)
-GH:RegisterEventHandler("PLAYER_PVP_KILLS_CHANGED", function(_, unit)
+GD:RegisterEventHandler("PLAYER_PVP_KILLS_CHANGED", function(_, unit)
     unit = readable(unit)
     if type(unit) == "string" and unit ~= "player" then return end
     refreshVisiblePlayers()
     queueCredit(nil)
 end)
 
-GH:RegisterHistoryProvider(function()
-    local reset = GH.bucket.pvpReset
-    if reset and reset.ts > 0 then GH:SendRecord("PR", "wipe", reset.ts, reset.by, "") end
-    for start, deleted in pairs(GH.bucket.pvpSeasonDeletes) do
-        GH:SendRecord("PD", start, deleted.ts, deleted.by, "")
+GD:RegisterHistoryProvider(function()
+    local reset = GD.bucket.pvpReset
+    if reset and reset.ts > 0 then GD:SendRecord("PR", "wipe", reset.ts, reset.by, "") end
+    for start, deleted in pairs(GD.bucket.pvpSeasonDeletes) do
+        GD:SendRecord("PD", start, deleted.ts, deleted.by, "")
     end
-    local list = GH.bucket.pvpKills or {}
-    for i = math.min(#list, GH.maxItems), 1, -1 do
+    local list = GD.bucket.pvpKills or {}
+    for i = math.min(#list, GD.maxItems), 1, -1 do
         local record = list[i]
-        GH:SendRecord("P", record.id, record.ts, record.by, encodeKill(record))
+        GD:SendRecord("P", record.id, record.ts, record.by, encodeKill(record))
     end
-    local deaths = GH.bucket.pvpDeaths or {}
-    for i = math.min(#deaths, GH.maxItems), 1, -1 do
+    local deaths = GD.bucket.pvpDeaths or {}
+    for i = math.min(#deaths, GD.maxItems), 1, -1 do
         local death = deaths[i]
-        GH:SendRecord("X", death.id, death.ts, death.by, death.killer)
+        GD:SendRecord("X", death.id, death.ts, death.by, death.killer)
     end
-    local season = GH.bucket.pvpSeason or { name = "All-time", start = 0, ts = 0 }
-    if season.ts and season.ts > 0 then GH:SendRecord("Y", "season", season.ts, season.by or "Guild officer", table.concat({ season.name, season.start, season.ends or 0 }, "\n")) end
-    for _, archived in pairs(GH.bucket.pvpSeasons) do
-        GH:SendRecord("Y", "season:" .. archived.start, archived.ts, archived.by,
+    local season = GD.bucket.pvpSeason or { name = "All-time", start = 0, ts = 0 }
+    if season.ts and season.ts > 0 then GD:SendRecord("Y", "season", season.ts, season.by or "Guild officer", table.concat({ season.name, season.start, season.ends or 0 }, "\n")) end
+    for _, archived in pairs(GD.bucket.pvpSeasons) do
+        GD:SendRecord("Y", "season:" .. archived.start, archived.ts, archived.by,
             table.concat({ archived.name, archived.start, archived.ends or 0 }, "\n"))
     end
-    for _, totals in pairs(GH.bucket.pvpTotals or {}) do
+    for _, totals in pairs(GD.bucket.pvpTotals or {}) do
         sendTotals(totals.start or 0, totals.by, totals)
     end
 end)
@@ -536,30 +536,30 @@ captureVisiblePlayers = function()
     end
 end
 
-GH:RegisterEventHandler("PLAYER_TARGET_CHANGED", refreshVisiblePlayers)
-GH:RegisterEventHandler("UPDATE_MOUSEOVER_UNIT", refreshVisiblePlayers)
-GH:RegisterEventHandler("NAME_PLATE_UNIT_ADDED", function(_, unit) capturePlayer(unit) end)
-GH:RegisterEventHandler("NAME_PLATE_UNIT_REMOVED", function(_, unit) capturePlayer(unit) end)
-GH:RegisterEventHandler("UNIT_HEALTH", function(_, unit)
+GD:RegisterEventHandler("PLAYER_TARGET_CHANGED", refreshVisiblePlayers)
+GD:RegisterEventHandler("UPDATE_MOUSEOVER_UNIT", refreshVisiblePlayers)
+GD:RegisterEventHandler("NAME_PLATE_UNIT_ADDED", function(_, unit) capturePlayer(unit) end)
+GD:RegisterEventHandler("NAME_PLATE_UNIT_REMOVED", function(_, unit) capturePlayer(unit) end)
+GD:RegisterEventHandler("UNIT_HEALTH", function(_, unit)
     if unit == "target" or unit == "focus" then capturePlayer(unit) end
 end)
-GH:RegisterEventHandler("UNIT_FLAGS", function(_, unit)
+GD:RegisterEventHandler("UNIT_FLAGS", function(_, unit)
     if unit == "target" or unit == "focus" then capturePlayer(unit) end
 end)
 -- This event supplies death evidence only. Points still require the local
 -- player's own honor/kill credit, so a group member's killing blow cannot
 -- independently award points.
-GH:RegisterEventHandler("PARTY_KILL", function(_, attacker, victim)
+GD:RegisterEventHandler("PARTY_KILL", function(_, attacker, victim)
     victim = readable(victim)
     if type(victim) ~= "string" then return end
     local seen = seenPlayers[victim]
     if seen then seen.diedAt = GetTime() end
 end)
-GH:RegisterEventHandler("PLAYER_ENTERING_WORLD", function()
+GD:RegisterEventHandler("PLAYER_ENTERING_WORLD", function()
     seenPlayers, groupEvidence = {}, {}
     lastTarget, unmatchedCredit = nil, nil
 end)
-function GH:StartPvPSeason(name, endDate, restart)
+function GD:StartPvPSeason(name, endDate, restart)
     if not self:CanManagePvPSeason() then return false, "Only the guild master can start a PvP season." end
     name = (name or ""):gsub("^%s+", ""):gsub("%s+$", "")
     if name == "" or #name > 80 then return false, "Enter a season name (up to 80 characters)." end
@@ -602,20 +602,20 @@ function GH:StartPvPSeason(name, endDate, restart)
     return true, "PvP season started: " .. name
 end
 
-GH:RegisterCommand("pvp", function(rest)
+GD:RegisterCommand("pvp", function(rest)
     local action, name = rest:match("^(%S+)%s*(.*)$")
     if (action or ""):lower() == "wipe" then
         if not guildLeader(playerName()) then print("GuildDB: Only the guild master can wipe PvP stats."); return end
         if name ~= "CONFIRM" then print("GuildDB: This erases all guild PvP points, kills, deaths, history and seasons. Type /gd pvp wipe CONFIRM to proceed."); return end
-        local _, result = GH:WipePvPStats()
+        local _, result = GD:WipePvPStats()
         print("GuildDB: " .. result)
         return
     end
-    GH.activeTab = "PvP"
-    GH:Open()
+    GD.activeTab = "PvP"
+    GD:Open()
 end)
 
-function GH:GetPvPSeasons()
+function GD:GetPvPSeasons()
     local bucket = self.bucket or {}
     local choices, known = {}, {}
     for start in pairs(bucket.pvpSeasonDeletes or {}) do known[tonumber(start)] = true end
@@ -644,8 +644,8 @@ function GH:GetPvPSeasons()
     return choices
 end
 
-function GH:GetPvPLeaderboard(allTime, selectedStart)
-    local bucket = GH.bucket or {}
+function GD:GetPvPLeaderboard(allTime, selectedStart)
+    local bucket = GD.bucket or {}
     local season = bucket.pvpSeason or { name = "All-time", start = 0 }
     if selectedStart ~= nil then
         allTime = false
@@ -701,15 +701,15 @@ function GH:GetPvPLeaderboard(allTime, selectedStart)
     return season, ranking, ownScore, ownRank
 end
 
-GH:RegisterTab("PvP", function()
-    if not GH.bucket then return "Join a guild to see the PvP leaderboard." end
-    local kills = GH.bucket.pvpKills or {}
-    local deaths = GH.bucket.pvpDeaths or {}
-    if #kills == 0 and #deaths == 0 and not next(GH.bucket.pvpTotals or {}) then return "No outdoor PvP kills recorded yet. Defeat an enemy player in the open world to earn points." end
-    local season = GH.bucket.pvpSeason or { name = "All-time", start = 0 }
+GD:RegisterTab("PvP", function()
+    if not GD.bucket then return "Join a guild to see the PvP leaderboard." end
+    local kills = GD.bucket.pvpKills or {}
+    local deaths = GD.bucket.pvpDeaths or {}
+    if #kills == 0 and #deaths == 0 and not next(GD.bucket.pvpTotals or {}) then return "No outdoor PvP kills recorded yet. Defeat an enemy player in the open world to earn points." end
+    local season = GD.bucket.pvpSeason or { name = "All-time", start = 0 }
     local scores, wanted = {}, {}
     local totalRows = {}
-    for _, total in pairs(GH.bucket.pvpTotals or {}) do
+    for _, total in pairs(GD.bucket.pvpTotals or {}) do
         if (total.start or 0) == (season.start or 0) then
             local score = scores[total.by] or { name = total.by, points = 0, kills = 0, deaths = 0 }
             score.points = math.max(score.points, total.points or 0)
@@ -741,9 +741,9 @@ GH:RegisterTab("PvP", function()
         if a.kills ~= b.kills then return a.kills > b.kills end
         return a.name:lower() < b.name:lower()
     end)
-    local lines = { "PvP season: " .. GH:Display(season.name or "All-time"), "Ranked by kills since season start", "" }
+    local lines = { "PvP season: " .. GD:Display(season.name or "All-time"), "Ranked by kills since season start", "" }
     for rank, score in ipairs(ranking) do
-        lines[#lines + 1] = ("%d. %s — %d points · %d kills / %d deaths"):format(rank, GH:Display(score.name), score.points, score.kills, score.deaths)
+        lines[#lines + 1] = ("%d. %s — %d points · %d kills / %d deaths"):format(rank, GD:Display(score.name), score.points, score.kills, score.deaths)
     end
     lines[#lines + 1] = ""
     lines[#lines + 1] = "Recent kills:"
@@ -752,7 +752,7 @@ GH:RegisterTab("PvP", function()
         if kill.ts >= (season.start or 0) and (not season.ends or season.ends == 0 or kill.ts < season.ends) and shown < 10 then
             shown = shown + 1
             local level = kill.victimLevel and kill.victimLevel > 0 and (" (level " .. kill.victimLevel .. ")") or " (level unknown)"
-            lines[#lines + 1] = ("%s defeated %s%s · +%d"):format(GH:Display(kill.by), GH:Display(kill.victim), level, kill.points or 1)
+            lines[#lines + 1] = ("%s defeated %s%s · +%d"):format(GD:Display(kill.by), GD:Display(kill.victim), level, kill.points or 1)
         end
     end
     local enemies = {}
@@ -760,6 +760,6 @@ GH:RegisterTab("PvP", function()
     table.sort(enemies, function(a, b) if a.deaths ~= b.deaths then return a.deaths > b.deaths end; return a.name:lower() < b.name:lower() end)
     lines[#lines + 1] = ""
     lines[#lines + 1] = "Most wanted (enemy players with most guild kills against us):"
-    for i = 1, math.min(#enemies, 5) do lines[#lines + 1] = ("%d. %s · %d kill(s)"):format(i, GH:Display(enemies[i].name), enemies[i].deaths) end
+    for i = 1, math.min(#enemies, 5) do lines[#lines + 1] = ("%d. %s · %d kill(s)"):format(i, GD:Display(enemies[i].name), enemies[i].deaths) end
     return table.concat(lines, "\n")
 end)

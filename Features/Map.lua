@@ -1,5 +1,5 @@
 -- Guild-wide, opt-in location sharing and World Map pins.
-local _, GH = ...
+local _, GD = ...
 
 local REPORT_TTL = 45
 local SEND_INTERVAL = 4
@@ -7,7 +7,7 @@ local lastSent = 0
 local elapsedSincePrune = 0
 local lastLocalStatus = "Waiting for a map position"
 local lastLocalPosition
-GH.mapReports = GH.mapReports or {}
+GD.mapReports = GD.mapReports or {}
 
 local function normalizeMemberKey(name)
     local value = tostring(name or "")
@@ -34,21 +34,21 @@ local function unitLocation()
 end
 
 local function refreshMapPins()
-    if GH.RefreshMapPins and WorldMapFrame and WorldMapFrame:IsShown() then
-        GH:RefreshMapPins()
+    if GD.RefreshMapPins and WorldMapFrame and WorldMapFrame:IsShown() then
+        GD:RefreshMapPins()
     end
 end
 
 local function updateUI()
-    if GH.RefreshUI then GH:RefreshUI() end
+    if GD.RefreshUI then GD:RefreshUI() end
     refreshMapPins()
 end
 
-GH:RegisterRecordHandler("ML", function(id, timestamp, author, content, sender)
+GD:RegisterRecordHandler("ML", function(id, timestamp, author, content, sender)
     local function reject(reason)
-        GH.mapRejectReason = reason
+        GD.mapRejectReason = reason
     end
-    if not GH.bucket or not sender then reject("no guild bucket or sender"); return end
+    if not GD.bucket or not sender then reject("no guild bucket or sender"); return end
     local mapID, x, y, location = content:match("^(%d+)|([%d%.]+)|([%d%.]+)|(.*)$")
     local zone, class
     if location then zone, class = location:match("^(.-)|([A-Z]+)$") end
@@ -60,9 +60,9 @@ GH:RegisterRecordHandler("ML", function(id, timestamp, author, content, sender)
     -- CHAT_MSG_ADDON supplies the authenticated sender for the guild channel.
     -- Payload authors can use another name form (including two-part names),
     -- so don't discard a valid guild report when those strings differ.
-    GH.mapValidReports = (GH.mapValidReports or 0) + 1
-    GH.mapRejectReason = nil
-    GH.mapReports[senderName] = {
+    GD.mapValidReports = (GD.mapValidReports or 0) + 1
+    GD.mapRejectReason = nil
+    GD.mapReports[senderName] = {
         name = sender, author = author, mapID = mapID, x = x, y = y, zone = zone, class = class,
         seen = GetTime and GetTime() or 0,
     }
@@ -70,7 +70,7 @@ GH:RegisterRecordHandler("ML", function(id, timestamp, author, content, sender)
 end)
 
 local function sendLocation()
-    if not GH.bucket or not GH:GetSetting("shareMapLocation") then return end
+    if not GD.bucket or not GD:GetSetting("shareMapLocation") then return end
     local mapID, x, y, zone = unitLocation()
     if not mapID then
         lastLocalStatus = IsInInstance and IsInInstance() and "Location sharing pauses in instances" or "The client did not return a map position"
@@ -81,15 +81,15 @@ local function sendLocation()
     local author = UnitName and UnitName("player") or ""
     if author == "" then return end
     local payload = table.concat({
-        "ML", "loc", time(), GH:Encode(author),
-        table.concat({ mapID, ("%.4f"):format(x), ("%.4f"):format(y), GH:Encode(zone), select(2, UnitClass("player")) or "UNKNOWN" }, "|"),
+        "ML", "loc", time(), GD:Encode(author),
+        table.concat({ mapID, ("%.4f"):format(x), ("%.4f"):format(y), GD:Encode(zone), select(2, UnitClass("player")) or "UNKNOWN" }, "|"),
     }, "|")
-    GH:Enqueue(payload)
+    GD:Enqueue(payload)
     lastSent = GetTime and GetTime() or 0
-    if GH.activeTab == "Map" and GH.RefreshUI then GH:RefreshUI() end
+    if GD.activeTab == "Map" and GD.RefreshUI then GD:RefreshUI() end
 end
 
-function GH:MapUpdate(now, elapsed)
+function GD:MapUpdate(now, elapsed)
     if not now then return end
     if self.bucket and self:GetSetting("shareMapLocation") and now - lastSent >= SEND_INTERVAL then
         sendLocation()
@@ -107,7 +107,7 @@ function GH:MapUpdate(now, elapsed)
     if changed then updateUI() end
 end
 
-function GH:GetMapReports()
+function GD:GetMapReports()
     local reports = {}
     local now = GetTime and GetTime() or 0
     for _, report in pairs(self.mapReports or {}) do
@@ -117,7 +117,7 @@ function GH:GetMapReports()
     return reports
 end
 
-GH:RegisterCommand("map", function(rest)
+GD:RegisterCommand("map", function(rest)
     local action = (rest or ""):match("^(%S+)")
     action = (action or ""):lower()
     if action == "clear" then
@@ -128,13 +128,13 @@ GH:RegisterCommand("map", function(rest)
 end)
 
 local function mapTabText()
-    if not GH.guildName then return "Join a guild to share and view member locations." end
-    local reports = GH:GetMapReports()
-    local sharing = GH:GetSetting("shareMapLocation") and "On" or "Off"
+    if not GD.guildName then return "Join a guild to share and view member locations." end
+    local reports = GD:GetMapReports()
+    local sharing = GD:GetSetting("shareMapLocation") and "On" or "Off"
     local positionText = lastLocalPosition
         and ("%s (%.1f, %.1f)"):format(lastLocalPosition.zone, lastLocalPosition.x * 100, lastLocalPosition.y * 100)
         or lastLocalStatus
-    local lastSend = GH.lastAddonSendByKind and GH.lastAddonSendByKind.ML
+    local lastSend = GD.lastAddonSendByKind and GD.lastAddonSendByKind.ML
     local sendText = "No outbound addon message recorded yet"
     if lastSend then
         local age = math.max(0, math.floor((GetTime and GetTime() or 0) - (lastSend.at or 0)))
@@ -142,13 +142,13 @@ local function mapTabText()
             tostring(lastSend.kind), lastSend.succeeded and "accepted" or "failed",
             tostring(lastSend.error or lastSend.result or "unknown"), age)
     end
-    local inboundAge = GH.mapLastInboundAt and math.max(0, math.floor((GetTime and GetTime() or 0) - GH.mapLastInboundAt))
+    local inboundAge = GD.mapLastInboundAt and math.max(0, math.floor((GetTime and GetTime() or 0) - GD.mapLastInboundAt))
     local inboundText = ("Location packets received: %d; valid reports: %d"):format(
-        GH.mapInboundPackets or 0, GH.mapValidReports or 0)
+        GD.mapInboundPackets or 0, GD.mapValidReports or 0)
     if inboundAge then
-        inboundText = inboundText .. ("; last from %s, %ds ago"):format(tostring(GH.mapLastInboundSender or "unknown"), inboundAge)
+        inboundText = inboundText .. ("; last from %s, %ds ago"):format(tostring(GD.mapLastInboundSender or "unknown"), inboundAge)
     end
-    if GH.mapRejectReason then inboundText = inboundText .. "; last rejected: " .. GH.mapRejectReason end
+    if GD.mapRejectReason then inboundText = inboundText .. "; last rejected: " .. GD.mapRejectReason end
     if #reports == 0 then
         return table.concat({
             "Guild member map", "",
@@ -172,7 +172,7 @@ local function mapTabText()
     lines[#lines + 1] = "Pins update about every 4 seconds and can appear on zone and continent maps."
     return table.concat(lines, "\n")
 end
-GH:RegisterTab("Map", mapTabText)
+GD:RegisterTab("Map", mapTabText)
 
 local mapMemberIcons = {}
 
@@ -242,7 +242,7 @@ local function createMemberIcon()
     return icon
 end
 
-function GH:RefreshMapPins()
+function GD:RefreshMapPins()
     local HBD, HBDPins = getMapLibraries()
     if not (HBD and HBDPins and WorldMapFrame) then return end
 
@@ -274,7 +274,7 @@ function GH:RefreshMapPins()
     end
 end
 
-GH:RegisterEventHandler("WORLD_MAP_OPEN", function()
+GD:RegisterEventHandler("WORLD_MAP_OPEN", function()
     if C_Timer and C_Timer.After then
         C_Timer.After(0, refreshMapPins)
     else
@@ -282,5 +282,5 @@ GH:RegisterEventHandler("WORLD_MAP_OPEN", function()
     end
 end)
 
-GH:RegisterEventHandler("GROUP_ROSTER_UPDATE", refreshMapPins)
+GD:RegisterEventHandler("GROUP_ROSTER_UPDATE", refreshMapPins)
 

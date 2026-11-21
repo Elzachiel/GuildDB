@@ -1,7 +1,7 @@
 -- Self-managed guild member profiles and profile directory.
-local _, GH = ...
-GH:RegisterBucket("profiles", function() return {} end)
-GH.profileCache = GH.profileCache or {}
+local _, GD = ...
+GD:RegisterBucket("profiles", function() return {} end)
+GD.profileCache = GD.profileCache or {}
 
 local function baseName(name)
     local value = tostring(name or "")
@@ -27,8 +27,8 @@ end
 
 local function currentRosterName()
     local playerName = UnitName and UnitName("player") or "Guild member"
-    local saved = GH.playerProfile or (GuildHallDB and GuildHallDB.playerProfile)
-    for _, member in ipairs(GH.roster or {}) do
+    local saved = GD.playerProfile or (GDB and GDB.playerProfile)
+    for _, member in ipairs(GD.roster or {}) do
         if sameCharacter(member.name, playerName) or profileMatches(saved, member.name) then
             return member.name
         end
@@ -38,7 +38,7 @@ local function currentRosterName()
     -- roster prefix match when there is exactly one candidate.
     local key, candidate = nameKey(playerName), nil
     if key ~= "" then
-        for _, member in ipairs(GH.roster or {}) do
+        for _, member in ipairs(GD.roster or {}) do
             local memberKey = nameKey(member.name)
             if #memberKey > #key and memberKey:sub(1, #key) == key then
                 if candidate then return playerName end
@@ -55,17 +55,17 @@ local function characterNameParts(name)
     return firstName or "", lastName or ""
 end
 
-function GH:GetPlayerNameParts()
+function GD:GetPlayerNameParts()
     return characterNameParts(currentRosterName())
 end
 
-function GH:GetProfile(name)
+function GD:GetProfile(name)
     if not name then return nil end
     local wanted = baseName(name)
     local wantedKey = nameKey(name)
-    local localProfiles = GuildHallDB and GuildHallDB.localProfiles or {}
+    local localProfiles = GDB and GDB.localProfiles or {}
     local guildProfiles = self.bucket and self.bucket.profiles or {}
-    local ownProfile = GuildHallDB and GuildHallDB.playerProfile
+    local ownProfile = GDB and GDB.playerProfile
     local playerName = UnitName and UnitName("player") or ""
     local playerGUID = UnitGUID and UnitGUID("player")
     local isPlayer = wanted == baseName(playerName)
@@ -101,7 +101,7 @@ end
 -- WoW Forever exposes the character's Skills tab through C_SkillInfo. Read
 -- its primary and secondary profession groups and keep the result in profile
 -- data so it is shared with guildmates who also run GuildDB.
-function GH:GetPlayerProfessions()
+function GD:GetPlayerProfessions()
     local api = C_SkillInfo
     if type(api) ~= "table" or type(api.GetNumSkillLines) ~= "function" or type(api.GetSkillLineInfo) ~= "function" then
         return nil
@@ -137,7 +137,7 @@ function GH:GetPlayerProfessions()
     return table.concat(display, ", "), professions
 end
 
-function GH:RefreshPlayerProfessions()
+function GD:RefreshPlayerProfessions()
     if not self.bucket then return end
     local professions = self:GetPlayerProfessions()
     if professions == nil then return end
@@ -156,7 +156,7 @@ local function encodeProfile(profile)
     return table.concat({ profile.firstName or "", profile.lastName or "", profile.role or "", profile.spec or "", profile.timezone or "", profile.alts or "", profile.professions or "", profile.race or "" }, "\n")
 end
 
-GH:RegisterRecordHandler("PF", function(id, ts, author, content)
+GD:RegisterRecordHandler("PF", function(id, ts, author, content)
     local firstName, lastName, role, spec, timezone, alts, professions, race = content:match("^(.-)\n(.-)\n(.-)\n(.-)\n(.-)\n(.-)\n(.-)\n(.*)$")
     if not firstName then
         firstName, lastName, role, spec, timezone, alts, professions = content:match("^(.-)\n(.-)\n(.-)\n(.-)\n(.-)\n(.-)\n(.*)$")
@@ -171,23 +171,23 @@ GH:RegisterRecordHandler("PF", function(id, ts, author, content)
         professions = ""
     end
     if not role or id:lower() ~= author:lower() or #id > 80 or #firstName > 60 or #lastName > 60 or #role > 60 or #spec > 80 or #timezone > 60 or #alts > 200 or #professions > 250 or #race > 60 then return end
-    local previous = GH.bucket.profiles[id]
+    local previous = GD.bucket.profiles[id]
     -- Ignore same-second echoes/duplicates too; they may carry an older copy
     -- of the profile and otherwise replace the just-saved local values.
     if previous and previous.ts and previous.ts >= ts then return end
     local profile = { firstName = firstName, lastName = lastName, role = role, spec = spec, timezone = timezone, alts = alts, professions = professions, race = race, ts = ts, by = author, characterName = id }
-    GH.bucket.profiles[id] = profile
-    GH.profileCache[baseName(id)] = profile
-    if GH.RefreshUI then GH:RefreshUI() end
+    GD.bucket.profiles[id] = profile
+    GD.profileCache[baseName(id)] = profile
+    if GD.RefreshUI then GD:RefreshUI() end
 end)
 
-GH:RegisterHistoryProvider(function()
-    for player, profile in pairs(GH.bucket.profiles or {}) do
-        GH:SendRecord("PF", player, profile.ts or time(), player, encodeProfile(profile))
+GD:RegisterHistoryProvider(function()
+    for player, profile in pairs(GD.bucket.profiles or {}) do
+        GD:SendRecord("PF", player, profile.ts or time(), player, encodeProfile(profile))
     end
 end, false)
 
-function GH:SetProfile(firstName, lastName, role, spec, timezone, alts, professions, race)
+function GD:SetProfile(firstName, lastName, role, spec, timezone, alts, professions, race)
     if not self.bucket then return false, "Join a guild first." end
     local player = currentRosterName()
     local playerBase = baseName(player)
@@ -206,12 +206,12 @@ function GH:SetProfile(firstName, lastName, role, spec, timezone, alts, professi
         characterGUID = UnitGUID and UnitGUID("player") or nil,
     }
     self.bucket.profiles[player] = profile
-    GuildHallDB = type(GuildHallDB) == "table" and GuildHallDB or {}
-    GuildHallDB.localProfiles = type(GuildHallDB.localProfiles) == "table" and GuildHallDB.localProfiles or {}
-    GuildHallDB.localProfiles[player] = profile
-    GuildHallDB.localProfiles[playerBase] = profile
-    if profile.characterGUID then GuildHallDB.localProfiles[profile.characterGUID] = profile end
-    GuildHallDB.playerProfile = profile
+    GDB = type(GDB) == "table" and GDB or {}
+    GDB.localProfiles = type(GDB.localProfiles) == "table" and GDB.localProfiles or {}
+    GDB.localProfiles[player] = profile
+    GDB.localProfiles[playerBase] = profile
+    if profile.characterGUID then GDB.localProfiles[profile.characterGUID] = profile end
+    GDB.playerProfile = profile
     self.playerProfile = profile
     self.profileCache[playerBase] = profile
     self.profileCache[nameKey(player)] = profile
@@ -228,15 +228,15 @@ local function scheduleProfessionScan()
     professionScanPending = true
     local function scan()
         professionScanPending = false
-        GH:RefreshPlayerProfessions()
+        GD:RefreshPlayerProfessions()
     end
     if C_Timer and C_Timer.After then C_Timer.After(1, scan) else scan() end
 end
-GH:RegisterEventHandler("PLAYER_LOGIN", scheduleProfessionScan)
-GH:RegisterEventHandler("SKILL_LINES_CHANGED", scheduleProfessionScan)
-GH:RegisterEventHandler("TRADE_SKILL_UPDATE", scheduleProfessionScan)
+GD:RegisterEventHandler("PLAYER_LOGIN", scheduleProfessionScan)
+GD:RegisterEventHandler("SKILL_LINES_CHANGED", scheduleProfessionScan)
+GD:RegisterEventHandler("TRADE_SKILL_UPDATE", scheduleProfessionScan)
 
-GH:RegisterCommand("profile", function(rest)
+GD:RegisterCommand("profile", function(rest)
     local action, profileRest = rest:match("^(%S+)%s*(.*)$")
     action = (action or ""):lower()
     if action == "set" then
@@ -250,45 +250,45 @@ GH:RegisterCommand("profile", function(rest)
             firstName, lastName = "", ""
         end
         if not role then role, spec, timezone, alts = profileRest:match("^(.-)%s*|%s*(.-)%s*|%s*(.-)%s*|%s*(.*)$") end
-        local _, result = GH:SetProfile(firstName, lastName, role, spec, timezone, alts, professions, race)
+        local _, result = GD:SetProfile(firstName, lastName, role, spec, timezone, alts, professions, race)
         print("GuildDB: " .. result)
         return
     end
     if action == "list" then
-        GH.profileTarget, GH.activeTab = nil, "Roster"
-        GH:Open()
+        GD.profileTarget, GD.activeTab = nil, "Roster"
+        GD:Open()
         return
     end
     local target = action == "view" and profileRest or rest
     if target == "" then target = UnitName and UnitName("player") or "" end
-    GH.profileTarget, GH.activeTab = target, "Roster"
-    GH.selectedRosterName = target
-    GH:Open()
+    GD.profileTarget, GD.activeTab = target, "Roster"
+    GD.selectedRosterName = target
+    GD:Open()
 end)
 
 local function profileFor(name)
-    return GH:GetProfile(name)
+    return GD:GetProfile(name)
 end
 
-GH:RegisterTab("Profiles", function()
-    if not GH.bucket then return "Join a guild to view member profiles." end
-    local target = GH.profileTarget
+GD:RegisterTab("Profiles", function()
+    if not GD.bucket then return "Join a guild to view member profiles." end
+    local target = GD.profileTarget
     if target and target ~= "" then
         local profile = profileFor(target)
-        if not profile then return ("No profile found for %s. Create one with /gd profile set First | Last | Role | Spec | Time zone | Alts | Professions | Race."):format(GH:Display(target)) end
-        local function field(value) return GH:Display(value ~= "" and value or "Not set") end
+        if not profile then return ("No profile found for %s. Create one with /gd profile set First | Last | Role | Spec | Time zone | Alts | Professions | Race."):format(GD:Display(target)) end
+        local function field(value) return GD:Display(value ~= "" and value or "Not set") end
         local displayName = ((profile.firstName or "") .. " " .. (profile.lastName or "")):gsub("^%s+", ""):gsub("%s+$", "")
         if displayName == "" then displayName = target end
         return ("%s\n\nCharacter: %s\nRace: %s\nRole: %s\nSpec: %s\nTime zone: %s\nAlts: %s\nProfessions / recipes: %s"):format(
-            GH:Display(displayName), GH:Display(target), field(profile.race or ""), field(profile.role or ""), field(profile.spec or ""), field(profile.timezone or ""), field(profile.alts or ""), field(profile.professions or ""))
+            GD:Display(displayName), GD:Display(target), field(profile.race or ""), field(profile.role or ""), field(profile.spec or ""), field(profile.timezone or ""), field(profile.alts or ""), field(profile.professions or ""))
     end
-    if not GH.roster or #GH.roster == 0 then return "Loading guild members..." end
+    if not GD.roster or #GD.roster == 0 then return "Loading guild members..." end
     local lines = { "Member profiles", "Use /gd profile Name to view one. Set yours with /gd profile set First | Last | Role | Spec | Time zone | Alts | Professions | Race.", "" }
-    for _, member in ipairs(GH.roster) do
+    for _, member in ipairs(GD.roster) do
         local profile = profileFor(member.name)
         local role, spec = profile and profile.role or "", profile and profile.spec or ""
         local summary = role ~= "" and spec ~= "" and (role .. " · " .. spec) or (role ~= "" and role or (spec ~= "" and spec or "Profile not set"))
-        lines[#lines + 1] = GH:Display(member.name) .. " — " .. GH:Display(summary)
+        lines[#lines + 1] = GD:Display(member.name) .. " — " .. GD:Display(summary)
     end
     return table.concat(lines, "\n")
 end)
