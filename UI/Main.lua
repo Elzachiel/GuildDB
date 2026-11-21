@@ -10,12 +10,27 @@ local ACCENTS = {
     { 0.95, 0.72, 0.25 }, -- amber
     { 0.94, 0.38, 0.52 }, -- rose
 }
+local CLASS_ACCENTS = {
+    WARRIOR = 4, PALADIN = 6, HUNTER = 3, ROGUE = 5, PRIEST = 1,
+    DEATHKNIGHT = 6, SHAMAN = 3, MAGE = 1, WARLOCK = 2, MONK = 3,
+    DRUID = 5, DEMONHUNTER = 2, EVOKER = 3,
+}
+local function classAccent()
+    local class
+    if UnitClass then local _, token = UnitClass("player"); class = token end
+    return ACCENTS[CLASS_ACCENTS[class] or 1]
+end
 local function updateAccent()
     local index = GD.GetSetting and tonumber(GD:GetSetting("accentColor")) or 1
-    local color = ACCENTS[index] or ACCENTS[1]
+    local color = index == 1 and classAccent() or ACCENTS[index - 1]
+    color = color or ACCENTS[1]
     GOLD[1], GOLD[2], GOLD[3] = color[1], color[2], color[3]
 end
-GD.GetAccentChoices = function() return ACCENTS end
+GD.GetAccentChoices = function()
+    local choices = { classAccent() }
+    for _, color in ipairs(ACCENTS) do choices[#choices + 1] = color end
+    return choices
+end
 local function applyAccent(frame)
     if not frame then return end
     local r, g, b = GOLD[1], GOLD[2], GOLD[3]

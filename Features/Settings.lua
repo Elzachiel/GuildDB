@@ -57,7 +57,7 @@ function GD:SetSetting(key, value)
         end
     elseif defaults[key] ~= nil then
         if key == "accentColor" then
-            value = math.max(1, math.min(6, math.floor(tonumber(value) or 1)))
+            value = math.max(1, math.min(7, math.floor(tonumber(value) or 1)))
         end
         db[key] = value
     else
@@ -225,12 +225,15 @@ local function build(parent)
     local accentText = label(parent, "", 112, -248, "GameFontHighlight", list)
     local accentSwatch = parent:CreateTexture(nil, "ARTWORK")
     accentSwatch:SetSize(18, 18)
-    accentSwatch:SetPoint("TOPLEFT", 270, -244)
+    accentSwatch:SetPoint("TOPLEFT", 282, -244)
     list[#list + 1] = accentSwatch
     local function updateAccent()
         local index = GD:GetSetting("accentColor") or 1
         local color = choices[index] or choices[1] or { 0.20, 0.62, 0.98 }
-        accentText:SetText(({ "Blue", "Violet", "Teal", "Coral", "Amber", "Rose" })[index] or "Blue")
+        local names = { "Class color", "Blue", "Violet", "Teal", "Coral", "Amber", "Rose" }
+        local className
+        if UnitClass then local name = UnitClass("player"); className = name end
+        accentText:SetText(index == 1 and ("Class color (" .. (className or "Unknown") .. ")") or names[index] or names[1])
         accentSwatch:SetColorTexture(color[1], color[2], color[3], 1)
     end
     GD.RefreshSettingsAppearance = function()
