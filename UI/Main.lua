@@ -323,6 +323,7 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose)
                     dropdownInput.selectedValue = chosenOption
                     dropdownInput:SetText(chosenOption)
                     dropdownPopup:Hide()
+                    if field.onChange then field.onChange(chosenOption) end
                 end)
             end
             input:SetScript("OnClick", function(self)
@@ -401,7 +402,7 @@ local function calendarSettingsFromForm(values, offset)
 end
 
 local function openProfileEditor()
-    local player = UnitName and UnitName("player") or ""
+    local player = GD:PlayerName()
     GD:RefreshPlayerProfessions()
     local profile = GD:GetProfile(player) or {}
     local firstName, lastName = GD:GetPlayerNameParts()
@@ -409,12 +410,18 @@ local function openProfileEditor()
     local timezoneAliases = { ET = "Eastern Time (ET)", CT = "Central Time (CT)", MT = "Mountain Time (MT)", PT = "Pacific Time (PT)", UTC = "UTC" }
     local roleValue = profile.role and profile.role ~= "" and profile.role or "Flex"
     local timezoneValue = timezoneAliases[profile.timezone or ""] or (profile.timezone and profile.timezone ~= "" and profile.timezone) or "Eastern Time (ET)"
+    local function saveChoice(key, value)
+        local current = GD:GetProfile(player) or {}
+        local role = key == "role" and value or current.role
+        local timezone = key == "timezone" and value or current.timezone
+        GD:SetProfile(nil, nil, role, current.spec, timezone, current.alts, current.professions, current.race)
+    end
     showInputForm("Edit your member profile", {
         { label = "First name", value = firstName, max = 60, readOnly = true },
         { label = "Last name", value = lastName, max = 60, readOnly = true },
-        { label = "Main role", value = roleValue, options = { "Tank", "DPS", "Healer", "Flex" } },
+        { label = "Main role", value = roleValue, onChange = function(value) saveChoice("role", value) end, options = { "Tank", "DPS", "Healer", "Flex" } },
         { label = "Spec / playstyle", value = profile.spec or "", max = 80 },
-        { label = "Time zone", value = timezoneValue, options = { "Eastern Time (ET)", "Central Time (CT)", "Mountain Time (MT)", "Pacific Time (PT)", "Alaska Time (AKT)", "Hawaii Time (HT)", "UTC", "UK Time (GMT/BST)", "Central European Time (CET/CEST)", "Eastern European Time (EET/EEST)", "India Standard Time (IST)", "Japan Standard Time (JST)", "Australian Eastern Time (AET)", "New Zealand Time (NZT)" } },
+        { label = "Time zone", value = timezoneValue, onChange = function(value) saveChoice("timezone", value) end, options = { "Eastern Time (ET)", "Central Time (CT)", "Mountain Time (MT)", "Pacific Time (PT)", "Alaska Time (AKT)", "Hawaii Time (HT)", "UTC", "UK Time (GMT/BST)", "Central European Time (CET/CEST)", "Eastern European Time (EET/EEST)", "India Standard Time (IST)", "Japan Standard Time (JST)", "Australian Eastern Time (AET)", "New Zealand Time (NZT)" } },
         { label = "Alts", value = profile.alts or "", max = 200 },
         { label = "Race", value = playerRace or profile.race or "", max = 60, readOnly = true },
         { label = "Professions", value = profile.professions or "Detected automatically from your Skills tab", max = 250, readOnly = true },

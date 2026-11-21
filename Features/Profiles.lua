@@ -26,7 +26,7 @@ local function profileMatches(profile, name)
 end
 
 local function currentRosterName()
-    local playerName = UnitName and UnitName("player") or "Guild member"
+    local playerName = GD:PlayerName()
     local saved = GD.playerProfile or (GDB and GDB.playerProfile)
     for _, member in ipairs(GD.roster or {}) do
         if sameCharacter(member.name, playerName) or profileMatches(saved, member.name) then
@@ -66,7 +66,7 @@ function GD:GetProfile(name)
     local localProfiles = GDB and GDB.localProfiles or {}
     local guildProfiles = self.bucket and self.bucket.profiles or {}
     local ownProfile = GDB and GDB.playerProfile
-    local playerName = UnitName and UnitName("player") or ""
+    local playerName = self:PlayerName()
     local playerGUID = UnitGUID and UnitGUID("player")
     local isPlayer = wanted == baseName(playerName)
     if self.playerProfile and (isPlayer or profileMatches(self.playerProfile, name)) then
@@ -102,15 +102,41 @@ end
 -- its primary and secondary profession groups and keep the result in profile
 -- data so it is shared with guildmates who also run GuildDB.
 function GD:GetPlayerProfessions()
-    local api = C_SkillInfo
-    if type(api) ~= "table" or type(api.GetNumSkillLines) ~= "function" or type(api.GetSkillLineInfo) ~= "function" then
-        return nil
+    local api = C_SkillInfo or {}
+    local professions, seen = {}, {}
+    local function add(name, rank)
+        if type(name) ~= "string" or name == "" then return end
+        rank = tonumber(rank) or 0
+        local key = name:lower()
+        if not seen[key] then
+            seen[key] = #professions + 1
+            professions[#professions + 1] = { name = name, rank = rank }
+        else
+            professions[seen[key]].rank = math.max(professions[seen[key]].rank, rank)
+        end
     end
-    local ok, count = pcall(api.GetNumSkillLines)
-    if not ok or type(count) ~= "number" then return nil end
-    local professions, seen, inProfessionGroup = {}, {}, false
+    -- Read professions even when their Skills headers are collapsed.
+    if type(GetProfessions) == "function" and type(GetProfessionInfo) == "function" then
+        local ok, a, b, c, d, e, f = pcall(GetProfessions)
+        if ok then
+            for _, index in pairs({ a, b, c, d, e, f }) do
+                local got, name, _, rank = pcall(GetProfessionInfo, index)
+                if got then add(name, rank) end
+            end
+        end
+    end
+    local countSkills = api.GetNumSkillLines or GetNumSkillLines
+    local skillInfo = api.GetSkillLineInfo or GetSkillLineInfo
+    local count, inProfessionGroup = 0, false
+    if type(countSkills) == "function" and type(skillInfo) == "function" then
+        local ok, result = pcall(countSkills)
+        if ok and type(result) == "number" then count = result end
+    end
     for index = 1, count do
-        local lineOK, info = pcall(api.GetSkillLineInfo, index)
+        local lineOK, info, isHeader, _, rank, _, _, maxRank = pcall(skillInfo, index)
+        if lineOK and type(info) == "string" then
+            info = { name = info, isHeader = isHeader, rank = rank, maxRank = maxRank }
+        end
         if lineOK and type(info) == "table" then
             local name = info.name
             if info.isHeader then
@@ -119,14 +145,7 @@ function GD:GetPlayerProfessions()
                     or info.skillID == 9 or info.skillID == 11
             elseif (inProfessionGroup or info.skillLineCategoryID == 9 or info.skillLineCategoryID == 11)
                 and type(name) == "string" and name ~= "" and (tonumber(info.maxRank) or 0) > 1 then
-                local rank = tonumber(info.rank) or 0
-                local key = name:lower()
-                if not seen[key] then
-                    seen[key] = #professions + 1
-                    professions[#professions + 1] = { name = name, rank = rank }
-                elseif rank > professions[seen[key]].rank then
-                    professions[seen[key]].rank = rank
-                end
+                add(name, info.rank)
             end
         end
     end
@@ -140,10 +159,12 @@ end
 function GD:RefreshPlayerProfessions()
     if not self.bucket then return end
     local professions = self:GetPlayerProfessions()
-    if professions == nil then return end
-    local player = UnitName and UnitName("player") or "Guild member"
+    local player = currentRosterName()
     local profile = self:GetProfile(player) or {}
-    if professions == "" or profile.professions == professions then return end
+    local firstName, lastName = self:GetPlayerNameParts()
+    if profile.firstName == firstName and profile.lastName == lastName
+        and (not professions or professions == "" or profile.professions == professions) then return end
+    professions = professions and professions ~= "" and professions or profile.professions
     self:SetProfile(profile.firstName, profile.lastName, profile.role, profile.spec, profile.timezone, profile.alts, professions, profile.race)
 end
 
@@ -170,6 +191,7 @@ GD:RegisterRecordHandler("PF", function(id, ts, author, content)
         role, spec, timezone, alts = content:match("^(.-)\n(.-)\n(.-)\n(.*)$")
         professions = ""
     end
+    firstName, lastName, race = firstName or "", lastName or "", race or ""
     if not role or id:lower() ~= author:lower() or #id > 80 or #firstName > 60 or #lastName > 60 or #role > 60 or #spec > 80 or #timezone > 60 or #alts > 200 or #professions > 250 or #race > 60 then return end
     local previous = GD.bucket.profiles[id]
     -- Ignore same-second echoes/duplicates too; they may carry an older copy
@@ -233,6 +255,8 @@ local function scheduleProfessionScan()
     if C_Timer and C_Timer.After then C_Timer.After(1, scan) else scan() end
 end
 GD:RegisterEventHandler("PLAYER_LOGIN", scheduleProfessionScan)
+GD:RegisterEventHandler("GUILD_ROSTER_UPDATE", scheduleProfessionScan)
+GD:RegisterEventHandler("PLAYER_GUILD_UPDATE", scheduleProfessionScan)
 GD:RegisterEventHandler("SKILL_LINES_CHANGED", scheduleProfessionScan)
 GD:RegisterEventHandler("TRADE_SKILL_UPDATE", scheduleProfessionScan)
 
