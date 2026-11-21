@@ -583,7 +583,7 @@ local function build()
         if GH.SetSetting then GH:SetSetting("onlineOnly", frame.rosterOnlineOnly) else GH:RefreshUI() end
     end)
     frame.rosterHeaders = {}
-    for _, column in ipairs({ { "NAME", "name", 10, 130 }, { "LEVEL", "level", 145, 36 }, { "RANK", "rank", 185, 82 }, { "ZONE", "zone", 270, 120 }, { "ROLE", "role", 395, 58 }, { "GH", "hq", 460, 55 } }) do
+    for _, column in ipairs({ { "NAME", "name", 10, 130 }, { "LEVEL", "level", 145, 60 }, { "RANK", "rank", 215, 82 }, { "ZONE", "zone", 300, 120 }, { "ROLE", "role", 425, 58 }, { "GH", "hq", 490, 55 } }) do
         local header = CreateFrame("Button", nil, frame.listPanel)
         header:SetSize(column[4], 20)
         header:SetPoint("TOPLEFT", column[3], -44)
@@ -1221,7 +1221,7 @@ function GH:RefreshUI()
             row.meta:SetJustifyV("BOTTOM")
             row.meta:SetWordWrap(true)
             row.columns = {}
-            for columnIndex, spec in ipairs({ { 10, 128, "LEFT" }, { 145, 36, "LEFT" }, { 185, 82, "LEFT" }, { 270, 120, "LEFT" }, { 395, 58, "LEFT" }, { 460, 55, "LEFT" } }) do
+            for columnIndex, spec in ipairs({ { 10, 128, "LEFT" }, { 145, 60, "LEFT" }, { 215, 82, "LEFT" }, { 300, 120, "LEFT" }, { 425, 58, "LEFT" }, { 490, 55, "LEFT" } }) do
                 local cell = row:CreateFontString(nil, "OVERLAY", columnIndex == 1 and "GameFontNormal" or "GameFontNormalSmall")
                 cell:SetPoint("LEFT", spec[1], 0)
                 cell:SetWidth(spec[2])
