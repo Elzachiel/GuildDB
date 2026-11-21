@@ -250,7 +250,7 @@ local function samePlayer(a, b)
 end
 
 local function localPlayerName()
-    return UnitName and UnitName("player") or ""
+    return GD:PlayerName()
 end
 
 local function newSyncId()

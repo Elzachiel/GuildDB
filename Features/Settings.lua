@@ -36,8 +36,9 @@ function GD:SetSetting(key, value)
         if not self:CanManage() or not self.bucket then return end
         local config = self.bucket.guildSettings or { features = {} }
         config.features = config.features or {}
-        config.ts = time()
-        config.by = UnitName and UnitName("player") or "Guild officer"
+        -- Rapid toggles must still supersede the previous snapshot.
+        config.ts = math.max(time(), (tonumber(config.ts) or 0) + 1)
+        config.by = self:PlayerName()
         for _, tab in ipairs(self.tabs or {}) do
             if tab ~= "Settings" then config.features[tab] = self:GetSetting("feature:" .. tab) end
         end
@@ -91,20 +92,34 @@ local function sameGuildName(left, right)
     return leftFirst and rightFirst and leftFirst:lower() == rightFirst:lower() or false
 end
 
-local function isGuildOfficer(name)
-    if not name or not GetNumGuildMembers or not GetGuildRosterInfo then return false end
+local function guildRank(name)
+    if not name or not GetNumGuildMembers or not GetGuildRosterInfo then return nil end
     for index = 1, GetNumGuildMembers() do
         local rosterName, _, rankIndex = GetGuildRosterInfo(index)
         if rosterName and sameGuildName(rosterName, name) then
-            return tonumber(rankIndex) ~= nil and tonumber(rankIndex) <= 1
+            return tonumber(rankIndex)
         end
     end
-    return false
+    return nil
 end
 
-GD:RegisterRecordHandler("F", function(id, ts, author, content, sender)
-    if id ~= "features" or not GD.bucket or not isGuildOfficer(sender) or not isGuildOfficer(author) then return end
-    if #content > 1000 then return end
+local pendingFeatures = {}
+local function receiveFeatures(id, ts, author, content, sender)
+    if id ~= "features" or not GD.bucket or #content > 1000 then return end
+    -- A fresh login can receive history before guild ranks are available.
+    if GetNumGuildMembers and GetNumGuildMembers() == 0 then
+        if #pendingFeatures < 60 then
+            pendingFeatures[#pendingFeatures + 1] = {
+                id = id, ts = ts, author = author, content = content,
+                sender = sender, bucket = GD.bucket,
+            }
+        end
+        return
+    end
+    -- History may come from any guild peer, including when the officer is offline.
+    -- Keep the original officer attribution when relaying the saved snapshot.
+    local authorRank = guildRank(author)
+    if guildRank(sender) == nil or authorRank == nil or authorRank > 1 then return end
     local features, found = {}, false
     for line in (content .. "\n"):gmatch("(.-)\n") do
         local tab, enabled = line:match("^(.-)\t([01])$")
@@ -117,20 +132,30 @@ GD:RegisterRecordHandler("F", function(id, ts, author, content, sender)
     if (current.ts or 0) > ts or ((current.ts or 0) == ts and tostring(current.by or "") > author) then return end
     GD.bucket.guildSettings = { features = features, ts = ts, by = author }
     if GD.RefreshUI then GD:RefreshUI() end
+end
+GD:RegisterRecordHandler("F", receiveFeatures)
+
+GD:RegisterEventHandler("GUILD_ROSTER_UPDATE", function()
+    if not GetNumGuildMembers or GetNumGuildMembers() == 0 then return end
+    local records = pendingFeatures
+    pendingFeatures = {}
+    for _, record in ipairs(records) do
+        if GD.bucket == record.bucket then
+            receiveFeatures(record.id, record.ts, record.author, record.content, record.sender)
+        end
+    end
 end)
 
 GD:RegisterHistoryProvider(function()
-    if not GD:CanManage() then return end
     local config = GD.bucket and GD.bucket.guildSettings
     if not config or not config.features or not config.ts or config.ts <= 0 then return end
     local lines = {}
-    for _, tab in ipairs(GD.tabs or {}) do
-        if tab ~= "Settings" then
-            lines[#lines + 1] = tab .. "\t" .. (config.features[tab] and "1" or "0")
-        end
+    -- Relay only saved values: newer/renamed tabs must retain their defaults.
+    for tab, enabled in pairs(config.features) do
+        lines[#lines + 1] = tab .. "\t" .. (enabled and "1" or "0")
     end
     GD:SendRecord("F", "features", config.ts, config.by or "Guild officer", table.concat(lines, "\n"))
-end, false)
+end)
 
 local function label(parent, text, x, y, font, list)
     local item = parent:CreateFontString(nil, "OVERLAY", font or "GameFontNormal")
@@ -224,10 +249,13 @@ local function build(parent)
     local officerTab
     local personalTab
     local function selectSettingsSection(section)
+        local canManage = GD:CanManage()
+        if section == "officer" and not canManage then section = "personal" end
         GD.settingsSection = section
         personalPanel:SetShown(section == "personal")
         appearancePanel:SetShown(section == "appearance")
         officerPanel:SetShown(section == "officer")
+        officerTab:SetShown(canManage)
         GD:StyleButton(personalTab, section == "personal" and "primary" or nil)
         GD:StyleButton(appearanceTab, section == "appearance" and "primary" or nil)
         GD:StyleButton(officerTab, section == "officer" and "primary" or nil)
@@ -244,6 +272,9 @@ local function build(parent)
         selectSettingsSection("officer")
     end, list)
     officerTab.GuildDBSettingsTab = true
+    GD.RefreshSettingsSection = function()
+        selectSettingsSection(GD.settingsSection or "personal")
+    end
     selectSettingsSection(GD.settingsSection or "personal")
 
     label(personalPanel, "Personal", 12, -10, "GameFontNormalLarge", list)
@@ -351,7 +382,7 @@ local function build(parent)
     label(officerPanel, "Feature switches (guild-wide; GM or rank 1)", 12, -38, "GameFontDisableSmall", list)
     local tabs = {}
     for _, tab in ipairs(GD.tabs or {}) do
-        if tab ~= "Settings" then tabs[#tabs + 1] = tab end
+        if tab ~= "Settings" and tab ~= "Profiles" then tabs[#tabs + 1] = tab end
     end
     local split = math.ceil(#tabs / 2)
     for index, tab in ipairs(tabs) do
@@ -378,11 +409,7 @@ function GD:ShowSettingsControls(parent)
         item:Show()
         if item.update then item.update() end
     end
-    if self.settingsPanels then
-        self.settingsPanels[1]:SetShown(self.settingsSection == "personal")
-        self.settingsPanels[2]:SetShown(self.settingsSection == "appearance")
-        self.settingsPanels[3]:SetShown(self.settingsSection == "officer")
-    end
+    if self.RefreshSettingsSection then self.RefreshSettingsSection() end
 end
 
 function GD:HideSettingsControls()
