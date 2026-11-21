@@ -1008,7 +1008,7 @@ local function makeTabButton(parent, tab, index)
     button.label:SetPoint("LEFT", 14, 0)
     button.label:SetWidth(155)
     button.label:SetJustifyH("LEFT")
-    button.label:SetText(tab)
+    button.label:SetText(tab == "Events" and "Raid Info" or tab)
     button:SetScript("OnEnter", function(self)
         if GH.activeTab ~= tab then self.bg:SetColorTexture(0.08, 0.15, 0.22, 1) end
     end)

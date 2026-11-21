@@ -239,7 +239,7 @@ local function build(parent)
     for index, tab in ipairs(tabs) do
         local column = index > split and 1 or 0
         local row = index > split and index - split or index
-        check(parent, tab, "feature:" .. tab, 350 + column * 155, -70 - (row - 1) * 30, list, true)
+        check(parent, tab == "Events" and "Raid Info" or tab, "feature:" .. tab, 350 + column * 155, -70 - (row - 1) * 30, list, true)
     end
     label(parent, GH:CanManage() and "Online users update now; offline users on next sync." or "Only the guild leader or rank 1 can change these switches.", 350, -70 - (split + 1) * 30, "GameFontDisableSmall", list)
 
