@@ -100,7 +100,7 @@ end
 
 -- WoW Forever exposes the character's Skills tab through C_SkillInfo. Read
 -- its primary and secondary profession groups and keep the result in profile
--- data so it is shared with guildmates who also run Guild Hall.
+-- data so it is shared with guildmates who also run GuildDB.
 function GH:GetPlayerProfessions()
     local api = C_SkillInfo
     if type(api) ~= "table" or type(api.GetNumSkillLines) ~= "function" or type(api.GetSkillLineInfo) ~= "function" then
@@ -219,7 +219,7 @@ function GH:SetProfile(firstName, lastName, role, spec, timezone, alts, professi
     self.profileTarget, self.activeTab = player, "Roster"
     self.selectedRosterName = player
     if self.RefreshUI then self:RefreshUI() end
-    return true, "Profile saved and shared with online Guild Hall users."
+    return true, "Profile saved and shared with online GuildDB users."
 end
 
 local professionScanPending = false
@@ -251,7 +251,7 @@ GH:RegisterCommand("profile", function(rest)
         end
         if not role then role, spec, timezone, alts = profileRest:match("^(.-)%s*|%s*(.-)%s*|%s*(.-)%s*|%s*(.*)$") end
         local _, result = GH:SetProfile(firstName, lastName, role, spec, timezone, alts, professions, race)
-        print("Guild Hall: " .. result)
+        print("GuildDB: " .. result)
         return
     end
     if action == "list" then
@@ -275,7 +275,7 @@ GH:RegisterTab("Profiles", function()
     local target = GH.profileTarget
     if target and target ~= "" then
         local profile = profileFor(target)
-        if not profile then return ("No profile found for %s. Create one with /gh profile set First | Last | Role | Spec | Time zone | Alts | Professions | Race."):format(GH:Display(target)) end
+        if not profile then return ("No profile found for %s. Create one with /gd profile set First | Last | Role | Spec | Time zone | Alts | Professions | Race."):format(GH:Display(target)) end
         local function field(value) return GH:Display(value ~= "" and value or "Not set") end
         local displayName = ((profile.firstName or "") .. " " .. (profile.lastName or "")):gsub("^%s+", ""):gsub("%s+$", "")
         if displayName == "" then displayName = target end
@@ -283,7 +283,7 @@ GH:RegisterTab("Profiles", function()
             GH:Display(displayName), GH:Display(target), field(profile.race or ""), field(profile.role or ""), field(profile.spec or ""), field(profile.timezone or ""), field(profile.alts or ""), field(profile.professions or ""))
     end
     if not GH.roster or #GH.roster == 0 then return "Loading guild members..." end
-    local lines = { "Member profiles", "Use /gh profile Name to view one. Set yours with /gh profile set First | Last | Role | Spec | Time zone | Alts | Professions | Race.", "" }
+    local lines = { "Member profiles", "Use /gd profile Name to view one. Set yours with /gd profile set First | Last | Role | Spec | Time zone | Alts | Professions | Race.", "" }
     for _, member in ipairs(GH.roster) do
         local profile = profileFor(member.name)
         local role, spec = profile and profile.role or "", profile and profile.spec or ""

@@ -227,7 +227,7 @@ local function sendHistory(requestId, requester)
             GH.historySyncing = true
             local ok, err = pcall(provider.handler)
             GH.historySyncing = false
-            if not ok then print("Guild Hall sync error: " .. tostring(err)) end
+            if not ok then print("GuildDB sync error: " .. tostring(err)) end
         end
     end
     if requestId then GH:Enqueue("K|" .. requestId, true) end
@@ -367,14 +367,14 @@ end
 function GH:RequestSync()
     if not self.bucket then return false, "Join a guild first." end
     retrySync({ rounds = 0, done = false })
-    return true, "Requested an automatic sync from an online Guild Hall peer."
+    return true, "Requested an automatic sync from an online GuildDB peer."
 end
 
 function GH:Open()
     if not self.frame and self.BuildUI then
         local ok, err = pcall(self.BuildUI)
         if not ok then
-            print("Guild Hall: Could not build the window: " .. tostring(err))
+            print("GuildDB: Could not build the window: " .. tostring(err))
             return
         end
     end
@@ -386,16 +386,16 @@ local function slashCommand(message)
     command = (command or ""):lower()
     if command == "" or command == "open" then GH:Open(); return end
     if command == "sync" then
-        local _, result = GH:RequestSync(); print("Guild Hall: " .. result); return
+        local _, result = GH:RequestSync(); print("GuildDB: " .. result); return
     end
     local handler = GH.commands[command]
     if handler then handler(rest or "") else
-        print("Guild Hall commands: /gh sync, /gh profile, /gh map, /gh guide, /gh looking, /gh craft, /gh poll, /gh pvp, /gh raid, /gh event, /gh rsvp, /gh post, /gh shout, /gh testpopout")
+        print("GuildDB commands: /gd sync, /gd profile, /gd map, /gd guide, /gd looking, /gd craft, /gd poll, /gd pvp, /gd raid, /gd event, /gd rsvp, /gd post, /gd shout, /gd testpopout")
     end
 end
 
-SLASH_GUILDHALL1 = "/gh"
-SLASH_GUILDHALL2 = "/guildhall"
+SLASH_GUILDHALL1 = "/gd"
+SLASH_GUILDHALL2 = "/guilddb"
 SlashCmdList.GUILDHALL = slashCommand
 
 local frame = CreateFrame("Frame")
@@ -403,7 +403,7 @@ GH.eventFrame = frame
 GH.eventRegistration = {}
 for _, event in ipairs({ "ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_GUILD_UPDATE", "GUILD_ROSTER_UPDATE", "CHAT_MSG_ADDON", "CHAT_MSG_COMBAT_HONOR_GAIN", "PLAYER_PVP_KILLS_CHANGED", "PARTY_KILL", "UNIT_FLAGS", "UNIT_HEALTH", "NAME_PLATE_UNIT_REMOVED", "PLAYER_ENTERING_WORLD", "NAME_PLATE_UNIT_ADDED", "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT", "SKILL_LINES_CHANGED", "TRADE_SKILL_UPDATE", "PLAYER_LEVEL_UP", "WORLD_MAP_OPEN" }) do
     -- Some Forever builds omit optional retail/classic events. One unavailable
-    -- event must not abort runtime setup and prevent /gh from opening.
+    -- event must not abort runtime setup and prevent /gd from opening.
     local ok = pcall(frame.RegisterEvent, frame, event)
     if ok and frame.IsEventRegistered then
         local checked, registered = pcall(frame.IsEventRegistered, frame, event)

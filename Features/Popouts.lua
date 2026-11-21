@@ -1,4 +1,4 @@
--- Compact, queued screen notifications for PvP rewards and Guild Hall news.
+-- Compact, queued screen notifications for PvP rewards and GuildDB news.
 local _, GH = ...
 
 local WIDTH, HEIGHT = 340, 68
@@ -99,7 +99,7 @@ end
 function GH:ShowPopout(category, title, message, icon, onClick, duration, largeText)
     if self.GetSetting and self:GetSetting("popups") == false then return false end
     queue[#queue + 1] = {
-        title = tostring(title or category or "Guild Hall"),
+        title = tostring(title or category or "GuildDB"),
         message = tostring(message or ""),
         icon = icon,
         onClick = onClick,
@@ -110,8 +110,8 @@ function GH:ShowPopout(category, title, message, icon, onClick, duration, largeT
     nextToast()
 end
 
--- PvP rewards use their own compact popup, matching the stacking behavior of
--- GuildHQ while keeping GuildHall's blue and dark color scheme.
+-- PvP rewards use their own compact popup, matching GuildDB's stacking behavior
+-- and blue and dark color scheme.
 function GH:ShowPvPPopup(points, victim, level, totalPoints)
     if self.GetSetting and self:GetSetting("popups") == false then return end
     points = tonumber(points) or 0
@@ -197,9 +197,9 @@ end
 
 local function milestoneToast(kind, value, author, profession, isTest)
     if kind == "L" then
-        GH:ShowPopout(isTest and "Level milestone test" or "Level milestone", isTest and "Level " .. value .. " test" or "Level " .. value .. " reached!", isTest and ("Guild Hall test popup for " .. author .. ".") or (author .. " reached level " .. value .. "."), "Interface/Icons/Achievement_Level_" .. value, nil, 8, true)
+        GH:ShowPopout(isTest and "Level milestone test" or "Level milestone", isTest and "Level " .. value .. " test" or "Level " .. value .. " reached!", isTest and ("GuildDB test popup for " .. author .. ".") or (author .. " reached level " .. value .. "."), "Interface/Icons/Achievement_Level_" .. value, nil, 8, true)
     elseif kind == "P" then
-        GH:ShowPopout(isTest and "Profession milestone test" or "Profession milestone", isTest and (profession .. " " .. value .. " test") or (profession .. " " .. value .. "!"), isTest and ("Guild Hall test popup for " .. author .. ".") or (author .. " reached " .. value .. " in " .. profession .. "."), iconForProfession(profession), nil, 8, true)
+        GH:ShowPopout(isTest and "Profession milestone test" or "Profession milestone", isTest and (profession .. " " .. value .. " test") or (profession .. " " .. value .. "!"), isTest and ("GuildDB test popup for " .. author .. ".") or (author .. " reached " .. value .. " in " .. profession .. "."), iconForProfession(profession), nil, 8, true)
     end
 end
 
@@ -297,7 +297,7 @@ local function showPopupTest(id, author)
     GH.popupTestIds = GH.popupTestIds or {}
     if GH.popupTestIds[id] then return end
     GH.popupTestIds[id] = true
-    GH:ShowPopout("Guild-wide test", "Popup test", "Guild Hall popup test from " .. author .. ".", "Interface/Icons/INV_Letter_15")
+    GH:ShowPopout("Guild-wide test", "Popup test", "GuildDB popup test from " .. author .. ".", "Interface/Icons/INV_Letter_15")
 end
 
 GH:RegisterRecordHandler("PT", function(id, ts, author, content, sender)
@@ -311,7 +311,7 @@ end)
 GH:RegisterCommand("popout", function(rest)
     local action, milestone = (rest or ""):lower():match("^(%S+)%s*(.-)$")
     -- Accept the previous `test <kind>` form too, while making each preview
-    -- directly available as `/gh popout pvp`, `/gh popout level10`, etc.
+    -- directly available as `/gd popout pvp`, `/gd popout level10`, etc.
     if action == "test" then
         if milestone == "" then action = "pvp"
         else action, milestone = milestone:match("^(%S+)%s*(.-)$") end
@@ -334,15 +334,15 @@ GH:RegisterCommand("popout", function(rest)
 
     if selected == "guild" or selected == "all" then
         if not GH:CanManage() then
-            print("Guild Hall: Only the guild leader or rank 1 can broadcast a popup test.")
+            print("GuildDB: Only the guild leader or rank 1 can broadcast a popup test.")
             return
         end
         GH.popupTestIds = GH.popupTestIds or {}
         local id = tostring(time()) .. "-popup-test-" .. tostring(math.random(100000, 999999))
         GH.popupTestIds[id] = true
         GH:SendRecord("PT", id, time(), player, player)
-        GH:ShowPopout("Guild-wide test", "Popup test", "Guild Hall popup test from " .. player .. ".", "Interface/Icons/INV_Letter_15")
-        print("Guild Hall: Popup test sent to online Guild Hall users.")
+        GH:ShowPopout("Guild-wide test", "Popup test", "GuildDB popup test from " .. player .. ".", "Interface/Icons/INV_Letter_15")
+        print("GuildDB: Popup test sent to online GuildDB users.")
         return
     end
 
@@ -358,22 +358,22 @@ GH:RegisterCommand("popout", function(rest)
         return
     end
 
-    print("Guild Hall: use /gh popout guild, /gh popout pvp, /gh popout level10/20/30/40/50/60, or /gh popout profession150/225/300.")
+    print("GuildDB: use /gd popout guild, /gd popout pvp, /gd popout level10/20/30/40/50/60, or /gd popout profession150/225/300.")
 end)
 
 GH:RegisterCommand("testpopout", function(rest)
     if not GH:CanManage() then
-        print("Guild Hall: Only the guild leader or rank 1 can broadcast milestone popup tests.")
+        print("GuildDB: Only the guild leader or rank 1 can broadcast milestone popup tests.")
         return
     end
     local kind = tostring(rest or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
     if kind == "level" then
         broadcastMilestone("L", 60, nil, true)
-        print("Guild Hall: Level milestone popup test sent to online Guild Hall users.")
+        print("GuildDB: Level milestone popup test sent to online GuildDB users.")
     elseif kind == "profession" then
         broadcastMilestone("P", 300, "Alchemy", true)
-        print("Guild Hall: Profession milestone popup test sent to online Guild Hall users.")
+        print("GuildDB: Profession milestone popup test sent to online GuildDB users.")
     else
-        print("Guild Hall: use /gh testpopout level or /gh testpopout profession.")
+        print("GuildDB: use /gd testpopout level or /gd testpopout profession.")
     end
 end)

@@ -1,4 +1,4 @@
-﻿-- Guild-wide, opt-in location sharing and World Map pins.
+-- Guild-wide, opt-in location sharing and World Map pins.
 local _, GH = ...
 
 local REPORT_TTL = 45
@@ -123,7 +123,7 @@ GH:RegisterCommand("map", function(rest)
     if action == "clear" then
         if C_Map and C_Map.ClearUserWaypoint then C_Map.ClearUserWaypoint() end
     else
-        print("Guild Hall: Guild member locations are shown as live map pins. Use /gh map clear to remove an old WoW waypoint.")
+        print("GuildDB: Guild member locations are shown as live map pins. Use /gd map clear to remove an old WoW waypoint.")
     end
 end)
 

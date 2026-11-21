@@ -19,7 +19,7 @@ local function layoutPvPColumn(text, index, parent, width, inset, header)
 end
 
 local function rosterText()
-    if not GH.guildName then return "Join a guild to view its roster and Guild Hall." end
+    if not GH.guildName then return "Join a guild to view its roster and GuildDB." end
     if not GH.roster or #GH.roster == 0 then return "Loading the guild roster..." end
     local lines = {}
     for _, member in ipairs(GH.roster) do
@@ -147,7 +147,7 @@ local function guildAbbreviation(name)
     local abbreviation = ""
     for i = 1, math.min(3, #words) do abbreviation = abbreviation .. words[i]:sub(1, 1):upper() end
     if #abbreviation < 2 and words[1] then abbreviation = words[1]:sub(1, 3):upper() end
-    return abbreviation ~= "" and abbreviation or "GH"
+    return abbreviation ~= "" and abbreviation or "GDB"
 end
 
 local function splitSections(text)
@@ -372,7 +372,7 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose)
         for i, input in ipairs(dialog.inputs) do values[i] = input.selectedValue or input:GetText() end
         local ok, result = onAccept(values)
         if ok then dialog:Hide() end
-        if result then print("Guild Hall: " .. result) end
+        if result then print("GuildDB: " .. result) end
     end)
     UISpecialFrames = UISpecialFrames or {}
     table.insert(UISpecialFrames, 1, name)
@@ -479,11 +479,11 @@ local function build()
     frame.logoAbbreviation:Hide()
     frame.logoText = frame.header:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     frame.logoText:SetPoint("LEFT", frame.logoMark, "RIGHT", 10, 5)
-    frame.logoText:SetText((GH.guildName or "Guild") .. " Hall")
+    frame.logoText:SetText("GuildDB")
     setTextColor(frame.logoText, CREAM)
     frame.version = frame.header:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     frame.version:SetPoint("TOPLEFT", frame.logoText, "BOTTOMLEFT", 0, -1)
-    frame.version:SetText("Guild Hall - v" .. tostring(GH.version))
+    frame.version:SetText("GuildDB - v" .. tostring(GH.version))
     frame.headerStatus = frame.header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     frame.headerStatus:SetJustifyH("RIGHT")
     frame.close = CreateFrame("Button", nil, frame.header)
@@ -585,7 +585,7 @@ local function build()
         if GH.SetSetting then GH:SetSetting("onlineOnly", frame.rosterOnlineOnly) else GH:RefreshUI() end
     end)
     frame.rosterHeaders = {}
-    for _, column in ipairs({ { "NAME", "name", 10, 130 }, { "LEVEL", "level", 145, 60 }, { "RANK", "rank", 215, 82 }, { "ZONE", "zone", 300, 120 }, { "ROLE", "role", 425, 58 }, { "GH", "hq", 490, 55 } }) do
+    for _, column in ipairs({ { "NAME", "name", 10, 130 }, { "LEVEL", "level", 145, 60 }, { "RANK", "rank", 215, 82 }, { "ZONE", "zone", 300, 120 }, { "ROLE", "role", 425, 58 }, { "GDB", "hq", 490, 55 } }) do
         local header = CreateFrame("Button", nil, frame.listPanel)
         header:SetSize(column[4], 20)
         header:SetPoint("TOPLEFT", column[3], -44)
@@ -646,7 +646,7 @@ local function build()
     setTextColor(frame.detailTitle, GOLD)
     frame.detailMeta = frame.detailPanel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     frame.detailMeta:SetPoint("TOPLEFT", frame.detailTitle, "BOTTOMLEFT", 0, -5)
-    frame.detailMeta:SetText("Guild Hall  ·  Shared with your guild")
+    frame.detailMeta:SetText("GuildDB  ·  Shared with your guild")
     frame.detailRule = frame.detailPanel:CreateTexture(nil, "ARTWORK")
     frame.detailRule:SetPoint("TOPLEFT", 14, -58)
     frame.detailRule:SetPoint("TOPRIGHT", -14, -58)
@@ -868,7 +868,7 @@ local function build()
             { label = "Raid size target", value = "40", options = { "10", "20", "25", "40" } },
             { label = "Sign-ups", value = "Open", options = { "Open", "Locked" } },
             { label = "Details", value = "", max = 300, multiline = true },
-            { label = "Guild calendar", value = "Create guild calendar event", options = { "Create guild calendar event", "Guild Hall only" } },
+            { label = "Guild calendar", value = "Create guild calendar event", options = { "Create guild calendar event", "GuildDB only" } },
         }, function(values)
             local settings = { category = "Raid", raidSize = tonumber(values[4]), locked = values[5] == "Locked" }
             local ok, result, eventId = GH:PostEventFields(values[2], values[3], values[1], values[6], "raid", settings)
@@ -953,9 +953,9 @@ local function build()
     frame.profileEditButton:SetScript("OnClick", function()
         local ok, err = pcall(openProfileEditor)
         if not ok then
-            print("Guild Hall: Profile editor error: " .. tostring(err))
+            print("GuildDB: Profile editor error: " .. tostring(err))
         else
-            print("Guild Hall: Profile editor opened.")
+            print("GuildDB: Profile editor opened.")
         end
     end)
     frame.rosterInviteButton = CreateFrame("Button", nil, frame.actionLayer, "UIPanelButtonTemplate")
@@ -968,7 +968,7 @@ local function build()
     frame.rosterInviteButton:SetScript("OnClick", function()
         local name = GH.selectedRosterName
         if not name then
-            print("Guild Hall: Select a roster member first.")
+            print("GuildDB: Select a roster member first.")
             return
         end
 
@@ -980,12 +980,12 @@ local function build()
             invite = partyInfo.InviteUnit
         end
         if not invite then
-            print("Guild Hall: This client does not expose a group invite function.")
+            print("GuildDB: This client does not expose a group invite function.")
             return
         end
 
         local ok, err = pcall(invite, name)
-        if not ok then print("Guild Hall: Could not invite " .. GH:Display(name) .. ": " .. tostring(err)) end
+        if not ok then print("GuildDB: Could not invite " .. GH:Display(name) .. ": " .. tostring(err)) end
     end)
     frame.craftSearchButton = CreateFrame("Button", nil, frame.detailPanel, "UIPanelButtonTemplate")
     GH:StyleButton(frame.craftSearchButton, "primary")
@@ -997,7 +997,7 @@ local function build()
             { label = "Profession or recipe", value = "", max = 80 },
         }, function(values)
             local matches = GH:FindGuildCrafters(values[1])
-            print(#matches > 0 and ("Guild Hall crafters: " .. table.concat(matches, "; ")) or "Guild Hall: No online member lists that profession or recipe in their profile.")
+            print(#matches > 0 and ("GuildDB crafters: " .. table.concat(matches, "; ")) or "GuildDB: No online member lists that profession or recipe in their profile.")
             return true
         end)
     end)
@@ -1012,7 +1012,7 @@ local function build()
 
     frame.footer = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     frame.footer:SetPoint("BOTTOMLEFT", frame.detailPanel, "BOTTOMLEFT", 14, 10)
-    frame.footer:SetText("/gh for commands")
+    frame.footer:SetText("/gd for commands")
 end
 GH.BuildUI = build
 
@@ -1138,7 +1138,7 @@ function GH:RefreshUI()
     local faction = UnitFactionGroup and UnitFactionGroup("player") or nil
     local emblem = faction == "Horde" and "HordeEmblem.png" or "AllianceEmblem.png"
     frame.logoMark:SetTexture("Interface\\AddOns\\GuildHall\\Assets\\" .. emblem)
-    frame.logoText:SetText((self.guildName or "Guild") .. " Hall")
+    frame.logoText:SetText("GuildDB")
     frame.logoAbbreviation:SetText(guildAbbreviation(self.guildName or "Guild"))
     frame.listHeader:SetText(active:upper())
     if active == "Roster" then
@@ -1257,7 +1257,7 @@ function GH:RefreshUI()
             local profile = row.rosterName and self:GetProfile(row.rosterName)
             local summary = profile and table.concat({ profile.role or "", profile.spec or "" }, " · "):gsub("^ · ", ""):gsub(" · $", "")
             local version = row.rosterName and self:GetAddonVersion(row.rosterName)
-            local addonStatus = version and ("Guild Hall v" .. version) or "No addon detected"
+            local addonStatus = version and ("GuildDB v" .. version) or "No addon detected"
             local profileStatus = summary and summary ~= "" and summary or (profile and "Profile available" or "No profile yet")
             local rowMember = frame.rosterDisplay[index]
             local characterInfo = table.concat({
@@ -1410,7 +1410,7 @@ function GH:RefreshUI()
         local zone = member and member.zone and member.zone ~= "" and self:Display(member.zone) or "Unknown"
         local profileName = profile and table.concat({ profile.firstName or "", profile.lastName or "" }, " "):gsub("^%s+", ""):gsub("%s+$", "") or ""
         if profileName == "" then profileName = "Not set" end
-        local addonLine = "Guild Hall  " .. (version and ("v" .. version) or "Not detected") .. "\n\n"
+        local addonLine = "GuildDB  " .. (version and ("v" .. version) or "Not detected") .. "\n\n"
         frame.detailBody:SetText(addonLine .. "Name: " .. self:Display(profileName) .. "\n\nStatus: " .. status .. "  -  " .. zone .. "\n\nRole: " .. value("role") .. "\n\nProfessions: " .. value("professions") .. "\n\nSpecialization: " .. value("spec") .. "\n\nTime zone: " .. value("timezone") .. "\n\nAlts: " .. value("alts"))
     elseif active == "PvP" then
         self:HideSettingsControls()
@@ -1598,7 +1598,7 @@ function GH:RefreshUI()
                 row.inviteButton:SetText("Invite selected")
                 row.inviteButton:SetScript("OnClick", function(button)
                     local _, result = GH:InviteRaidSelections(button.eventId)
-                    if result then print("Guild Hall: " .. result) end
+                    if result then print("GuildDB: " .. result) end
                 end)
                 row.signupRows = {}
                 row.rsvpButtons = {}
@@ -1607,7 +1607,7 @@ function GH:RefreshUI()
                 row.calendarButton:SetPoint("TOPLEFT", 16, -184)
                 row.calendarButton:SetScript("OnClick", function(self)
                     local _, result = GH:AddEventToGameCalendar(self.eventId)
-                    if result then print("Guild Hall: " .. result) end
+                    if result then print("GuildDB: " .. result) end
                 end)
                 row.editButton = CreateFrame("Button", nil, row)
                 styleRaidButton(row.editButton, 88, "secondary")
@@ -1661,7 +1661,7 @@ function GH:RefreshUI()
                 row.withdrawButton:SetText("Withdraw")
                 row.withdrawButton:SetScript("OnClick", function(button)
                     local _, result = GH:RemoveRaidSignup(button.eventId)
-                    if result then print("Guild Hall: " .. result) end
+                    if result then print("GuildDB: " .. result) end
                 end)
                 for buttonIndex, state in ipairs({ { "Sign up / Change", "going" } }) do
                     local button = CreateFrame("Button", nil, row)
@@ -1811,7 +1811,7 @@ function GH:RefreshUI()
                     end)
                     signup:SetScript("OnClick", function(button)
                         local _, result = GH:SetRaidSelection(button.eventId, button.player, not button.selected)
-                        if result then print("Guild Hall: " .. result) end
+                        if result then print("GuildDB: " .. result) end
                     end)
                     row.signupRows[index] = signup
                 end
@@ -2005,7 +2005,7 @@ function GH:RefreshUI()
                     end }
                     actions[#actions + 1] = { label = "Delete", click = function()
                         local _, message = self:DeleteAnnouncement(postId)
-                        print("Guild Hall: " .. tostring(message))
+                        print("GuildDB: " .. tostring(message))
                     end }
                 end
                 local title = postTitle ~= "" and postTitle or "Announcement"
@@ -2064,7 +2064,7 @@ function GH:RefreshUI()
     else
         self:HideSettingsControls()
         frame.detailBody:Show()
-        frame.detailMeta:SetText(self.guildName and "Guild Hall workspace" or "Guild Hall workspace - Join a guild to sync")
+        frame.detailMeta:SetText(self.guildName and "GuildDB workspace" or "GuildDB workspace - Join a guild to sync")
         frame.detailTitle:SetText(active)
         frame.detailBody:SetText(detail)
     end
@@ -2101,8 +2101,8 @@ function GH:IsSyncResponder(requester)
     local excluded = syncNameKey(requester)
     local candidates = {}
     for _, member in ipairs(self.roster) do
-        -- Sync can only be served by a client that is actually running Guild
-        -- Hall. Limiting this to officers meant no one answered when the
+        -- Sync can only be served by a client that is actually running
+        -- GuildDB. Limiting this to officers meant no one answered when the
         -- online leader/rank-1 member did not have the addon installed.
         local candidateName = syncNameKey(member.name)
         if member.online and candidateName ~= excluded and self:GetAddonVersion(member.name) then candidates[#candidates + 1] = member end

@@ -111,18 +111,18 @@ GH:RegisterCommand("poll", function(rest)
             if option ~= "" then options[#options + 1] = option:sub(1, 60) end
         end
         local _, result = GH:CreatePoll(question, options)
-        print("Guild Hall: " .. result)
+        print("GuildDB: " .. result)
     elseif action == "vote" then
         local number, choice = content:match("^(%d+)%s+(%d+)$")
         local poll = selectOpen(number)
         choice = tonumber(choice)
-        if not poll or not choice or not poll.options[choice] then print("Guild Hall: Choose an open poll number and a valid option number."); return end
+        if not poll or not choice or not poll.options[choice] then print("GuildDB: Choose an open poll number and a valid option number."); return end
         local _, result = GH:VotePoll(poll.id, choice)
-        print("Guild Hall: " .. result)
+        print("GuildDB: " .. result)
     elseif action == "close" then
         local poll = selectOpen(content)
         local _, result = GH:ClosePoll(poll and poll.id)
-        print("Guild Hall: " .. result)
+        print("GuildDB: " .. result)
     else
         GH.activeTab = "Polls"
         GH:Open()
@@ -132,8 +132,8 @@ end)
 GH:RegisterTab("Polls", function()
     if not GH.bucket then return "Join a guild to see guild polls." end
     local polls = GH.bucket.polls or {}
-    if #polls == 0 then return "No polls yet. Officers can create one with /gh poll create Question | Option 1 | Option 2." end
-    local lines = { "Polls · votes are not shown by member; results are public", "Use /gh poll vote # option# to vote.", "" }
+    if #polls == 0 then return "No polls yet. Officers can create one with /gd poll create Question | Option 1 | Option 2." end
+    local lines = { "Polls · votes are not shown by member; results are public", "Use /gd poll vote # option# to vote.", "" }
     local openNumber = 0
     for _, poll in ipairs(polls) do
         if not poll.closed then openNumber = openNumber + 1 end

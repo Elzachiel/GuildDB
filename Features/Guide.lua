@@ -29,14 +29,14 @@ GH:RegisterCommand("guide", function(rest)
     local action, content = rest:match("^(%S+)%s*(.*)$")
     if (action or ""):lower() ~= "set" then GH.activeTab = "Guide"; GH:Open(); return end
     local rules, loot = content:match("^(.-)%s*|%s*(.*)$")
-    if not rules then print("Guild Hall: Use /gh guide set Rules | Loot rules."); return end
+    if not rules then print("GuildDB: Use /gd guide set Rules | Loot rules."); return end
     local _, result = GH:SetGuide(rules, loot)
-    print("Guild Hall: " .. result)
+    print("GuildDB: " .. result)
 end)
 
 GH:RegisterTab("Guide", function()
     if not GH.bucket then return "Join a guild to view the guild guide." end
     local guide = GH.bucket.guide or {}
-    if (guide.rules or "") == "" and (guide.loot or "") == "" then return "The guild guide has not been set up yet. An officer can use /gh guide set Rules | Loot rules." end
+    if (guide.rules or "") == "" and (guide.loot or "") == "" then return "The guild guide has not been set up yet. An officer can use /gd guide set Rules | Loot rules." end
     return "Guild rules\n\n" .. GH:Display(guide.rules or "Not set") .. "\n\nLoot rules\n\n" .. GH:Display(guide.loot or "Not set")
 end)

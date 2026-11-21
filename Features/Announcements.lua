@@ -91,7 +91,7 @@ end
 
 function GH:PostAnnouncement(title, text)
     if not self:CanManage() then return false, "Only the guild leader or rank 1 can post announcements." end
-    if text == nil then text, title = title, "" end -- Keep /gh post Message working.
+    if text == nil then text, title = title, "" end -- Keep /gd post Message working.
     title = clean(title, 120, true)
     text = clean(text, 600, false)
     if title == "" and text == "" then return false, "Enter an announcement title or message." end
@@ -101,7 +101,7 @@ function GH:PostAnnouncement(title, text)
     self.shownAnnouncementPopups = self.shownAnnouncementPopups or {}
     self.shownAnnouncementPopups[record.id] = true
     popAnnouncement(record.by, title, text)
-    return true, "Announcement saved and sent to online Guild Hall users."
+    return true, "Announcement saved and sent to online GuildDB users."
 end
 
 function GH:EditAnnouncement(id, title, text)
@@ -114,7 +114,7 @@ function GH:EditAnnouncement(id, title, text)
     self.bucket.announcements[index] = record
     self:SendRecord("AE", id, record.ts, record.by, encodePost(title, text))
     if self.RefreshUI then self:RefreshUI() end
-    return true, "Announcement updated and shared with online Guild Hall users."
+    return true, "Announcement updated and shared with online GuildDB users."
 end
 
 function GH:DeleteAnnouncement(id)
@@ -128,7 +128,7 @@ function GH:DeleteAnnouncement(id)
     self.bucket.announcementDeletes[id] = { ts = ts, by = player }
     self:SendRecord("AD", id, ts, player, "")
     if self.RefreshUI then self:RefreshUI() end
-    return true, "Announcement removed and synced with online Guild Hall users."
+    return true, "Announcement removed and synced with online GuildDB users."
 end
 
 GH:RegisterRecordHandler("A", function(id, ts, author, content)
@@ -217,7 +217,7 @@ end, false)
 
 GH:RegisterCommand("post", function(text)
     local _, result = GH:PostAnnouncement(text)
-    print("Guild Hall: " .. result)
+    print("GuildDB: " .. result)
 end)
 
 GH:RegisterTab("Announcements", function()
@@ -227,5 +227,5 @@ GH:RegisterTab("Announcements", function()
         local title = record.title and record.title ~= "" and (record.title .. "\n") or ""
         lines[#lines + 1] = ("%s · %s\n%s%s"):format(date("%b %d, %I:%M %p", record.ts), GH:Display(record.by), title, GH:Display(record.text))
     end
-    return #lines > 0 and table.concat(lines, "\n\n") or "No announcements yet. Officers can post with /gh post Message text."
+    return #lines > 0 and table.concat(lines, "\n\n") or "No announcements yet. Officers can post with /gd post Message text."
 end)

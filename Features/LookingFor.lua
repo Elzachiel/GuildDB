@@ -76,20 +76,20 @@ GH:RegisterCommand("looking", function(rest)
     if action == "close" then
         local request = activeRequests()[tonumber(content) or 0]
         local _, result = GH:CloseLookingRequest(request and request.id)
-        print("Guild Hall: " .. result)
+        print("GuildDB: " .. result)
         return
     end
     if action == "list" then GH.activeTab = "Looking For"; GH:Open(); return end
     local role, activity, details = rest:match("^(.-)%s*|%s*(.-)%s*|%s*(.*)$")
     local _, result = GH:PostLookingRequest(role, activity, details)
-    print("Guild Hall: " .. result)
+    print("GuildDB: " .. result)
 end)
 
 GH:RegisterTab("Looking For", function()
     if not GH.bucket then return "Join a guild to see group requests." end
     local requests = activeRequests()
-    if #requests == 0 then return "No active requests. Post one with /gh looking Role | Activity | Details." end
-    local lines = { "Looking For · posts expire after 3 hours", "Use /gh looking close # to close your post.", "" }
+    if #requests == 0 then return "No active requests. Post one with /gd looking Role | Activity | Details." end
+    local lines = { "Looking For · posts expire after 3 hours", "Use /gd looking close # to close your post.", "" }
     for index, request in ipairs(requests) do
         local minutes = math.max(1, math.ceil((request.expires - time()) / 60))
         lines[#lines + 1] = ("%d. %s looking for %s · %d min left"):format(index, GH:Display(request.role), GH:Display(request.activity), minutes)

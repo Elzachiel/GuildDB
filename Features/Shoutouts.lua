@@ -9,10 +9,10 @@ end
 function GH:PostShoutout(target, text)
     if not self.bucket then return false, "Join a guild first." end
     target, text = clean(target), clean(text)
-    if target == "" or text == "" then return false, "Use /gh shout Player Name | message" end
+    if target == "" or text == "" then return false, "Use /gd shout Player Name | message" end
     local record = self:NewRecord({ target = target:sub(1, 80), text = text:sub(1, 250) })
     self:StoreRecord("shoutouts", record, "S", record.target .. "\n" .. record.text)
-    return true, "Shoutout saved and sent to online Guild Hall users."
+    return true, "Shoutout saved and sent to online GuildDB users."
 end
 
 GH:RegisterRecordHandler("S", function(id, ts, author, content)
@@ -32,5 +32,5 @@ end)
 GH:RegisterCommand("shout", function(rest)
     local target, text = rest:match("^(.-)%s*|%s*(.*)$")
     local _, result = GH:PostShoutout(target, text)
-    print("Guild Hall: " .. result)
+    print("GuildDB: " .. result)
 end)

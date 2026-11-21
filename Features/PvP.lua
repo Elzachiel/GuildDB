@@ -605,10 +605,10 @@ end
 GH:RegisterCommand("pvp", function(rest)
     local action, name = rest:match("^(%S+)%s*(.*)$")
     if (action or ""):lower() == "wipe" then
-        if not guildLeader(playerName()) then print("Guild Hall: Only the guild master can wipe PvP stats."); return end
-        if name ~= "CONFIRM" then print("Guild Hall: This erases all guild PvP points, kills, deaths, history and seasons. Type /gh pvp wipe CONFIRM to proceed."); return end
+        if not guildLeader(playerName()) then print("GuildDB: Only the guild master can wipe PvP stats."); return end
+        if name ~= "CONFIRM" then print("GuildDB: This erases all guild PvP points, kills, deaths, history and seasons. Type /gd pvp wipe CONFIRM to proceed."); return end
         local _, result = GH:WipePvPStats()
-        print("Guild Hall: " .. result)
+        print("GuildDB: " .. result)
         return
     end
     GH.activeTab = "PvP"

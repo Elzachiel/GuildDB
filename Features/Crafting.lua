@@ -122,24 +122,24 @@ GH:RegisterCommand("craft", function(rest)
     if action == "request" then
         local item, details = content:match("^(.-)%s*|%s*(.*)$")
         local _, message = GH:PostCraftingRequest(item or content, details)
-        print("Guild Hall: " .. message)
+        print("GuildDB: " .. message)
     elseif action == "claim" or action == "done" then
         local entry = activeRequests()[tonumber(content) or 0]
         local _, message = GH:ChangeCraftingRequest(entry and entry.id, action == "done")
-        print("Guild Hall: " .. message)
+        print("GuildDB: " .. message)
     elseif action == "who" then
         local needle = trim(content):lower()
-        if needle == "" then print("Guild Hall: Use /gh craft who Recipe or profession."); return end
+        if needle == "" then print("GuildDB: Use /gd craft who Recipe or profession."); return end
         local matches = GH:FindGuildCrafters(needle)
-        print(#matches > 0 and ("Guild Hall crafters: " .. table.concat(matches, "; ")) or "Guild Hall: No online member lists that profession or recipe in their profile.")
+        print(#matches > 0 and ("GuildDB crafters: " .. table.concat(matches, "; ")) or "GuildDB: No online member lists that profession or recipe in their profile.")
     else GH.activeTab = "Crafting"; GH:Open() end
 end)
 
 GH:RegisterTab("Crafting", function()
     if not GH.bucket then return "Join a guild to see crafting requests." end
     local requests = activeRequests()
-    if #requests == 0 then return "No active crafting requests. Use /gh craft request Item | Details to post one." end
-    local lines = { "Crafting requests · posts expire after 7 days", "Use /gh craft claim # to claim; /gh craft done # to close; /gh craft who Recipe to search online profiles.", "" }
+    if #requests == 0 then return "No active crafting requests. Use /gd craft request Item | Details to post one." end
+    local lines = { "Crafting requests · posts expire after 7 days", "Use /gd craft claim # to claim; /gd craft done # to close; /gd craft who Recipe to search online profiles.", "" }
     for index, entry in ipairs(requests) do
         local days = math.max(1, math.ceil((entry.expires - time()) / (24 * 60 * 60)))
         lines[#lines + 1] = ("%d. %s · %s · %d day(s) left"):format(index, GH:Display(entry.item), entry.status:upper(), days)
