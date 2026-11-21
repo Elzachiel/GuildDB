@@ -352,3 +352,33 @@ GD.activeTab = 'Roster'
 GD:RefreshUI()
 assert(not GD.frame.pvpViewButtons[1].shown and not GD.frame.pvpRivalSort.shown)
 print('PASS: PvP subview switching, enemy identities, season scope, sort filters, empty states and restored leaderboard')
+
+-- Roster profile editing uses a class-only spec dropdown, with immediate save.
+local ownProfile = { spec='Fire', role='DPS', timezone='UTC', professions='Alchemy 300' }
+local chosenSpec, savedSpec
+function GD:PlayerName() return 'Player Moon' end
+function GD:GetProfile() return ownProfile end
+function GD:GetPlayerNameParts() return 'Player', 'Moon' end
+function GD:RefreshPlayerProfessions() end
+function GD:RefreshPlayerSpec() end
+function GD:GetPlayerSpecOptions() return {'Arcane', 'Fire', 'Frost'}, 'Fire' end
+function GD:SetPlayerSpecChoice(value) chosenSpec = value end
+function GD:SetProfile(_, _, _, spec) savedSpec = spec end
+click(GD.frame.profileEditButton)
+local profileDialog
+for i=#createdFrames,1,-1 do
+    if createdFrames[i].inputs then profileDialog = createdFrames[i]; break end
+end
+assert(profileDialog and profileDialog.title.text == 'Edit your member profile')
+local specInput = profileDialog.inputs[4]
+assert(specInput.template == 'UIPanelButtonTemplate' and specInput.selectedValue == 'Fire', 'spec must be a dropdown preselected from the profile')
+local specButtons = {}
+for _, candidate in ipairs(createdFrames) do
+    if candidate.parent and candidate.parent.parent and candidate.parent.parent.parent == specInput.popup then
+        if candidate.text then specButtons[#specButtons + 1] = candidate end
+    end
+end
+assert(#specButtons == 3 and specButtons[1].text == 'Arcane' and specButtons[3].text == 'Frost')
+click(specButtons[3])
+assert(chosenSpec == 'Frost' and savedSpec == 'Frost', 'choosing a spec must save the manual choice and profile')
+print('PASS: Roster class-only spec dropdown, preselection and immediate manual save')

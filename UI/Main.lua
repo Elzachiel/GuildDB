@@ -710,7 +710,11 @@ end
 local function openProfileEditor()
     local player = GD:PlayerName()
     GD:RefreshPlayerProfessions()
+    GD:RefreshPlayerSpec()
     local profile = GD:GetProfile(player) or {}
+    local specOptions, detectedSpec = GD:GetPlayerSpecOptions()
+    local specValue = detectedSpec or specOptions[1]
+    for _, option in ipairs(specOptions) do if option == profile.spec then specValue = option; break end end
     local firstName, lastName = GD:GetPlayerNameParts()
     local playerRace = UnitRace and UnitRace("player") or ""
     local timezoneAliases = { ET = "Eastern Time (ET)", CT = "Central Time (CT)", MT = "Mountain Time (MT)", PT = "Pacific Time (PT)", UTC = "UTC" }
@@ -720,13 +724,15 @@ local function openProfileEditor()
         local current = GD:GetProfile(player) or {}
         local role = key == "role" and value or current.role
         local timezone = key == "timezone" and value or current.timezone
-        GD:SetProfile(nil, nil, role, current.spec, timezone, current.alts, current.professions, current.race)
+        local spec = key == "spec" and value or current.spec
+        if key == "spec" then GD:SetPlayerSpecChoice(value) end
+        GD:SetProfile(nil, nil, role, spec, timezone, current.alts, current.professions, current.race)
     end
     showInputForm("Edit your member profile", {
         { label = "First name", value = firstName, max = 60, readOnly = true },
         { label = "Last name", value = lastName, max = 60, readOnly = true },
         { label = "Main role", value = roleValue, onChange = function(value) saveChoice("role", value) end, options = { "Tank", "DPS", "Healer", "Flex" } },
-        { label = "Spec / playstyle", value = profile.spec or "", max = 80 },
+        { label = "Spec (detected from your talents; choose to override)", value = specValue, options = specOptions, onChange = function(value) saveChoice("spec", value) end },
         { label = "Time zone", value = timezoneValue, onChange = function(value) saveChoice("timezone", value) end, options = { "Eastern Time (ET)", "Central Time (CT)", "Mountain Time (MT)", "Pacific Time (PT)", "Alaska Time (AKT)", "Hawaii Time (HT)", "UTC", "UK Time (GMT/BST)", "Central European Time (CET/CEST)", "Eastern European Time (EET/EEST)", "India Standard Time (IST)", "Japan Standard Time (JST)", "Australian Eastern Time (AET)", "New Zealand Time (NZT)" } },
         { label = "Alts", value = profile.alts or "", max = 200 },
         { label = "Race", value = playerRace or profile.race or "", max = 60, readOnly = true },

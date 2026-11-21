@@ -1,5 +1,9 @@
 # GuildDB
 
+Roster profile specs use a dropdown with your class's three talent trees. GuildDB detects and shares your main spec from the tree with the most spent talent points, refreshing when talents change. A manual dropdown choice lasts until your talent allocation changes. Tied, unspent or unavailable talent data does not force a main spec. Other members running the updated addon share their own detected specs; offline or non-addon members retain their last saved profile.
+
+Use `/gd spec` to print your detected main spec, the points spent in each talent tree, and your saved profile spec (including any active manual override). This diagnostic only prints locally; it does not change or share your profile.
+
 GuildDB is a World of Warcraft guild addon for a shared roster, member profiles, announcements, raids, events, shoutouts, and guild utilities. It is designed to work independently for any guild.
 
 ## Features

@@ -2,7 +2,7 @@
 local ADDON, GD = ...
 _G.GuildDB = GD
 
-GD.version = "0.2.03"
+GD.version = "0.2.06"
 -- New-member tracking begins with this release; keep this anchor on later bumps.
 GD.recentJoinsVersion = "0.1.88"
 GD.recentJoinsStart = 1795285809
@@ -393,7 +393,7 @@ local function slashCommand(message)
     end
     local handler = GD.commands[command]
     if handler then handler(rest or "") else
-        print("GuildDB commands: /gd sync, /gd profile, /gd map, /gd guide, /gd looking, /gd craft, /gd poll, /gd pvp, /gd raid, /gd event, /gd rsvp, /gd post, /gd shout, /gd testpopout")
+        print("GuildDB commands: /gd sync, /gd profile, /gd spec, /gd map, /gd guide, /gd looking, /gd craft, /gd poll, /gd pvp, /gd raid, /gd event, /gd rsvp, /gd post, /gd shout, /gd testpopout")
     end
 end
 

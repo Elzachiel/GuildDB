@@ -3,6 +3,121 @@ local _, GD = ...
 GD:RegisterBucket("profiles", function() return {} end)
 GD.profileCache = GD.profileCache or {}
 
+local classSpecs = {
+    WARRIOR = { "Arms", "Fury", "Protection" },
+    PALADIN = { "Holy", "Protection", "Retribution" },
+    HUNTER = { "Beast Mastery", "Marksmanship", "Survival" },
+    ROGUE = { "Assassination", "Combat", "Subtlety" },
+    PRIEST = { "Discipline", "Holy", "Shadow" },
+    SHAMAN = { "Elemental", "Enhancement", "Restoration" },
+    MAGE = { "Arcane", "Fire", "Frost" },
+    WARLOCK = { "Affliction", "Demonology", "Destruction" },
+    DRUID = { "Balance", "Feral Combat", "Restoration" },
+}
+
+-- Forever exposes talent points through specialization or trait-group APIs;
+-- older clients expose talent tabs with either the three- or five-field layout.
+function GD:GetPlayerSpecOptions()
+    local class
+    if UnitClass then local _, token = UnitClass("player"); class = token end
+    local fallback = classSpecs[class] or {}
+    local trees, zeroTrees = {}, nil
+    local function addTree(index, name, points)
+        if issecretvalue and (issecretvalue(name) or issecretvalue(points)) then return end
+        -- Empty trees can have a name but no points field on this client.
+        if points == nil then points = 0 end
+        if type(name) == "string" and name ~= "" and type(points) == "number" and points >= 0 then
+            trees[index] = { name = name, points = points }
+        end
+    end
+    local function fillEmptyTrees()
+        local spent = false
+        for i = 1, 3 do if trees[i] and trees[i].points > 0 then spent = true end end
+        if not spent then return end
+        -- Trait currency replies may omit entire unspent groups. Once spent
+        -- points are readable, fill the other known class trees with zeroes.
+        for i = 1, 3 do if not trees[i] and fallback[i] then addTree(i, fallback[i], 0) end end
+    end
+    local function collect()
+        local function completeWithPoints()
+            fillEmptyTrees()
+            return trees[1] and trees[2] and trees[3]
+                and (trees[1].points + trees[2].points + trees[3].points) > 0
+        end
+        if GetTalentTabInfo then
+            for i = 1, 3 do
+                local ok, a, b, c, _, e = pcall(GetTalentTabInfo, i)
+                if ok then
+                    local name, points = type(a) == "number" and b or a, type(a) == "number" and e or c
+                    addTree(i, name, points)
+                end
+            end
+            if completeWithPoints() then return end
+            if trees[1] and trees[2] and trees[3] then zeroTrees = trees end
+            trees = {}
+        end
+        local api = C_SpecializationInfo
+        if api and api.GetSpecializationInfo then
+            for i = 1, 3 do
+                local ok, _, name, _, _, _, _, points = pcall(api.GetSpecializationInfo, i)
+                if not ok or type(name) ~= "string" then
+                    ok, _, name, _, _, _, _, points = pcall(api.GetSpecializationInfo, { specializationIndex = i })
+                end
+                if ok then addTree(i, name, points) end
+            end
+            if completeWithPoints() then return end
+            if trees[1] and trees[2] and trees[3] then zeroTrees = trees end
+            trees = {}
+        end
+        local traits, talents = C_Traits, C_ClassTalents
+        if not (traits and traits.GetConfigInfo
+            and traits.GetGroupDisplayInfoByTreeID and traits.GetGroupCurrencyInfo) then return end
+        local config = talents and talents.GetActiveConfigID and talents.GetActiveConfigID()
+        if not config and api and api.GetActiveSpecGroup and api.GetCombatConfigIDForSpecGroup then
+            local group = api.GetActiveSpecGroup()
+            if group then config = api.GetCombatConfigIDForSpecGroup(group) end
+        end
+        local info = config and traits.GetConfigInfo(config)
+        local tree = info and info.treeIDs and info.treeIDs[1]
+        local displays = tree and traits.GetGroupDisplayInfoByTreeID(tree)
+        if type(displays) ~= "table" or #displays ~= 3 then return end
+        local sorted, ids, points = {}, {}, {}
+        for i, display in ipairs(displays) do sorted[i] = display end
+        table.sort(sorted, function(a, b) return (a.orderIndex or 0) < (b.orderIndex or 0) end)
+        for i, display in ipairs(sorted) do ids[i] = display.groupID end
+        for _, group in ipairs(traits.GetGroupCurrencyInfo(config, ids) or {}) do
+            local currency = group.currencyInfos and group.currencyInfos[1]
+            if currency then points[group.traitNodeGroupID] = currency.spent end
+        end
+        for i, display in ipairs(sorted) do
+            if type(points[display.groupID]) == "number" then
+                addTree(i, display.displayName or fallback[i], points[display.groupID])
+            end
+        end
+    end
+    local ok = pcall(collect)
+    if not ok then trees = {} end
+    fillEmptyTrees()
+    if not (trees[1] and trees[2] and trees[3]) and zeroTrees then trees = zeroTrees end
+    local options, signature, best, winner, tied = {}, {}, 0, nil, false
+    for i = 1, 3 do
+        local tree = trees[i]
+        local name = tree and tree.name or fallback[i]
+        if name then options[#options + 1] = name end
+        if tree then
+            signature[#signature + 1] = tostring(tree.points)
+            if tree.points > best then best, winner, tied = tree.points, name, false
+            elseif tree.points == best and best > 0 then tied = true end
+        end
+    end
+    -- Missing data, no spent points and tied builds must not invent a main spec.
+    local complete = #signature == 3
+    return options, complete and not tied and winner or nil,
+        complete and ((class or "") .. ":" .. table.concat(signature, "/")) or nil,
+        { trees = trees, status = not complete and "Talent data unavailable"
+            or best == 0 and "No talent points spent" or tied and "Talent trees tied for most points" or "Detected" }
+end
+
 local function baseName(name)
     local value = tostring(name or "")
     value = value:match("^([^-]+)") or value
@@ -57,6 +172,33 @@ end
 
 function GD:GetPlayerNameParts()
     return characterNameParts(currentRosterName())
+end
+
+function GD:SetPlayerSpecChoice(spec)
+    local options, _, signature = self:GetPlayerSpecOptions()
+    for _, option in ipairs(options) do
+        if option == spec then
+            GDB = GDB or {}
+            GDB.specChoices = GDB.specChoices or {}
+            GDB.specChoices[nameKey(currentRosterName())] = { spec = spec, build = signature }
+            return true
+        end
+    end
+    return false
+end
+
+function GD:RefreshPlayerSpec()
+    if not self.bucket then return end
+    local options, detected, signature = self:GetPlayerSpecOptions()
+    local player = currentRosterName()
+    local choice = GDB and GDB.specChoices and GDB.specChoices[nameKey(player)]
+    local selected = detected
+    if choice and choice.build == signature then
+        for _, option in ipairs(options) do if choice.spec == option then selected = option; break end end
+    end
+    local profile = self:GetProfile(player) or {}
+    if not selected or profile.spec == selected then return end
+    self:SetProfile(nil, nil, profile.role, selected, profile.timezone, profile.alts, profile.professions, profile.race, true)
 end
 
 function GD:GetProfile(name)
@@ -165,7 +307,7 @@ function GD:RefreshPlayerProfessions()
     if profile.firstName == firstName and profile.lastName == lastName
         and (not professions or professions == "" or profile.professions == professions) then return end
     professions = professions and professions ~= "" and professions or profile.professions
-    self:SetProfile(profile.firstName, profile.lastName, profile.role, profile.spec, profile.timezone, profile.alts, professions, profile.race)
+    self:SetProfile(profile.firstName, profile.lastName, profile.role, profile.spec, profile.timezone, profile.alts, professions, profile.race, true)
 end
 
 local function cleanField(value, limit)
@@ -209,7 +351,7 @@ GD:RegisterHistoryProvider(function()
     end
 end, false)
 
-function GD:SetProfile(firstName, lastName, role, spec, timezone, alts, professions, race)
+function GD:SetProfile(firstName, lastName, role, spec, timezone, alts, professions, race, preserveView)
     if not self.bucket then return false, "Join a guild first." end
     local player = currentRosterName()
     local playerBase = baseName(player)
@@ -219,11 +361,13 @@ function GD:SetProfile(firstName, lastName, role, spec, timezone, alts, professi
     race = (type(detectedRace) == "string" and detectedRace ~= "" and detectedRace) or race
     local detectedProfessions = self:GetPlayerProfessions()
     if detectedProfessions ~= nil and detectedProfessions ~= "" then professions = detectedProfessions end
+    local previous = self:GetProfile(player)
     local profile = {
         firstName = cleanField(firstName, 60), lastName = cleanField(lastName, 60),
         role = cleanField(role, 60), spec = cleanField(spec, 80),
         timezone = cleanField(timezone, 60), alts = cleanField(alts, 200), professions = cleanField(professions, 250), race = cleanField(race, 60),
-        ts = time(), by = player,
+        -- Profession and talent scans can both update the profile in one second.
+        ts = math.max(time(), (previous and previous.ts or 0) + 1), by = player,
         characterName = player,
         characterGUID = UnitGUID and UnitGUID("player") or nil,
     }
@@ -238,8 +382,10 @@ function GD:SetProfile(firstName, lastName, role, spec, timezone, alts, professi
     self.profileCache[playerBase] = profile
     self.profileCache[nameKey(player)] = profile
     self:SendRecord("PF", player, profile.ts, player, encodeProfile(profile))
-    self.profileTarget, self.activeTab = player, "Roster"
-    self.selectedRosterName = player
+    if not preserveView then
+        self.profileTarget, self.activeTab = player, "Roster"
+        self.selectedRosterName = player
+    end
     if self.RefreshUI then self:RefreshUI() end
     return true, "Profile saved and shared with online GuildDB users."
 end
@@ -251,6 +397,7 @@ local function scheduleProfessionScan()
     local function scan()
         professionScanPending = false
         GD:RefreshPlayerProfessions()
+        GD:RefreshPlayerSpec()
     end
     if C_Timer and C_Timer.After then C_Timer.After(1, scan) else scan() end
 end
@@ -259,6 +406,26 @@ GD:RegisterEventHandler("GUILD_ROSTER_UPDATE", scheduleProfessionScan)
 GD:RegisterEventHandler("PLAYER_GUILD_UPDATE", scheduleProfessionScan)
 GD:RegisterEventHandler("SKILL_LINES_CHANGED", scheduleProfessionScan)
 GD:RegisterEventHandler("TRADE_SKILL_UPDATE", scheduleProfessionScan)
+GD:RegisterEventHandler("PLAYER_ENTERING_WORLD", scheduleProfessionScan)
+GD:RegisterEventHandler("PLAYER_TALENT_UPDATE", scheduleProfessionScan)
+GD:RegisterEventHandler("CHARACTER_POINTS_CHANGED", scheduleProfessionScan)
+GD:RegisterEventHandler("ACTIVE_TALENT_GROUP_CHANGED", scheduleProfessionScan)
+GD:RegisterEventHandler("TRAIT_CONFIG_UPDATED", scheduleProfessionScan)
+
+GD:RegisterCommand("spec", function()
+    local options, detected, signature, details = GD:GetPlayerSpecOptions()
+    print("GuildDB: Detected main spec: " .. (detected or ("Unknown (" .. details.status .. ")")))
+    for i, option in ipairs(options) do
+        local tree = details.trees[i]
+        print("GuildDB: " .. option .. ": " .. (tree and tostring(tree.points) or "unavailable") .. " talent points")
+    end
+    local player = currentRosterName()
+    local profile = GD:GetProfile(player)
+    local choice = GDB and GDB.specChoices and GDB.specChoices[nameKey(player)]
+    local manual = choice and choice.build == signature and profile and profile.spec == choice.spec
+    print("GuildDB: Saved profile spec: " .. (profile and profile.spec ~= "" and profile.spec or "Not set")
+        .. (manual and " (manual override for this build)" or ""))
+end)
 
 GD:RegisterCommand("profile", function(rest)
     local action, profileRest = rest:match("^(%S+)%s*(.*)$")
