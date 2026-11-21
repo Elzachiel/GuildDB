@@ -1,7 +1,6 @@
--- Home dashboard: guild-rank MOTD permissions and locally observed new members.
+-- Home dashboard: officer MOTD access and recently joined guild members.
 local _, GD = ...
 GD:RegisterBucket("homeMOTD", function() return {} end)
-GD:RegisterBucket("homeRoles", function() return {} end)
 GD:RegisterBucket("homeMembers", function() return {} end)
 
 local function key(name)
@@ -19,10 +18,7 @@ end
 local function allowed(name)
     local rank = rankOf(name)
     if rank == nil then return false end
-    if rank == 0 then return true end
-    local selected = (GD.bucket and GD.bucket.homeRoles.ranks or {})[rank]
-    if selected ~= nil then return selected == true end
-    return rank == 1 -- Preserve the default for guilds without a saved selection.
+    return rank <= 1
 end
 
 local function newer(current, ts, author)
@@ -31,15 +27,6 @@ end
 
 local function refresh()
     if GD.RefreshUI then GD:RefreshUI() end
-end
-
-local function encodeRoles(ranks)
-    local result = {}
-    for rank = 0, 9 do
-        if ranks[rank] == true then result[#result + 1] = tostring(rank)
-        elseif ranks[rank] == false then result[#result + 1] = rank .. "=0" end
-    end
-    return table.concat(result, ",")
 end
 
 local pending = {}
@@ -56,10 +43,7 @@ function GD:CanEditHomeMOTD()
     local rank
     if GetGuildInfo then local _, _, value = GetGuildInfo("player"); rank = value end
     if rank == nil then return allowed(self:PlayerName()) end
-    if rank == 0 then return true end
-    local selected = (self.bucket.homeRoles.ranks or {})[rank]
-    if selected ~= nil then return selected == true end
-    return rank == 1
+    return rank <= 1
 end
 
 -- Current clients expose GetMOTD in C_GuildInfo; the legacy global can be
@@ -182,35 +166,6 @@ function GD:HomeMOTDMacro(text)
     return "/stopmacro [combat]\n" .. command .. " " .. text
 end
 
-function GD:SetHomeRoles(ranks)
-    if not self.bucket or not self:CanManage() then return false, "Only officers can choose MOTD editor ranks." end
-    local selected = { [1] = ranks[1] ~= false }
-    for rank = 2, 9 do if ranks[rank] then selected[rank] = true end end
-    local record = { ranks = selected, ts = math.max(time(), (self.bucket.homeRoles.ts or 0) + 1), by = self:PlayerName() }
-    self.bucket.homeRoles = record
-    self:SendRecord("HR", "roles", record.ts, record.by, encodeRoles(selected))
-    refresh()
-    return true, "MOTD editor ranks saved and shared."
-end
-
-GD:RegisterRecordHandler("HR", function(id, ts, author, content)
-    if not GD.bucket or id ~= "roles" or #content > 60 then return end
-    if not rosterReady("HR", id, ts, author, content) then return end
-    local rank = rankOf(author)
-    if not rank or rank > 1 or not newer(GD.bucket.homeRoles, ts, author) then return end
-    local ranks = {}
-    if content ~= "" then
-        for value in (content .. ","):gmatch("(.-),") do
-            local rank, enabled = value:match("^([0-9])=([01])$")
-            if rank then ranks[tonumber(rank)] = enabled == "1"
-            elseif value:match("^[0-9]$") then ranks[tonumber(value)] = true
-            else return end
-        end
-    end
-    GD.bucket.homeRoles = { ranks = ranks, ts = ts, by = author }
-    refresh()
-end)
-
 GD:RegisterRecordHandler("HM", function(id, ts, author, content)
     if not GD.bucket or id ~= "motd" or #content > 600 then return end
     if not rosterReady("HM", id, ts, author, content) or not allowed(author) then return end
@@ -221,11 +176,61 @@ end)
 
 GD:RegisterHistoryProvider(function()
     if not GD.bucket then return end
-    -- Permissions must arrive before the MOTD from a delegated guild rank.
-    local roles, motd = GD.bucket.homeRoles, GD.bucket.homeMOTD
-    if roles.ts then GD:SendRecord("HR", "roles", roles.ts, roles.by, encodeRoles(roles.ranks or {})) end
+    local motd = GD.bucket.homeMOTD
+    local members = GD.bucket.homeMembers
+    if members.clearedAt and members.clearedBy then
+        GD:SendRecord("HC", "recent-joins", members.clearedAt, members.clearedBy, "")
+    end
     if motd.ts then GD:SendRecord("HM", "motd", motd.ts, motd.by, motd.text or "") end
 end, false)
+
+function GD:IsHomeGuildMaster()
+    if not self.bucket or not GetGuildInfo then return false end
+    local _, _, rank = GetGuildInfo("player")
+    return rank == 0
+end
+
+local function applyRecentClear(ts, author)
+    local db = GD.bucket.homeMembers
+    if ts <= (db.clearedAt or 0) then return end
+    db.ignoredLog = db.ignoredLog or {}
+    for id in pairs(db.members or {}) do db.ignoredLog[id] = true end
+    local remaining = {}
+    for id, record in pairs(db.recent or {}) do
+        if (record.ts or 0) > ts then remaining[id] = record
+        else db.ignoredLog[id] = true end
+    end
+    db.recent, db.clearedAt, db.clearedBy = remaining, ts, author
+end
+
+function GD:ClearHomeRecentJoins()
+    if not self:IsHomeGuildMaster() then return false, "Only the guild master can clear recently joined members." end
+    local ts = math.max(time(), (self.bucket.homeMembers.clearedAt or 0) + 1)
+    applyRecentClear(ts, self:PlayerName())
+    self:SendRecord("HC", "recent-joins", ts, self:PlayerName(), "")
+    refresh()
+    return true, "Recently joined members cleared and shared with GuildDB users."
+end
+
+GD:RegisterRecordHandler("HC", function(id, ts, author, content)
+    if not GD.bucket or id ~= "recent-joins" or content ~= "" then return end
+    if not rosterReady("HC", id, ts, author, content) or rankOf(author) ~= 0 then return end
+    applyRecentClear(ts, author)
+    refresh()
+end)
+
+local function memberDetails(name)
+    local wanted = key(name)
+    for _, member in ipairs(GD.roster or {}) do
+        if key(member.name) == wanted then return member.level, member.classFile end
+    end
+    if GetNumGuildMembers and GetGuildRosterInfo then
+        for index = 1, GetNumGuildMembers(true) do
+            local member, _, _, level, _, _, _, _, _, _, classFile = GetGuildRosterInfo(index)
+            if member and key(member) == wanted then return level, classFile end
+        end
+    end
+end
 
 function GD:RecordHomeJoin(name, timestamp, source)
     if not self.bucket or type(name) ~= "string" or name == "" then return end
@@ -235,10 +240,17 @@ function GD:RecordHomeJoin(name, timestamp, source)
     if id == "" then return end
     local previous = db.recent[id]
     timestamp = tonumber(timestamp) or time()
+    if source == "log" and ((db.ignoredLog or {})[id] or (db.clearedAt and timestamp <= db.clearedAt)) then return end
+    if source == "system" and db.ignoredLog then db.ignoredLog[id] = nil end
     if time() - timestamp > 30 * 86400 then return end
     -- Re-reading the log must not reset join times on every refresh.
     if not previous or not previous.joined or (source == "system") then
         db.recent[id] = { name = name, ts = timestamp, joined = true, source = source }
+    end
+    local record = db.recent[id]
+    if record then
+        local level, classFile = memberDetails(name)
+        record.level, record.classFile = level or record.level, classFile or record.classFile
     end
     db.members[id] = true
 end
@@ -389,29 +401,6 @@ local function announcementForm(post)
     end)
 end
 
-function GD:OpenHomeRoleSettings()
-    if not self.bucket or not self:CanManage() then return end
-    local fields, ranks = {}, {}
-    local count = GuildControlGetNumRanks and GuildControlGetNumRanks() or 0
-    if count == 0 then print("GuildDB: Guild ranks are still loading."); return end
-    for index = 1, math.min(count, 10) do
-        local rank = index - 1
-        if rank > 0 then
-            fields[#fields + 1] = { label = GuildControlGetRankName(index) or ("Rank " .. rank),
-                value = (((GD.bucket.homeRoles.ranks or {})[rank] == true)
-                    or (rank == 1 and (GD.bucket.homeRoles.ranks or {})[1] == nil)) and "Allowed" or "Not allowed",
-                options = { "Allowed", "Not allowed" } }
-            ranks[#ranks + 1] = rank
-        end
-    end
-    if #fields == 0 then return end
-    GD.ShowInputForm("MOTD editors (GM always allowed)", fields, function(values)
-        local selected = {}
-        for i, rank in ipairs(ranks) do selected[rank] = values[i] == "Allowed" end
-        return GD:SetHomeRoles(selected)
-    end)
-end
-
 function GD:GetHomeMOTD()
     local native = readGuildMOTD()
     if motdReadback and motdReadback.bucket == self.bucket then
@@ -449,6 +438,11 @@ local function buildHome(frame)
     home.edit:SetPoint("TOPRIGHT", -12, -10)
     home.newPost = button(home.posts, "New post", 86, function() announcementForm() end)
     home.newPost:SetPoint("TOPRIGHT", -12, -10)
+    home.clearJoins = button(home.joins, "Clear", 56, function()
+        local _, message = GD:ClearHomeRecentJoins()
+        print("GuildDB: " .. tostring(message))
+    end)
+    home.clearJoins:SetPoint("TOPRIGHT", -12, -10)
     home.motdText = label(home.motd.content, "")
     home.motdText:SetPoint("TOPLEFT", 2, -2)
     home.motdText:SetPoint("TOPRIGHT", -2, -2)
@@ -474,6 +468,7 @@ function GD:RefreshHome()
     home.posts:SetWidth(math.max(180, (frame.detailPanel:GetWidth() - 32) / 2))
     home.joins:SetWidth(home.posts:GetWidth())
     home.edit:SetShown(self:CanEditHomeMOTD())
+    home.clearJoins:SetShown(self:IsHomeGuildMaster())
     home.newPost:SetShown(self.bucket ~= nil and self:CanManage())
     local text = self.bucket and self:GetHomeMOTD() or ""
     home.motdText:SetText(self:Display(text ~= "" and text or (self.bucket and "No message of the day set." or "Join a guild to view your Home page.")))
@@ -484,7 +479,15 @@ function GD:RefreshHome()
     local lines = {}
     for i = 1, math.min(20, #recent) do
         local member = recent[i]
-        lines[#lines + 1] = self:Display(member.name) .. (member.joined and "\nJoined " or "\nFirst seen ") .. date("%b %d, %I:%M %p", member.ts)
+        local level, classFile = memberDetails(member.name)
+        member.level, member.classFile = level or member.level, classFile or member.classFile
+        local name = self:Display(member.name)
+        local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[member.classFile]
+        if color then
+            name = ("|cff%02x%02x%02x%s|r"):format(math.floor(color.r * 255 + 0.5), math.floor(color.g * 255 + 0.5), math.floor(color.b * 255 + 0.5), name)
+        end
+        local levelText = tonumber(member.level) and tonumber(member.level) > 0 and ("Level " .. member.level) or "Level unknown"
+        lines[#lines + 1] = name .. " - " .. levelText .. (member.joined and "\nJoined " or "\nFirst seen ") .. date("%b %d, %I:%M %p", member.ts)
     end
     home.joinText:SetText(#lines > 0 and table.concat(lines, "\n\n") or "No recent joins found.\n\nNew members are detected from guild notifications and the guild activity log.")
     home.joins.content:SetHeight(math.max(100, home.joinText:GetStringHeight() + 12))

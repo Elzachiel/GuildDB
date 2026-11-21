@@ -36,26 +36,22 @@ GD:TrackHomeMembers()
 assert(GD.bucket.homeMembers.recent.newmoon.name=='New Moon')
 GD:TrackHomeMembers()
 assert(GD.bucket.homeMembers.recent.newmoon.ts==1001,'refresh must not reset first seen')
-assert(GD:SetHomeRoles({[3]=true}))
-player,rank='Member Moon',3
+GD.bucket.homeRoles={ranks={[1]=false,[3]=true}} -- obsolete saved settings must have no effect
+player,rank='Officer Moon',1
 assert(GD:CanEditHomeMOTD())
 assert(GD:SetHomeMOTD('Welcome!'))
 assert(GD.bucket.homeMOTD.text=='Welcome!')
-assert(not GD:SetHomeRoles({[4]=true}),'members cannot grant edit permissions')
-GD.bucket.homeRoles.ranks={}
+player,rank='Member Moon',3
+assert(not GD:CanEditHomeMOTD())
 assert(not GD:SetHomeMOTD('blocked'))
-handlers.HR('roles',2000,'Member Moon','3')
-assert(not GD.bucket.homeRoles.ranks[3],'member-authored roles must be rejected')
-handlers.HR('roles',2001,'Leader Moon','3')
-assert(GD.bucket.homeRoles.ranks[3])
-handlers.HM('motd',2002,'Member Moon','Shared message')
+handlers.HM('motd',2002,'Officer Moon','Shared message')
 assert(GD.bucket.homeMOTD.text=='Shared message')
-handlers.HM('motd',2000,'Member Moon','Older message')
+handlers.HM('motd',2000,'Officer Moon','Older message')
 assert(GD.bucket.homeMOTD.text=='Shared message')
 handlers.HM('motd',2003,'Outsider','Forged message')
 assert(GD.bucket.homeMOTD.text=='Shared message')
 GD.sent={}; histories[1]()
-assert(GD.sent[1][1]=='HR' and GD.sent[2][1]=='HM','permissions sync before MOTD')
+assert(GD.sent[1][1]=='HM' and #GD.sent==1,'obsolete rank settings must not sync')
 -- Basic UI construction, row reuse, and empty-state smoke check.
 local methods={}
 local function widget() return setmetatable({shown=true,width=820,height=500,text='',scripts={}}, {__index=function(t,k) return methods[k] or (k:match("^%u") and not k:match("^GuildDB") and function() end or nil) end}) end
@@ -90,8 +86,7 @@ GD.recordHandlers=handlers
 GD.bucket={homeRoles={},homeMOTD={},homeMembers={}}
 local savedRoster=roster
 roster={}
-handlers.HR('roles',3000,'Leader Moon','3')
-handlers.HM('motd',3001,'Member Moon','Deferred welcome')
+handlers.HM('motd',3001,'Officer Moon','Deferred welcome')
 assert(GD.bucket.homeMOTD.text==nil)
 roster=savedRoster
 events.GUILD_ROSTER_UPDATE()
@@ -182,37 +177,19 @@ assert(GD:SetHomeMOTD('Modern API only'))
 assert(GD:GetHomeMOTD()=='Modern API only')
 GD:RefreshHome()
 assert(GD.frame.home.motdText.text=='Modern API only')
--- Officer is selectable, its disabled value survives sync, and GM retains access.
+-- Officers always retain MOTD access even with obsolete disabled settings.
 GetGuildInfo=function() return 'Guild','Rank',rank end
-rank,player=0,'Leader Moon'
-GuildControlGetNumRanks=function() return 4 end
-GuildControlGetRankName=function(i) return ({'Guild Master','Officer','Veteran','Member'})[i] end
-local rankFields,saveRanks
-GD.ShowInputForm=function(_,fields,save) rankFields=fields;saveRanks=save end
-GD:OpenHomeRoleSettings()
-assert(rankFields[1].label=='Officer' and rankFields[1].value=='Allowed')
-assert(saveRanks({'Not allowed','Not allowed','Allowed'}))
-assert(GD.bucket.homeRoles.ranks[1]==false)
-assert(GD:CanEditHomeMOTD(),'GM retains access')
-rank,player=1,'Officer Moon'
-assert(not GD:CanEditHomeMOTD(),'disabled Officer must not bypass the selection')
-local encoded=GD.sent[#GD.sent][5]
-assert(encoded:find('1=0',1,true))
-handlers.HR('roles',9000,'Leader Moon',encoded)
-assert(GD.bucket.homeRoles.ranks[1]==false)
-handlers.HM('motd',9001,'Officer Moon','Unauthorized')
-assert(GD.bucket.homeMOTD.text=='Modern API only')
-rank,player=0,'Leader Moon'
-assert(GD:SetHomeRoles({[1]=true,[3]=true}))
+GD.bucket.homeRoles={ranks={[1]=false}}
 rank,player=1,'Officer Moon'
 assert(GD:CanEditHomeMOTD())
+assert(GD.OpenHomeRoleSettings==nil and GD.SetHomeRoles==nil)
 assert(GD:SetHomeMOTD('Officer updated guild MOTD'))
 assert(currentNative=='Officer updated guild MOTD')
 -- A real messaging lock is reported before making a write.
 C_ChatInfo={InChatMessagingLockdown=function() return true end}
 assert(not GD:SetHomeMOTD('Locked'))
 assert(currentNative=='Officer updated guild MOTD')
-print('PASS: modern-only and stale legacy getters, immediate native confirmation/display, Officer selection and sync, messaging-lock handling')
+print('PASS: modern-only and stale legacy getters, immediate native confirmation/display, unconditional Officer access, messaging-lock handling')
 -- Join notifications and historical guild joins must work without roster changes.
 C_ChatInfo=nil
 ERR_GUILD_JOIN_S='%s has joined the guild.'
@@ -295,3 +272,40 @@ assert(not GD:HomeMOTDMacro('Hello\n/gquit'):find('\n/gquit',1,true),'MOTD text 
 print('PASS: real Home form preserves secure click handler, native command confirms/saves, no insecure writer, input cannot inject commands')
 
 
+-- Recently joined shows live roster levels/class colors and retains known details.
+RAID_CLASS_COLORS={MAGE={r=0.25,g=0.5,b=1}}
+GD.roster={{name='Fresh Moon',level=42,classFile='MAGE'}}
+GD:RecordHomeJoin('Fresh Moon',time(),'system')
+rank,player=0,'Leader Moon'
+GD:RefreshHome()
+assert(GD.frame.home.joinText.text:find('|cff4080ffFresh Moon|r - Level 42',1,true))
+assert(GD.frame.home.clearJoins.shown,'GM must see Clear')
+GD.roster={}
+GD:RefreshHome()
+assert(GD.frame.home.joinText.text:find('Level 42',1,true),'known level must survive a missing roster entry')
+rank,player=1,'Officer Moon'
+GD:RefreshHome()
+assert(not GD.frame.home.clearJoins.shown,'Officer must not see GM Clear')
+assert(not GD:ClearHomeRecentJoins())
+assert(GD.bucket.homeMembers.recent.freshmoon)
+rank,player=0,'Leader Moon'
+assert(GD:ClearHomeRecentJoins())
+assert(next(GD.bucket.homeMembers.recent)==nil)
+local clearedAt=GD.bucket.homeMembers.clearedAt
+clock=clock+20
+GD:ReadHomeGuildLog()
+GD:RefreshHome()
+assert(next(GD.bucket.homeMembers.recent)==nil,'cached guild history must not refill a cleared list')
+GD:RecordHomeJoin('Next Moon',time(),'system')
+assert(GD.bucket.homeMembers.recent.nextmoon,'new joins after Clear must still appear')
+handlers.HC('recent-joins',clock+1,'Officer Moon','')
+assert(GD.bucket.homeMembers.recent.nextmoon,'officer-authored resets must be rejected')
+handlers.HC('recent-joins',clearedAt-1,'Leader Moon','')
+assert(GD.bucket.homeMembers.recent.nextmoon,'stale resets must be ignored')
+handlers.HC('recent-joins',clock+1,'Leader Moon','')
+assert(next(GD.bucket.homeMembers.recent)==nil,'GM resets must apply on receiving clients')
+GD.sent={};histories[1]()
+local syncedClear=false
+for _,record in ipairs(GD.sent) do if record[1]=='HC' then syncedClear=true end end
+assert(syncedClear,'reset must survive history sync')
+print('PASS: class colors/levels, persisted member details, GM-only Clear visibility/authorization, history suppression, new joins after reset, reset sync')
