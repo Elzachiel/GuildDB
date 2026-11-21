@@ -10,15 +10,21 @@ local ACCENTS = {
     { 0.95, 0.72, 0.25 }, -- amber
     { 0.94, 0.38, 0.52 }, -- rose
 }
-local CLASS_ACCENTS = {
-    WARRIOR = 4, PALADIN = 6, HUNTER = 3, ROGUE = 5, PRIEST = 1,
-    DEATHKNIGHT = 6, SHAMAN = 3, MAGE = 1, WARLOCK = 2, MONK = 3,
-    DRUID = 5, DEMONHUNTER = 2, EVOKER = 3,
+local CLASS_COLOR_FALLBACKS = {
+    WARRIOR = { 0.78, 0.61, 0.43 }, PALADIN = { 0.96, 0.55, 0.73 },
+    HUNTER = { 0.67, 0.83, 0.45 }, ROGUE = { 1.00, 0.96, 0.41 },
+    PRIEST = { 1.00, 1.00, 1.00 }, DEATHKNIGHT = { 0.77, 0.12, 0.23 },
+    SHAMAN = { 0.00, 0.44, 0.87 }, MAGE = { 0.25, 0.78, 0.92 },
+    WARLOCK = { 0.53, 0.53, 0.93 }, MONK = { 0.00, 1.00, 0.60 },
+    DRUID = { 1.00, 0.49, 0.04 }, DEMONHUNTER = { 0.64, 0.19, 0.79 },
+    EVOKER = { 0.20, 0.57, 0.50 },
 }
 local function classAccent()
     local class
     if UnitClass then local _, token = UnitClass("player"); class = token end
-    return ACCENTS[CLASS_ACCENTS[class] or 1]
+    local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
+    if color then return { color.r, color.g, color.b } end
+    return CLASS_COLOR_FALLBACKS[class] or ACCENTS[1]
 end
 local function updateAccent()
     local index = GD.GetSetting and tonumber(GD:GetSetting("accentColor")) or 1
@@ -61,6 +67,40 @@ local MUTED_GOLD = { 0.48, 0.60, 0.70 }
 local CREAM = { 0.84, 0.89, 0.94 }
 local PANEL = { 0.045, 0.055, 0.072, 0.99 }
 local PANEL_ALT = { 0.075, 0.09, 0.115, 0.99 }
+local FRAME_BG = { 0.025, 0.032, 0.043, 0.99 }
+local HEADER_BG = { 0.035, 0.052, 0.068, 1 }
+local SIDEBAR_BG = { 0.035, 0.045, 0.06, 1 }
+local THEMES = {
+    { name = "Midnight", frame = { 0.025, 0.032, 0.043, 0.99 }, header = { 0.035, 0.052, 0.068, 1 }, sidebar = { 0.035, 0.045, 0.06, 1 }, panel = { 0.045, 0.055, 0.072, 0.99 }, alternate = { 0.075, 0.09, 0.115, 0.99 } },
+    { name = "Slate", frame = { 0.022, 0.03, 0.043, 0.99 }, header = { 0.035, 0.05, 0.07, 1 }, sidebar = { 0.03, 0.042, 0.06, 1 }, panel = { 0.045, 0.062, 0.085, 0.99 }, alternate = { 0.07, 0.09, 0.12, 0.99 } },
+    { name = "Forest", frame = { 0.018, 0.032, 0.026, 0.99 }, header = { 0.026, 0.052, 0.04, 1 }, sidebar = { 0.023, 0.043, 0.034, 1 }, panel = { 0.036, 0.062, 0.048, 0.99 }, alternate = { 0.06, 0.09, 0.068, 0.99 } },
+    { name = "Ember", frame = { 0.036, 0.022, 0.026, 0.99 }, header = { 0.06, 0.032, 0.04, 1 }, sidebar = { 0.046, 0.027, 0.034, 1 }, panel = { 0.065, 0.038, 0.045, 0.99 }, alternate = { 0.095, 0.055, 0.06, 0.99 } },
+}
+local function copyColor(target, source)
+    for index = 1, #source do target[index] = source[index] end
+end
+local function updateTheme()
+    local index = GD.GetSetting and tonumber(GD:GetSetting("uiTheme")) or 1
+    local theme = THEMES[index] or THEMES[1]
+    copyColor(FRAME_BG, theme.frame)
+    copyColor(HEADER_BG, theme.header)
+    copyColor(SIDEBAR_BG, theme.sidebar)
+    copyColor(PANEL, theme.panel)
+    copyColor(PANEL_ALT, theme.alternate)
+end
+GD.GetThemeChoices = function() return THEMES end
+updateTheme()
+local function applyTheme(frame)
+    if not frame then return end
+    if frame.background then frame.background:SetColorTexture(FRAME_BG[1], FRAME_BG[2], FRAME_BG[3], FRAME_BG[4]) end
+    if frame.headerBg then frame.headerBg:SetColorTexture(HEADER_BG[1], HEADER_BG[2], HEADER_BG[3], HEADER_BG[4]) end
+    if frame.sidebar and frame.sidebar.bg then frame.sidebar.bg:SetColorTexture(SIDEBAR_BG[1], SIDEBAR_BG[2], SIDEBAR_BG[3], SIDEBAR_BG[4]) end
+    if frame.listPanel and frame.listPanel.bg then frame.listPanel.bg:SetColorTexture(PANEL[1], PANEL[2], PANEL[3], PANEL[4]) end
+    if frame.detailPanel and frame.detailPanel.bg then frame.detailPanel.bg:SetColorTexture(PANEL[1], PANEL[2], PANEL[3], PANEL[4]) end
+    if frame.rosterSearch then frame.rosterSearch:SetBackdropColor(PANEL_ALT[1], PANEL_ALT[2], PANEL_ALT[3], 1) end
+    if frame.close then GD:StyleButton(frame.close) end
+    if frame.rosterOnlineCheck then GD:StyleButton(frame.rosterOnlineCheck) end
+end
 
 local pvpColumnWidths = { 0.06, 0.28, 0.13, 0.13, 0.40 }
 local function layoutPvPColumn(text, index, parent, width, inset, header)
@@ -91,8 +131,8 @@ end
 function GD:StyleButton(button, variant)
     if not button then return end
     local primary = variant == "primary"
-    local normalColor = primary and { GOLD[1] * 0.42, GOLD[2] * 0.42, GOLD[3] * 0.42 } or { 0.075, 0.09, 0.12 }
-    local pressedColor = primary and { GOLD[1] * 0.30, GOLD[2] * 0.30, GOLD[3] * 0.30 } or { 0.045, 0.06, 0.085 }
+    local normalColor = primary and { GOLD[1] * 0.42, GOLD[2] * 0.42, GOLD[3] * 0.42 } or { PANEL_ALT[1], PANEL_ALT[2], PANEL_ALT[3] }
+    local pressedColor = primary and { GOLD[1] * 0.30, GOLD[2] * 0.30, GOLD[3] * 0.30 } or { PANEL[1], PANEL[2], PANEL[3] }
     local borderColor = primary and GOLD or { 0.16, 0.25, 0.34 }
 
     button:SetNormalTexture("Interface/Buttons/WHITE8X8")
@@ -534,6 +574,7 @@ end
 
 local function build()
     if GD.frame then return end
+    updateTheme()
     local frame = CreateFrame("Frame", "GuildDBMainFrame", UIParent)
     UISpecialFrames = UISpecialFrames or {}
     local escapeRegistered = false
@@ -549,7 +590,7 @@ local function build()
     frame:Hide()
     frame.background = frame:CreateTexture(nil, "BACKGROUND")
     frame.background:SetAllPoints()
-    frame.background:SetColorTexture(0.025, 0.032, 0.043, 0.99)
+    frame.background:SetColorTexture(FRAME_BG[1], FRAME_BG[2], FRAME_BG[3], FRAME_BG[4])
     GD.frame = frame
 
     frame.header = CreateFrame("Frame", nil, frame)
@@ -562,7 +603,7 @@ local function build()
     frame.header:SetScript("OnDragStop", function() frame:StopMovingOrSizing() end)
     frame.headerBg = frame.header:CreateTexture(nil, "BACKGROUND")
     frame.headerBg:SetAllPoints()
-    frame.headerBg:SetColorTexture(0.035, 0.052, 0.068, 1)
+    frame.headerBg:SetColorTexture(HEADER_BG[1], HEADER_BG[2], HEADER_BG[3], HEADER_BG[4])
     frame.logoMark = frame.header:CreateTexture(nil, "ARTWORK")
     frame.logoMark:SetPoint("LEFT", 16, 0)
     frame.logoMark:SetSize(54, 54)
@@ -600,7 +641,7 @@ local function build()
     frame.sidebar:SetWidth(198)
     frame.sidebar.bg = frame.sidebar:CreateTexture(nil, "BACKGROUND")
     frame.sidebar.bg:SetAllPoints()
-    frame.sidebar.bg:SetColorTexture(0.035, 0.045, 0.06, 1)
+    frame.sidebar.bg:SetColorTexture(SIDEBAR_BG[1], SIDEBAR_BG[2], SIDEBAR_BG[3], SIDEBAR_BG[4])
     frame.tabButtons = {}
     frame.navTitle = frame.sidebar:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     frame.navTitle:SetPoint("TOPLEFT", 16, -16)
@@ -1132,7 +1173,7 @@ local function makeTabButton(parent, tab, index)
     button.label:SetJustifyH("LEFT")
     button.label:SetText(tab == "Events" and "Raid Info" or tab)
     button:SetScript("OnEnter", function(self)
-        if GD.activeTab ~= tab then self.bg:SetColorTexture(0.08, 0.15, 0.22, 1) end
+        if GD.activeTab ~= tab then self.bg:SetColorTexture(PANEL_ALT[1], PANEL_ALT[2], PANEL_ALT[3], 1) end
     end)
     button:SetScript("OnLeave", function() GD:RefreshUI() end)
     button:SetScript("OnClick", function()
@@ -1151,8 +1192,10 @@ end
 
 function GD:RefreshUI()
     if not self.frame then return end
+    updateTheme()
     updateAccent()
     local frame = self.frame
+    applyTheme(frame)
     applyAccent(frame)
     local active = self.activeTab or "Home"
     if active == "Profiles" then
@@ -1295,7 +1338,7 @@ function GD:RefreshUI()
         end
         local selected = tab == active
         button.accent:SetShown(selected)
-        button.bg:SetColorTexture(selected and 0.08 or 0.045, selected and 0.16 or 0.055, selected and 0.23 or 0.072, 1)
+        button.bg:SetColorTexture(selected and PANEL_ALT[1] or PANEL[1], selected and PANEL_ALT[2] or PANEL[2], selected and PANEL_ALT[3] or PANEL[3], 1)
         setTextColor(button.label, selected and CREAM or MUTED_GOLD)
     end
 
@@ -1396,7 +1439,7 @@ function GD:RefreshUI()
             row.label:Hide()
             row.meta:Hide()
             if index == selected then
-                row.bg:SetColorTexture(0.08, 0.16, 0.23, 1)
+                row.bg:SetColorTexture(PANEL_ALT[1], PANEL_ALT[2], PANEL_ALT[3], 1)
             else
                 row.bg:SetColorTexture(index % 2 == 1 and PANEL_ALT[1] or PANEL[1], index % 2 == 1 and PANEL_ALT[2] or PANEL[2], index % 2 == 1 and PANEL_ALT[3] or PANEL[3], 1)
             end
@@ -1404,7 +1447,11 @@ function GD:RefreshUI()
         row.label:SetWidth(math.max(100, row:GetWidth() - 20))
         row.meta:SetWidth(math.max(100, row:GetWidth() - 20))
         row.selectedMarker:SetShown(active == "Roster" and index == selected)
-        if active ~= "Roster" then row.bg:SetColorTexture(index == (self.selectedSection or 1) and 0.08 or 0.055, index == (self.selectedSection or 1) and 0.16 or 0.068, index == (self.selectedSection or 1) and 0.23 or 0.085, 1) end
+        if active ~= "Roster" then
+            local selectedRow = index == (self.selectedSection or 1)
+            local color = selectedRow and PANEL_ALT or PANEL
+            row.bg:SetColorTexture(color[1], color[2], color[3], 1)
+        end
         row:Show()
     end
     for index = #sections + 1, #frame.listRows do frame.listRows[index]:Hide() end
@@ -1477,7 +1524,7 @@ function GD:RefreshUI()
         frame.detailMeta:SetText("Personal preferences and officer controls")
         frame.detailTitle:SetText("Settings")
         self:ShowSettingsControls(frame.detailChild)
-        frame.detailChild:SetHeight(440)
+        frame.detailChild:SetHeight(480)
     elseif active == "Roster" then
         self:HideSettingsControls()
         frame.detailBody:Show()

@@ -1,7 +1,7 @@
 -- Personal preferences plus per-guild, officer-managed feature visibility.
 local _, GD = ...
 
-local defaults = { onlineOnly = true, scale = 1, popups = true, levelGuildChat = false, shareMapLocation = false, accentColor = 1 }
+local defaults = { onlineOnly = true, scale = 1, popups = true, levelGuildChat = false, shareMapLocation = false, accentColor = 1, uiTheme = 1 }
 
 local function settings()
     if type(GDB) ~= "table" then GDB = {} end
@@ -62,6 +62,8 @@ function GD:SetSetting(key, value)
     elseif defaults[key] ~= nil then
         if key == "accentColor" then
             value = math.max(1, math.min(7, math.floor(tonumber(value) or 1)))
+        elseif key == "uiTheme" then
+            value = math.max(1, math.min(4, math.floor(tonumber(value) or 1)))
         end
         db[key] = value
     else
@@ -189,7 +191,8 @@ end
 
 local function makeButton(parent, text, width, x, y, callback, list)
     local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-    if GD.StyleButton then GD:StyleButton(button, text == "Re-sync now" and "primary" or nil) end
+    button.GuildDBPrimary = text == "Re-sync now"
+    if GD.StyleButton then GD:StyleButton(button, button.GuildDBPrimary and "primary" or nil) end
     button:SetSize(width, 26)
     button:SetPoint("TOPLEFT", x, y)
     button:SetText(text)
@@ -201,21 +204,63 @@ end
 local function build(parent)
     local list = {}
     GD.settingsControls = list
-    label(parent, "Personal", 12, -10, "GameFontNormalLarge", list)
-    check(parent, "Show online members only", "onlineOnly", 12, -42, list)
-    check(parent, "Show GuildDB popups", "popups", 12, -72, list)
-    check(parent, "Guild chat ding for level milestones", "levelGuildChat", 12, -102, list)
-    check(parent, "Share my location with GuildDB members", "shareMapLocation", 12, -132, list)
-    label(parent, "Window scale", 12, -178, "GameFontNormal", list)
-    local scaleText = label(parent, "", 105, -178, "GameFontHighlight", list)
+    local personalPanel = CreateFrame("Frame", nil, parent)
+    personalPanel:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -40)
+    personalPanel:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0, 0)
+    list[#list + 1] = personalPanel
+    local appearancePanel = CreateFrame("Frame", nil, parent)
+    appearancePanel:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -40)
+    appearancePanel:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0, 0)
+    appearancePanel:Hide()
+    list[#list + 1] = appearancePanel
+    local officerPanel = CreateFrame("Frame", nil, parent)
+    officerPanel:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -40)
+    officerPanel:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0, 0)
+    officerPanel:Hide()
+    list[#list + 1] = officerPanel
+    GD.settingsPanels = { personalPanel, appearancePanel, officerPanel }
+
+    local appearanceTab
+    local officerTab
+    local personalTab
+    local function selectSettingsSection(section)
+        GD.settingsSection = section
+        personalPanel:SetShown(section == "personal")
+        appearancePanel:SetShown(section == "appearance")
+        officerPanel:SetShown(section == "officer")
+        GD:StyleButton(personalTab, section == "personal" and "primary" or nil)
+        GD:StyleButton(appearanceTab, section == "appearance" and "primary" or nil)
+        GD:StyleButton(officerTab, section == "officer" and "primary" or nil)
+    end
+    personalTab = makeButton(parent, "Personal", 88, 12, -8, function()
+        selectSettingsSection("personal")
+    end, list)
+    personalTab.GuildDBSettingsTab = true
+    appearanceTab = makeButton(parent, "Appearance", 98, 108, -8, function()
+        selectSettingsSection("appearance")
+    end, list)
+    appearanceTab.GuildDBSettingsTab = true
+    officerTab = makeButton(parent, "Officer", 82, 214, -8, function()
+        selectSettingsSection("officer")
+    end, list)
+    officerTab.GuildDBSettingsTab = true
+    selectSettingsSection(GD.settingsSection or "personal")
+
+    label(personalPanel, "Personal", 12, -10, "GameFontNormalLarge", list)
+    check(personalPanel, "Show online members only", "onlineOnly", 12, -42, list)
+    check(personalPanel, "Show GuildDB popups", "popups", 12, -72, list)
+    check(personalPanel, "Guild chat ding for level milestones", "levelGuildChat", 12, -102, list)
+    check(personalPanel, "Share my location with GuildDB members", "shareMapLocation", 12, -132, list)
+    label(personalPanel, "Window scale", 12, -178, "GameFontNormal", list)
+    local scaleText = label(personalPanel, "", 105, -178, "GameFontHighlight", list)
     local function updateScale()
         scaleText:SetText(("%d%%"):format(math.floor((GD:GetSetting("scale") or 1) * 100 + 0.5)))
     end
-    local scaleDown = makeButton(parent, "-", 32, 160, -170, function()
+    local scaleDown = makeButton(personalPanel, "-", 32, 160, -170, function()
         GD:SetSetting("scale", math.max(0.8, math.floor(((GD:GetSetting("scale") or 1) - 0.1) * 10 + 0.5) / 10))
         updateScale()
     end, list)
-    local scaleUp = makeButton(parent, "+", 32, 200, -170, function()
+    local scaleUp = makeButton(personalPanel, "+", 32, 200, -170, function()
         GD:SetSetting("scale", math.min(1.2, math.floor(((GD:GetSetting("scale") or 1) + 0.1) * 10 + 0.5) / 10))
         updateScale()
     end, list)
@@ -223,13 +268,12 @@ local function build(parent)
     scaleUp:GetFontString():SetFontObject("GameFontNormalLarge")
     updateScale()
 
-    label(parent, "Appearance", 12, -218, "GameFontNormalLarge", list)
-    label(parent, "Accent color", 12, -248, "GameFontNormal", list)
+    label(appearancePanel, "Accent color", 12, -18, "GameFontNormal", list)
     local choices = GD.GetAccentChoices and GD:GetAccentChoices() or {}
-    local accentText = label(parent, "", 112, -248, "GameFontHighlight", list)
-    local accentSwatch = parent:CreateTexture(nil, "ARTWORK")
+    local accentText = label(appearancePanel, "", 112, -18, "GameFontHighlight", list)
+    local accentSwatch = appearancePanel:CreateTexture(nil, "ARTWORK")
     accentSwatch:SetSize(18, 18)
-    accentSwatch:SetPoint("TOPLEFT", 282, -244)
+    accentSwatch:SetPoint("TOPLEFT", 282, -14)
     list[#list + 1] = accentSwatch
     local function updateAccent()
         local index = GD:GetSetting("accentColor") or 1
@@ -237,32 +281,61 @@ local function build(parent)
         local names = { "Class color", "Blue", "Violet", "Teal", "Coral", "Amber", "Rose" }
         local className
         if UnitClass then local name = UnitClass("player"); className = name end
-        accentText:SetText(index == 1 and ("Class color (" .. (className or "Unknown") .. ")") or names[index] or names[1])
+        accentText:SetText(index == 1 and (className or "Class") or names[index] or names[1])
         accentSwatch:SetColorTexture(color[1], color[2], color[3], 1)
+    end
+    label(appearancePanel, "Theme", 12, -70, "GameFontNormal", list)
+    local themeChoices = GD.GetThemeChoices and GD:GetThemeChoices() or {}
+    local themeText = label(appearancePanel, "", 112, -70, "GameFontHighlight", list)
+    local themeSwatch = appearancePanel:CreateTexture(nil, "ARTWORK")
+    themeSwatch:SetSize(30, 18)
+    themeSwatch:SetPoint("TOPLEFT", 282, -66)
+    list[#list + 1] = themeSwatch
+    local function updateTheme()
+        local index = GD:GetSetting("uiTheme") or 1
+        local theme = themeChoices[index] or themeChoices[1]
+        themeText:SetText(theme and theme.name or "Midnight")
+        if theme then themeSwatch:SetColorTexture(theme.panel[1], theme.panel[2], theme.panel[3], 1) end
     end
     GD.RefreshSettingsAppearance = function()
         updateAccent()
+        updateTheme()
+        GD:StyleButton(personalTab, GD.settingsSection == "personal" and "primary" or nil)
+        GD:StyleButton(appearanceTab, GD.settingsSection == "appearance" and "primary" or nil)
+        GD:StyleButton(officerTab, GD.settingsSection == "officer" and "primary" or nil)
         for _, item in ipairs(list) do
             if item.mark and item.mark.SetVertexColor then
                 local color = choices[GD:GetSetting("accentColor") or 1] or choices[1]
                 item.mark:SetVertexColor(color[1], color[2], color[3], 1)
             end
-            if item.GuildDBAccent and GD.StyleButton then GD:StyleButton(item, "primary") end
+            if item.GetObjectType and item:GetObjectType() == "Button" and not item.GuildDBSettingsTab and GD.StyleButton then
+                GD:StyleButton(item, (item.GuildDBPrimary or item.GuildDBAccent) and "primary" or nil)
+            end
         end
     end
-    local accentPrevious = makeButton(parent, "<", 28, 220, -240, function()
+    local accentPrevious = makeButton(appearancePanel, "<", 28, 220, -10, function()
         GD:SetSetting("accentColor", ((GD:GetSetting("accentColor") or 1) - 2) % #choices + 1)
         updateAccent()
     end, list)
-    local accentNext = makeButton(parent, ">", 28, 244, -240, function()
+    local accentNext = makeButton(appearancePanel, ">", 28, 244, -10, function()
         GD:SetSetting("accentColor", (GD:GetSetting("accentColor") or 1) % #choices + 1)
         updateAccent()
     end, list)
     accentPrevious.GuildDBAccent, accentNext.GuildDBAccent = true, true
     updateAccent()
+    local themePrevious = makeButton(appearancePanel, "<", 28, 220, -62, function()
+        GD:SetSetting("uiTheme", ((GD:GetSetting("uiTheme") or 1) - 2) % #themeChoices + 1)
+        updateTheme()
+    end, list)
+    local themeNext = makeButton(appearancePanel, ">", 28, 244, -62, function()
+        GD:SetSetting("uiTheme", (GD:GetSetting("uiTheme") or 1) % #themeChoices + 1)
+        updateTheme()
+    end, list)
+    themePrevious.GuildDBAccent, themeNext.GuildDBAccent = true, true
+    updateTheme()
 
-    label(parent, "Data", 12, -290, "GameFontNormalLarge", list)
-    makeButton(parent, "Re-sync now", 120, 12, -320, function()
+    label(personalPanel, "Data", 12, -220, "GameFontNormalLarge", list)
+    makeButton(personalPanel, "Re-sync now", 120, 12, -250, function()
         local _, message = GD:RequestSync()
         print("GuildDB: " .. tostring(message))
     end, list)
@@ -272,10 +345,10 @@ local function build(parent)
             for _ in pairs(bucket) do records = records + 1 end
         end
     end
-    label(parent, ("Stored records: %d"):format(records), 12, -360, "GameFontDisableSmall", list)
+    label(personalPanel, ("Stored records: %d"):format(records), 12, -290, "GameFontDisableSmall", list)
 
-    label(parent, "GM Settings", 350, -10, "GameFontNormalLarge", list)
-    label(parent, "Feature switches (guild-wide; GM or rank 1)", 350, -38, "GameFontDisableSmall", list)
+    label(officerPanel, "Officer settings", 12, -10, "GameFontNormalLarge", list)
+    label(officerPanel, "Feature switches (guild-wide; GM or rank 1)", 12, -38, "GameFontDisableSmall", list)
     local tabs = {}
     for _, tab in ipairs(GD.tabs or {}) do
         if tab ~= "Settings" then tabs[#tabs + 1] = tab end
@@ -284,10 +357,11 @@ local function build(parent)
     for index, tab in ipairs(tabs) do
         local column = index > split and 1 or 0
         local row = index > split and index - split or index
-        check(parent, tab == "Events" and "Raid Info" or tab, "feature:" .. tab, 350 + column * 155, -70 - (row - 1) * 30, list, true)
+        check(officerPanel, tab == "Events" and "Raid Info" or tab, "feature:" .. tab, 12 + column * 180, -70 - (row - 1) * 30, list, true)
     end
-    label(parent, GD:CanManage() and "Online users update now; offline users on next sync." or "Only the guild leader or rank 1 can change these switches.", 350, -70 - (split + 1) * 30, "GameFontDisableSmall", list)
-    makeButton(parent, "Reset personal settings", 172, 12, -400, function()
+    label(officerPanel, GD:CanManage() and "Online users update now; offline users on next sync." or "Only the guild leader or rank 1 can change these switches.", 12, -70 - (split + 1) * 30, "GameFontDisableSmall", list)
+
+    makeButton(personalPanel, "Reset personal settings", 172, 12, -330, function()
         for key, value in pairs(defaults) do GD:SetSetting(key, value) end
         updateScale()
         updateAccent()
@@ -303,6 +377,11 @@ function GD:ShowSettingsControls(parent)
     for _, item in ipairs(self.settingsControls) do
         item:Show()
         if item.update then item.update() end
+    end
+    if self.settingsPanels then
+        self.settingsPanels[1]:SetShown(self.settingsSection == "personal")
+        self.settingsPanels[2]:SetShown(self.settingsSection == "appearance")
+        self.settingsPanels[3]:SetShown(self.settingsSection == "officer")
     end
 end
 
