@@ -262,6 +262,28 @@ function GD:RefreshRosterRankControls(name)
     if self.activeTab == "Roster" then
         frame.detailScroll:SetPoint("BOTTOMRIGHT", -28, visible and 126 or (name and 90 or 54))
     end
+    self:PositionRankLayer()
+end
+
+function GD:PositionRankLayer()
+    if InCombatLockdown and InCombatLockdown() then return end
+    local frame = self.frame
+    local layer = frame and frame.rankLayer
+    if not layer then return end
+    local left, bottom = frame:GetLeft(), frame:GetBottom()
+    if not left or not bottom then return end
+    -- Copy geometry instead of anchoring secure controls to the main window:
+    -- protected anchor targets inherit combat restrictions just like parents.
+    layer:SetScale(frame:GetEffectiveScale() / UIParent:GetEffectiveScale())
+    layer:ClearAllPoints()
+    layer:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
+    layer:SetSize(frame:GetWidth(), frame:GetHeight())
+    local invite = frame.rosterInviteButton
+    local inviteLeft, inviteTop = invite:GetLeft(), invite:GetTop()
+    if inviteLeft and inviteTop then
+        frame.rosterRankDropdown:ClearAllPoints()
+        frame.rosterRankDropdown:SetPoint("BOTTOMLEFT", layer, "BOTTOMLEFT", inviteLeft - left, inviteTop - bottom + 8)
+    end
 end
 local function setTextColor(font, color)
     font:SetTextColor(color[1], color[2], color[3])
@@ -739,7 +761,10 @@ local function build()
     frame.header:EnableMouse(true)
     frame.header:RegisterForDrag("LeftButton")
     frame.header:SetScript("OnDragStart", function() frame:StartMoving() end)
-    frame.header:SetScript("OnDragStop", function() frame:StopMovingOrSizing() end)
+    frame.header:SetScript("OnDragStop", function()
+        frame:StopMovingOrSizing()
+        GD:PositionRankLayer()
+    end)
     frame.headerBg = frame.header:CreateTexture(nil, "BACKGROUND")
     frame.headerBg:SetAllPoints()
     frame.headerBg:SetColorTexture(HEADER_BG[1], HEADER_BG[2], HEADER_BG[3], HEADER_BG[4])
@@ -1264,15 +1289,34 @@ local function build()
         local ok, err = pcall(invite, name)
         if not ok then print("GuildDB: Could not invite " .. GD:Display(name) .. ": " .. tostring(err)) end
     end)
-    local dropdown = CreateFrame("Button", nil, frame.actionLayer, "UIPanelButtonTemplate,SecureActionButtonTemplate")
+    -- Secure descendants make every parent protected, which prevents /gd from
+    -- showing the main window in combat. Keep rank actions in a separate root.
+    local rankLayer = CreateFrame("Frame", nil, UIParent, "SecureHandlerStateTemplate")
+    frame.rankLayer = rankLayer
+    rankLayer:SetFrameStrata("DIALOG")
+    rankLayer:SetFrameLevel(frame.actionLayer:GetFrameLevel() + 1)
+    rankLayer:EnableMouse(false)
+    rankLayer:SetAttribute("_onstate-combat", "if newstate == '1' then self:Hide() end")
+    RegisterStateDriver(rankLayer, "combat", "[combat] 1; 0")
+    rankLayer:SetShown(frame:IsShown())
+    frame:HookScript("OnShow", function()
+        if not (InCombatLockdown and InCombatLockdown()) then
+            GD:PositionRankLayer()
+            rankLayer:Show()
+        end
+    end)
+    frame:HookScript("OnHide", function()
+        if not (InCombatLockdown and InCombatLockdown()) then rankLayer:Hide() end
+    end)
+    local dropdown = CreateFrame("Button", nil, rankLayer, "UIPanelButtonTemplate,SecureActionButtonTemplate")
     frame.rosterRankDropdown = dropdown
     GD:StyleButton(dropdown)
     dropdown:SetSize(242, 28)
     dropdown:RegisterForClicks("LeftButtonUp")
     dropdown:SetAttribute("useOnKeyDown", false)
-    dropdown:SetPoint("BOTTOMLEFT", frame.rosterInviteButton, "TOPLEFT", 0, 8)
+    dropdown:SetPoint("BOTTOMRIGHT", rankLayer, "BOTTOMRIGHT", -28, 100)
     dropdown:Hide()
-    local popup = CreateFrame("Frame", nil, frame.actionLayer, "BackdropTemplate")
+    local popup = CreateFrame("Frame", nil, rankLayer, "BackdropTemplate")
     dropdown.popup = popup
     popup:SetSize(242, 40)
     popup:SetPoint("BOTTOMLEFT", dropdown, "TOPLEFT", 0, 4)
@@ -1284,8 +1328,12 @@ local function build()
     GD:StyleSurface(popup)
     popup:Hide()
     popup.rows = {}
-    dropdown:SetScript("OnHide", function() popup:Hide() end)
-    frame:HookScript("OnHide", function() popup:Hide() end)
+    dropdown:SetScript("OnHide", function()
+        if not (InCombatLockdown and InCombatLockdown()) then popup:Hide() end
+    end)
+    frame:HookScript("OnHide", function()
+        if not (InCombatLockdown and InCombatLockdown()) then popup:Hide() end
+    end)
     local function openRankMenu()
         if popup:IsShown() then popup:Hide(); return end
         if InCombatLockdown and InCombatLockdown() then return end
@@ -1372,6 +1420,7 @@ local function build()
     frame.footer = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     frame.footer:SetPoint("BOTTOMLEFT", frame.detailPanel, "BOTTOMLEFT", 14, 10)
     frame.footer:SetText("/gd for commands")
+    GD:PositionRankLayer()
 end
 GD.BuildUI = build
 
@@ -1413,12 +1462,13 @@ end
 
 function GD:RefreshUI()
     if not self.frame then return end
-    -- Background updates can arrive in combat. Defer layout changes until
-    -- PLAYER_REGEN_ENABLED to avoid moving protected UI during those updates.
+    -- The unprotected window can open/close in combat using its last view.
+    -- Defer layout and secure rank controls until PLAYER_REGEN_ENABLED.
     if InCombatLockdown and InCombatLockdown() then return end
     updateTheme()
     updateAccent()
     local frame = self.frame
+    if frame.rankLayer then frame.rankLayer:SetShown(frame:IsShown()) end
     applyTheme(frame)
     applyAccent(frame)
     local active = self.activeTab or "Home"
@@ -1689,6 +1739,7 @@ function GD:RefreshUI()
     frame.detailTitle:Show()
     frame.footer:Show()
     if frame.home then frame.home:Hide() end
+    if frame.analytics then frame.analytics:Hide() end
     local isActionList = active == "Looking For" or active == "Crafting" or active == "Polls" or active == "Announcements"
     frame.detailRule:SetShown(not isPvP and not isEvents and not isActionList)
     frame.detailMeta:SetShown(not isPvP and not isActionList)
@@ -2450,6 +2501,7 @@ function GD:RefreshUI()
     end
     if active ~= "Settings" and active ~= "PvP" and active ~= "Events" and not isActionList then frame.detailChild:SetHeight(math.max(400, frame.detailBody:GetStringHeight() + 20)) end
     if active == "Home" and self.RefreshHome then self:RefreshHome() end
+    if active == "Analytics" and self.RefreshAnalytics then self:RefreshAnalytics() end
 end
 
 local function rebuildRoster()
@@ -2457,7 +2509,7 @@ local function rebuildRoster()
 
     if not GD.guildName or not GetNumGuildMembers or not GetGuildRosterInfo then return end
     local roster = {}
-    for i = 1, GetNumGuildMembers() do
+    for i = 1, GetNumGuildMembers(true) do
         local name, rankName, rankIndex, level, className, zone, _, _, online, _, classFile = GetGuildRosterInfo(i)
         if name then
             roster[#roster + 1] = { name = name, rank = rankName or "Member", rankIndex = rankIndex or 99, level = level, class = className, classFile = classFile, zone = zone, online = not not online }

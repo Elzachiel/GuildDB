@@ -35,6 +35,24 @@ local function forbidden() error('must keep the rank selector inside GuildDB') e
 C_AddOns = { LoadAddOn = forbidden }
 ShowUIPanel = forbidden
 local methods = {}
+local createdFrames = {}
+local function dependsOn(frame, target, visited)
+    if frame == target then return true end
+    if not frame or (visited and visited[frame]) then return false end
+    visited = visited or {}
+    visited[frame] = true
+    if dependsOn(frame.parent, target, visited) then return true end
+    for _, anchor in ipairs(frame.anchors or {}) do
+        if dependsOn(anchor, target, visited) then return true end
+    end
+    return false
+end
+local function protected(frame)
+    for _, candidate in ipairs(createdFrames) do
+        if candidate.template and candidate.template:find('Secure', 1, true) and dependsOn(candidate, frame) then return true end
+    end
+    return false
+end
 local function widget()
     return setmetatable({scripts={},hooks={},attributes={},shown=true}, {__index=function(_, key)
         return methods[key] or (key:match('^%u') and not key:match('^GuildDB') and function() end)
@@ -50,6 +68,16 @@ methods.GetDisabledTexture = methods.GetNormalTexture
 function methods:GetFrameLevel() return 1 end
 function methods:GetWidth() return 600 end
 function methods:GetHeight() return 500 end
+function methods:GetEffectiveScale() return 1 end
+function methods:GetLeft() return 100 end
+function methods:GetBottom() return 50 end
+function methods:GetTop() return 550 end
+function methods:ClearAllPoints() self.anchors = {} end
+function methods:SetAllPoints(relative) self.anchors = {relative or self.parent} end
+function methods:SetPoint(_, relative)
+    self.anchors = self.anchors or {}
+    self.anchors[#self.anchors + 1] = type(relative) == 'table' and relative or self.parent
+end
 function methods:SetScript(event, callback) self.scripts[event] = callback end
 function methods:HookScript(event, callback) self.hooks[event] = callback end
 function methods:SetAttribute(key, value) self.attributes[key] = value end
@@ -57,8 +85,14 @@ function methods:SetText(text) self.text = text end
 function methods:SetEnabled(value) self.enabled = value end
 function methods:SetShown(value) self.shown = value end
 function methods:IsShown() return self.shown end
-function methods:Show() self.shown = true end
-function methods:Hide() self.shown = false end
+function methods:Show()
+    assert(not combat or not protected(self), 'combat cannot show a protected frame or its parent/anchor target')
+    self.shown = true
+end
+function methods:Hide()
+    assert(not combat or not protected(self), 'combat cannot hide a protected frame or its parent/anchor target')
+    self.shown = false
+end
 local serverRank, commandCount = 3, 0
 local secureOnClick = function(self)
     if self.attributes.type ~= 'macro' then return end
@@ -74,13 +108,57 @@ local function click(button)
     if button.scripts.OnClick then button.scripts.OnClick(button) end
     if button.hooks.PostClick then button.hooks.PostClick(button) end
 end
-CreateFrame = function(_, _, _, template)
+UIParent = widget()
+RegisterStateDriver = function(frame, state, condition)
+    frame.stateDriver = { state = state, condition = condition }
+end
+CreateFrame = function(_, _, parent, template)
     local frame = widget()
+    frame.parent, frame.template = parent, template
+    createdFrames[#createdFrames + 1] = frame
     if template and template:find('SecureActionButtonTemplate', 1, true) then frame.scripts.OnClick = secureOnClick end
     return frame
 end
 function GD:RefreshUI() end
 GD:BuildUI()
+assert(not protected(GD.frame), 'main window must have no protected parent or anchor dependencies')
+-- Reproduce both missed anchor paths from the previous fix, then restore them.
+GD.frame.rankLayer:SetAllPoints(GD.frame)
+assert(protected(GD.frame), 'test must detect indirect protection through anchors')
+GD:PositionRankLayer()
+GD.frame.rosterRankDropdown:SetPoint('BOTTOMLEFT', GD.frame.rosterInviteButton, 'TOPLEFT', 0, 8)
+assert(protected(GD.frame), 'test must detect secure button anchors into the ordinary window')
+GD:PositionRankLayer()
+assert(not protected(GD.frame))
+assert(GD.frame.rankLayer.parent == UIParent, 'protected rank layer must be outside the main window')
+assert(GD.frame.rankLayer.stateDriver.condition == '[combat] 1; 0')
+assert(GD.frame.rankLayer.attributes['_onstate-combat']:find('self:Hide()', 1, true))
+for _, frame in ipairs(createdFrames) do
+    if frame.template and frame.template:find('Secure', 1, true) then
+        local parent = frame.parent
+        while parent do
+            assert(parent ~= GD.frame, 'secure controls must not protect the main window')
+            parent = parent.parent
+        end
+    end
+end
+combat = true
+GD.frame:Hide()
+GD.frame.rankLayer.shown = false -- WoW executes the secure combat state snippet.
+local popupHide = GD.frame.rosterRankDropdown.popup.Hide
+GD.frame.rosterRankDropdown.popup.Hide = function() error('insecure protected hide during combat') end
+GD.frame.rosterRankDropdown.scripts.OnHide()
+GD.frame.rosterRankDropdown.popup.Hide = popupHide
+GD.frame:Show()
+GD.frame.hooks.OnShow()
+assert(GD.frame.shown and not GD.frame.rankLayer.shown, 'window must open with rank actions hidden in combat')
+GD.frame:Hide()
+GD.frame.hooks.OnHide()
+assert(not GD.frame.shown, 'window can close during combat')
+combat = false
+GD.frame:Show()
+GD.frame.hooks.OnShow()
+assert(GD.frame.rankLayer.shown, 'rank layer returns when opened outside combat')
 GD.selectedRosterName = 'Member Moon'
 GD:RefreshRosterRankControls(GD.selectedRosterName)
 local dropdown = GD.frame.rosterRankDropdown
