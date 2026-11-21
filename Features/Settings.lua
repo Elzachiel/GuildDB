@@ -274,7 +274,7 @@ local function build(parent)
     end
     label(parent, ("Stored records: %d"):format(records), 12, -360, "GameFontDisableSmall", list)
 
-    label(parent, "Officer settings", 350, -10, "GameFontNormalLarge", list)
+    label(parent, "GM Settings", 350, -10, "GameFontNormalLarge", list)
     label(parent, "Feature switches (guild-wide; GM or rank 1)", 350, -38, "GameFontDisableSmall", list)
     local tabs = {}
     for _, tab in ipairs(GD.tabs or {}) do
@@ -287,6 +287,12 @@ local function build(parent)
         check(parent, tab == "Events" and "Raid Info" or tab, "feature:" .. tab, 350 + column * 155, -70 - (row - 1) * 30, list, true)
     end
     label(parent, GD:CanManage() and "Online users update now; offline users on next sync." or "Only the guild leader or rank 1 can change these switches.", 350, -70 - (split + 1) * 30, "GameFontDisableSmall", list)
+    local motdRanks = makeButton(parent, "MOTD editor ranks", 160, 350, -108 - (split + 1) * 30, function()
+        GD:OpenHomeRoleSettings()
+    end, list)
+    motdRanks.update = function()
+        motdRanks:SetEnabled(GD.bucket ~= nil and GD:CanManage())
+    end
 
     makeButton(parent, "Reset personal settings", 172, 12, -400, function()
         for key, value in pairs(defaults) do GD:SetSetting(key, value) end

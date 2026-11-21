@@ -302,7 +302,7 @@ local function createRaidDatePicker(dialog, field, offset)
 end
 
 local dialogCounter = 0
-local function showInputForm(title, fields, onAccept, acceptLabel, hideClose)
+local function showInputForm(title, fields, onAccept, acceptLabel, hideClose, secureAction)
     dialogCounter = dialogCounter + 1
     local name = "GuildDBActionDialog" .. dialogCounter
     local dialog = CreateFrame("Frame", name, UIParent, "BackdropTemplate")
@@ -418,18 +418,51 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose)
     cancel:SetPoint("BOTTOMRIGHT", -120, 14)
     cancel:SetText("Cancel")
     cancel:SetScript("OnClick", function() dialog:Hide() end)
-    local accept = CreateFrame("Button", nil, dialog, "UIPanelButtonTemplate")
+    local accept = CreateFrame("Button", nil, dialog, secureAction and "UIPanelButtonTemplate,SecureActionButtonTemplate" or "UIPanelButtonTemplate")
     GD:StyleButton(accept, "primary")
     accept:SetSize(92, 26)
     accept:SetPoint("LEFT", cancel, "RIGHT", 8, 0)
     accept:SetText(acceptLabel or "Save")
-    accept:SetScript("OnClick", function()
+    local function valuesFromForm()
         local values = {}
         for i, input in ipairs(dialog.inputs) do values[i] = input.selectedValue or input:GetText() end
-        local ok, result = onAccept(values)
-        if ok then dialog:Hide() end
-        if result then print("GuildDB: " .. result) end
-    end)
+        return values
+    end
+    if secureAction then
+        -- Keep the template's secure OnClick handler. Arm the command as the
+        -- user types, before the hardware click, rather than calling it in Lua.
+        accept:RegisterForClicks("LeftButtonUp")
+        accept:SetAttribute("useOnKeyDown", false)
+        local function arm()
+            if InCombatLockdown and InCombatLockdown() then return end
+            local command = secureAction(valuesFromForm())
+            accept:SetAttribute("type", command and "macro" or nil)
+            accept:SetAttribute("macrotext", command)
+        end
+        for _, input in ipairs(dialog.inputs) do input:HookScript("OnTextChanged", arm) end
+        arm()
+        local accepted
+        accept:HookScript("PreClick", function()
+            accepted = false
+            if InCombatLockdown and InCombatLockdown() then
+                print("GuildDB: Wait until combat ends to save the guild MOTD.")
+                return
+            end
+            local ok, result = onAccept(valuesFromForm())
+            accepted = ok
+            if not ok then accept:SetAttribute("type", nil) end
+            if result then print("GuildDB: " .. result) end
+        end)
+        accept:HookScript("PostClick", function()
+            if accepted then dialog:Hide() else arm() end
+        end)
+    else
+        accept:SetScript("OnClick", function()
+            local ok, result = onAccept(valuesFromForm())
+            if ok then dialog:Hide() end
+            if result then print("GuildDB: " .. result) end
+        end)
+    end
     UISpecialFrames = UISpecialFrames or {}
     table.insert(UISpecialFrames, 1, name)
     dialog:SetScript("OnHide", function()

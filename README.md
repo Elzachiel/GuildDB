@@ -8,8 +8,8 @@ GuildDB is a World of Warcraft guild addon for a shared roster, member profiles,
 - Opt-in guild member location sharing with fresh reports, World Map pins, and waypoint navigation.
 - Member profiles for role, specialization, time zone, alts, and listed professions or recipes.
 - Home dashboard above Roster with a message of the day, officer announcements, and recently observed new members.
-- Officers choose the guild ranks allowed to edit the Home MOTD using Editor ranks; officers always retain access. The Home MOTD is shared through GuildDB and initially displays the game's guild MOTD until a Home message is saved.
-- Recently joined lists up to 20 members first observed after the initial full roster scan, retained for 30 days on this installation. Existing members are used as a baseline; historical join dates are not available.
+- Under Settings > GM Settings > MOTD editor ranks, officers choose the guild ranks allowed to edit the Home MOTD; the GM always retains access, and Officer can be allowed or disabled. Home's Save button submits the game's MOTD command directly from your click and requires the game's Edit MOTD permission. Home displays the current guild MOTD, including changes made through the game's guild window.
+- Recently joined lists up to 20 members detected through guild join notifications, recent guild-log join events, and roster changes. Records are retained for 30 days on this installation; available guild history also fills recent joins after login.
 - A guild guide for rules and loot rules.
 - Raid creation and signup area with raid size targets, player specs, Tank/Healer/DPS roles, attendance, and signup notes. The GM can check players for the invite roster; selections are shared with the guild.
 - PvP leaderboard with outdoor kills, deaths, seasons, and a Most Wanted list.
