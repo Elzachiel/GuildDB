@@ -430,6 +430,8 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose)
     end
 end
 
+GD.ShowInputForm = showInputForm
+
 local function calendarSettingsFromForm(values, offset)
     local inviteChoice = values[offset + 2]
     return {
@@ -1104,7 +1106,7 @@ function GD:RefreshUI()
     updateAccent()
     local frame = self.frame
     applyAccent(frame)
-    local active = self.activeTab or "Roster"
+    local active = self.activeTab or "Home"
     if active == "Profiles" then
         self.selectedRosterName = self.profileTarget or self.selectedRosterName
         active, self.activeTab = "Roster", "Roster"
@@ -1363,6 +1365,10 @@ function GD:RefreshUI()
     local detail = table.concat(sections, "\n\n")
     local isPvP = active == "PvP"
     local isEvents = active == "Events"
+    frame.detailScroll:Show()
+    frame.detailTitle:Show()
+    frame.footer:Show()
+    if frame.home then frame.home:Hide() end
     local isActionList = active == "Looking For" or active == "Crafting" or active == "Polls" or active == "Announcements"
     frame.detailRule:SetShown(not isPvP and not isEvents and not isActionList)
     frame.detailMeta:SetShown(not isPvP and not isActionList)
@@ -2118,6 +2124,7 @@ function GD:RefreshUI()
         frame.detailBody:SetText(detail)
     end
     if active ~= "Settings" and active ~= "PvP" and active ~= "Events" and not isActionList then frame.detailChild:SetHeight(math.max(400, frame.detailBody:GetStringHeight() + 20)) end
+    if active == "Home" and self.RefreshHome then self:RefreshHome() end
 end
 
 local function rebuildRoster()

@@ -68,7 +68,7 @@ local function popAnnouncement(author, title, text)
     local message = tostring(author or "Guild officer")
     if summary ~= "" then message = message .. ": " .. summary end
     GD:ShowPopout("Guild announcement", displayTitle, message, "Interface/Icons/INV_Letter_15", function()
-        GD.activeTab = "Announcements"
+        GD.activeTab = "Home"
         GD:Open()
     end, 8)
 end
@@ -220,7 +220,7 @@ GD:RegisterCommand("post", function(text)
     print("GuildDB: " .. result)
 end)
 
-GD:RegisterTab("Announcements", function()
+GD:RegisterTab("Home", function()
     if not GD.bucket then return "Join a guild to see announcements." end
     local lines = {}
     for _, record in ipairs(GD.bucket.announcements or {}) do

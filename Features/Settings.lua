@@ -18,6 +18,10 @@ function GD:GetSetting(key)
     if key:sub(1, 8) == "feature:" then
         local tab = key:sub(9)
         local guildSettings = self.bucket and self.bucket.guildSettings
+        if tab == "Home" and guildSettings and guildSettings.features
+            and guildSettings.features.Home == nil and guildSettings.features.Announcements ~= nil then
+            return guildSettings.features.Announcements ~= false
+        end
         if guildSettings and guildSettings.features and guildSettings.features[tab] ~= nil then
             return guildSettings.features[tab] ~= false
         end

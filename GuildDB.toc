@@ -24,3 +24,4 @@ Features/Crafting.lua
 Features/Polls.lua
 Features/Settings.lua
 UI/Main.lua
+Features/Home.lua
