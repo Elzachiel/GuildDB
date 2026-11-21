@@ -51,7 +51,7 @@ local function applyAccent(frame)
         if row.selectedMarker then row.selectedMarker:SetColorTexture(r, g, b, 1) end
     end
     if frame.pvpTitleSeason then frame.pvpTitleSeason:SetTextColor(r, g, b) end
-    for _, key in ipairs({ "pvpMyButton", "pvpSeasonButton", "pvpDeleteButton", "pvpWipeButton", "pvpScopeButton", "contentActionButton", "profileEditButton", "rosterInviteButton", "craftSearchButton", "eventCreateButton", "eventCreateTypeButton" }) do
+    for _, key in ipairs({ "pvpMyButton", "pvpSeasonButton", "pvpDeleteButton", "pvpWipeButton", "pvpScopeButton", "contentActionButton", "profileEditButton", "rosterInviteButton", "rosterRankDropdown", "craftSearchButton", "eventCreateButton", "eventCreateTypeButton" }) do
         local button = frame[key]
         if button and button.GetObjectType and button:GetObjectType() == "Button" then
             local primary = key == "pvpSeasonButton" or key == "contentActionButton" or key == "profileEditButton" or key == "craftSearchButton"
@@ -141,6 +141,128 @@ local function rosterText()
 end
 GD:RegisterTab("Roster", rosterText)
 
+local function rosterRank(name)
+    if not name or not GetNumGuildMembers or not GetGuildRosterInfo then return end
+    for index = 1, GetNumGuildMembers() do
+        local memberName, _, rank = GetGuildRosterInfo(index)
+        if memberName == name then return rank end
+    end
+end
+
+function GD:GetRosterRankChoices(name)
+    local choices = {}
+    if not self.guildName or not GetGuildInfo or not GuildControlGetNumRanks then return choices end
+    local _, _, ownRank = GetGuildInfo("player")
+    local current = rosterRank(name)
+    if type(ownRank) ~= "number" or type(current) ~= "number" or current <= ownRank then return choices end
+    local canPromote = ownRank == 0 or (CanGuildPromote and CanGuildPromote())
+    local canDemote = ownRank == 0 or (CanGuildDemote and CanGuildDemote())
+    for rank = ownRank + 1, GuildControlGetNumRanks() - 1 do
+        if (rank < current and canPromote) or (rank > current and canDemote) then
+            choices[#choices + 1] = { rank = rank, label = GuildControlGetRankName and GuildControlGetRankName(rank + 1) or ("Rank " .. rank) }
+        end
+    end
+    return choices
+end
+
+function GD:RosterRankMacro(name, rank)
+    if self.pendingRosterRank or (InCombatLockdown and InCombatLockdown()) then return end
+    if type(name) ~= "string" or name:find("%c") or name:find("/", 1, true) or name:find("|", 1, true) then return end
+    for _, choice in ipairs(self:GetRosterRankChoices(name)) do
+        if choice.rank == rank then
+            local current = rosterRank(name)
+            local command
+            if rank < current then command = (SLASH_GUILD_PROMOTE1 or "/gpromote") .. " "
+            else command = (SLASH_GUILD_DEMOTE1 or "/gdemote") .. " " end
+            local macro = "/stopmacro [combat]\n" .. command .. name .. "\n"
+            if #macro <= 1023 then return macro end
+        end
+    end
+end
+
+local function requestRankRoster()
+    local request = C_GuildInfo and C_GuildInfo.GuildRoster or GuildRoster
+    if request then pcall(request) end
+end
+
+function GD:TrackRosterRankChange(name, rank, before)
+    if type(before) ~= "number" then return end
+    local update = { name = name, rank = rank, before = before,
+        expected = before + (rank < before and -1 or 1), guild = self.guildName }
+    self.rosterRankTarget = { name = name, rank = rank, guild = self.guildName }
+    self.pendingRosterRank = update
+    requestRankRoster()
+    if C_Timer and C_Timer.After then
+        -- Refresh native data after the command has reached the server, rather
+        -- than relying on the pre-command roster cache or one unsolicited event.
+        for _, delay in ipairs({ 0.75, 2, 4, 7 }) do
+            C_Timer.After(delay, function()
+                if GD.pendingRosterRank ~= update then return end
+                requestRankRoster()
+                if GD.RebuildRoster then GD:RebuildRoster() end
+            end)
+        end
+        C_Timer.After(10, function()
+            if GD.pendingRosterRank ~= update then return end
+            if GD.RebuildRoster then GD:RebuildRoster() end
+            if GD.pendingRosterRank ~= update then return end
+            GD.pendingRosterRank, GD.rosterRankTarget = nil, nil
+            print("GuildDB: The game did not confirm the rank change for " .. GD:Display(name) .. ".")
+            GD:RefreshUI()
+        end)
+    end
+    self:RefreshUI()
+end
+
+function GD:ConfirmRosterRankChange()
+    local update = self.pendingRosterRank
+    if not update then return end
+    if self.guildName ~= update.guild then self.pendingRosterRank, self.rosterRankTarget = nil, nil; return end
+    local current = rosterRank(update.name)
+    if current == update.before then return end
+    self.pendingRosterRank = nil
+    if current == update.rank then
+        self.rosterRankTarget = nil
+        print("GuildDB: Guild rank updated for " .. self:Display(update.name) .. ".")
+    elseif current ~= update.expected then
+        self.rosterRankTarget = nil
+        print("GuildDB: The member's rank changed unexpectedly. Select the desired rank again.")
+    elseif self.rosterRankTarget then
+        local label = GuildControlGetRankName and GuildControlGetRankName(update.rank + 1) or "selected rank"
+        print("GuildDB: Rank updated one step. Click Continue to " .. self:Display(label) .. " to finish.")
+    end
+end
+local function rosterRankMenuContext(name, choices)
+    local context = { GD.guildName or "", name or "", tostring(rosterRank(name)) }
+    for _, choice in ipairs(choices) do context[#context + 1] = tostring(choice.rank) .. ":" .. choice.label end
+    return table.concat(context, "\n")
+end
+
+function GD:RefreshRosterRankControls(name)
+    if InCombatLockdown and InCombatLockdown() then return end
+    local frame = self.frame
+    local dropdown = frame.rosterRankDropdown
+    local choices = self.activeTab == "Roster" and self:GetRosterRankChoices(name) or {}
+    local pending = self.pendingRosterRank
+    local target = self.rosterRankTarget
+    if target and (target.name ~= name or target.guild ~= self.guildName or self.activeTab ~= "Roster") then
+        self.rosterRankTarget, target = nil, nil
+    end
+    local continuation = target and not pending and self:RosterRankMacro(name, target.rank)
+    if target and not pending and not continuation then self.rosterRankTarget, target = nil, nil end
+    local visible = self.activeTab == "Roster" and (#choices > 0 or (pending and pending.name == name))
+    if not visible or pending or dropdown.popup.rankContext ~= rosterRankMenuContext(name, choices) then dropdown.popup:Hide() end
+    local targetLabel = target and GuildControlGetRankName and GuildControlGetRankName(target.rank + 1)
+    dropdown:SetText(pending and "Updating rank..." or (continuation and ("Continue to " .. self:Display(targetLabel or "selected rank"))) or "Set Guild Rank  v")
+    dropdown:SetAttribute("type", continuation and "macro" or nil)
+    dropdown:SetAttribute("macrotext", continuation)
+    dropdown.rankName, dropdown.rankValue, dropdown.rankMacro, dropdown.rankFrom = name, target and target.rank, continuation, rosterRank(name)
+    dropdown:SetShown(not not visible)
+    dropdown:SetEnabled(not pending)
+    if self.activeTab == "Roster" then
+        frame.detailScroll:SetPoint("BOTTOMRIGHT", -28, visible and 126 or (name and 90 or 54))
+    end
+end
 local function setTextColor(font, color)
     font:SetTextColor(color[1], color[2], color[3])
 end
@@ -1142,6 +1264,88 @@ local function build()
         local ok, err = pcall(invite, name)
         if not ok then print("GuildDB: Could not invite " .. GD:Display(name) .. ": " .. tostring(err)) end
     end)
+    local dropdown = CreateFrame("Button", nil, frame.actionLayer, "UIPanelButtonTemplate,SecureActionButtonTemplate")
+    frame.rosterRankDropdown = dropdown
+    GD:StyleButton(dropdown)
+    dropdown:SetSize(242, 28)
+    dropdown:RegisterForClicks("LeftButtonUp")
+    dropdown:SetAttribute("useOnKeyDown", false)
+    dropdown:SetPoint("BOTTOMLEFT", frame.rosterInviteButton, "TOPLEFT", 0, 8)
+    dropdown:Hide()
+    local popup = CreateFrame("Frame", nil, frame.actionLayer, "BackdropTemplate")
+    dropdown.popup = popup
+    popup:SetSize(242, 40)
+    popup:SetPoint("BOTTOMLEFT", dropdown, "TOPLEFT", 0, 4)
+    popup:SetFrameStrata("DIALOG")
+    popup:SetFrameLevel(frame.actionLayer:GetFrameLevel() + 5)
+    popup:SetClampedToScreen(true)
+    popup:EnableMouse(true)
+    popup:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8", edgeFile = "Interface/Tooltips/UI-Tooltip-Border", edgeSize = 12 })
+    GD:StyleSurface(popup)
+    popup:Hide()
+    popup.rows = {}
+    dropdown:SetScript("OnHide", function() popup:Hide() end)
+    frame:HookScript("OnHide", function() popup:Hide() end)
+    local function openRankMenu()
+        if popup:IsShown() then popup:Hide(); return end
+        if InCombatLockdown and InCombatLockdown() then return end
+        local choices = GD:GetRosterRankChoices(GD.selectedRosterName)
+        popup.rankContext = rosterRankMenuContext(GD.selectedRosterName, choices)
+        for _, row in ipairs(popup.rows) do row:Hide() end
+        for index, choice in ipairs(choices) do
+            local row = popup.rows[index]
+            if not row then
+                row = CreateFrame("Button", nil, popup, "UIPanelButtonTemplate,SecureActionButtonTemplate")
+                row:SetSize(226, 26)
+                row:SetPoint("TOPLEFT", 8, -8 - (index - 1) * 28)
+                row:RegisterForClicks("LeftButtonUp")
+                row:SetAttribute("useOnKeyDown", false)
+                row:HookScript("PreClick", function(self)
+                    self.rankSubmitted = false
+                    if InCombatLockdown and InCombatLockdown() then return end
+                    local macro = GD.selectedRosterName == self.rankName and GD:RosterRankMacro(self.rankName, self.rankValue)
+                    if not macro or macro ~= self.rankMacro or rosterRank(self.rankName) ~= self.rankFrom then
+                        self:SetAttribute("type", nil)
+                        print("GuildDB: The roster changed. Open Set Guild Rank again.")
+                        return
+                    end
+                    self.rankSubmitted = true
+                end)
+                row:HookScript("PostClick", function(self)
+                    popup:Hide()
+                    if self.rankSubmitted then GD:TrackRosterRankChange(self.rankName, self.rankValue, self.rankFrom) end
+                end)
+                GD:StyleButton(row)
+                popup.rows[index] = row
+            end
+            local name, rank = GD.selectedRosterName, choice.rank
+            local macro = GD:RosterRankMacro(name, rank)
+            row:SetText(GD:Display(choice.label))
+            row:SetAttribute("type", macro and "macro" or nil)
+            row:SetAttribute("macrotext", macro)
+            row.rankName, row.rankValue, row.rankMacro, row.rankFrom = name, rank, macro, rosterRank(name)
+            row:SetEnabled(macro ~= nil)
+            row:Show()
+        end
+        popup:SetHeight(#choices * 28 + 16)
+        popup:SetShown(#choices > 0)
+    end
+    dropdown:HookScript("PreClick", function(self)
+        self.rankSubmitted = false
+        if InCombatLockdown and InCombatLockdown() then return end
+        if not GD.rosterRankTarget then openRankMenu(); return end
+        local macro = GD.selectedRosterName == self.rankName and GD:RosterRankMacro(self.rankName, self.rankValue)
+        if not macro or macro ~= self.rankMacro or rosterRank(self.rankName) ~= self.rankFrom then
+            self:SetAttribute("type", nil)
+            GD.rosterRankTarget = nil
+            GD:RefreshUI()
+            return
+        end
+        self.rankSubmitted = true
+    end)
+    dropdown:HookScript("PostClick", function(self)
+        if self.rankSubmitted then GD:TrackRosterRankChange(self.rankName, self.rankValue, self.rankFrom) end
+    end)
     frame.craftSearchButton = CreateFrame("Button", nil, frame.detailPanel, "UIPanelButtonTemplate")
     GD:StyleButton(frame.craftSearchButton, "primary")
     frame.craftSearchButton:SetSize(112, 26)
@@ -1209,6 +1413,9 @@ end
 
 function GD:RefreshUI()
     if not self.frame then return end
+    -- Background updates can arrive in combat. Defer layout changes until
+    -- PLAYER_REGEN_ENABLED to avoid moving protected UI during those updates.
+    if InCombatLockdown and InCombatLockdown() then return end
     updateTheme()
     updateAccent()
     local frame = self.frame
@@ -1391,6 +1598,7 @@ function GD:RefreshUI()
                 cell:SetWidth(spec[2])
                 cell:SetJustifyH(spec[3])
                 cell:SetWordWrap(false)
+                cell:SetNonSpaceWrap(false)
                 row.columns[columnIndex] = cell
             end
             row:SetScript("OnClick", function(self)
@@ -1505,6 +1713,7 @@ function GD:RefreshUI()
     frame.contentActionButton:SetPoint("TOPRIGHT", frame.detailPanel, "TOPRIGHT", -18, -12)
     frame.profileEditButton:SetShown(active == "Roster")
     frame.rosterInviteButton:SetShown(active == "Roster" and self.selectedRosterName ~= nil)
+    if active ~= "Roster" then self:RefreshRosterRankControls(nil) end
     frame.craftSearchButton:SetShown(active == "Crafting")
     if active == "Announcements" then
         frame.contentActionButton:SetText("New post")
@@ -1532,7 +1741,9 @@ function GD:RefreshUI()
     if frame.actionEmpty then frame.actionEmpty:Hide() end
     frame.detailChild:SetWidth(math.max(100, frame.detailScroll:GetWidth() - 4))
     frame.detailBody:SetWidth(math.max(80, frame.detailScroll:GetWidth() - 28))
-    frame.detailTitle:SetWidth(active == "Roster" and 100 or math.max(120, frame.detailPanel:GetWidth() - 36))
+    frame.detailTitle:SetWidth(math.max(120, frame.detailPanel:GetWidth() - 36))
+    frame.detailTitle:SetWordWrap(active ~= "Roster")
+    frame.detailTitle:SetNonSpaceWrap(active ~= "Roster")
     frame.detailMeta:SetWidth(math.max(100, frame.detailPanel:GetWidth() - 36))
     frame.listChild:SetWidth(math.max(100, frame.listScroll:GetWidth() - 4))
     if active == "Settings" then
@@ -1564,6 +1775,8 @@ function GD:RefreshUI()
             name = member and member.name
             self.selectedRosterName = name
         end
+        frame.rosterInviteButton:SetShown(name ~= nil)
+        self:RefreshRosterRankControls(name)
         local profile = self:GetProfile(name)
         local function value(field)
             return self:Display(profile and profile[field] ~= "" and profile[field] or "Not set")
@@ -2240,6 +2453,8 @@ function GD:RefreshUI()
 end
 
 local function rebuildRoster()
+    GD:ConfirmRosterRankChange()
+
     if not GD.guildName or not GetNumGuildMembers or not GetGuildRosterInfo then return end
     local roster = {}
     for i = 1, GetNumGuildMembers() do
@@ -2257,8 +2472,12 @@ local function rebuildRoster()
 end
 GD.RebuildRoster = rebuildRoster
 GD:RegisterEventHandler("PLAYER_LOGIN", function() build(); rebuildRoster() end)
-GD:RegisterEventHandler("GUILD_ROSTER_UPDATE", function() build(); rebuildRoster() end)
+GD:RegisterEventHandler("GUILD_ROSTER_UPDATE", function(_, canRequest)
+    if canRequest then requestRankRoster() end
+    build(); rebuildRoster()
+end)
 GD:RegisterEventHandler("PLAYER_GUILD_UPDATE", function() build(); rebuildRoster() end)
+GD:RegisterEventHandler("PLAYER_REGEN_ENABLED", function() GD:RefreshUI() end)
 
 function GD:IsSyncResponder(requester)
     if not self.roster or #self.roster == 0 then return false end

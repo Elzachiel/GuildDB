@@ -199,42 +199,10 @@ local function normalizedName(name)
     return baseName:lower():gsub("%s", "")
 end
 
-local function historyFor(victim)
-    if type(GDB) ~= "table" then GDB = {} end
-    if type(GDB.pvpHistory) ~= "table" then GDB.pvpHistory = {} end
-    local now = time()
-    if now - (GDB.pvpHistoryPruned or 0) > 3600 then
-        for key, stamps in pairs(GDB.pvpHistory) do
-            local fresh = {}
-            if type(stamps) == "table" then
-                for _, stamp in ipairs(stamps) do
-                    if type(stamp) == "number" and now - stamp < 86400 then fresh[#fresh + 1] = stamp end
-                end
-            end
-            GDB.pvpHistory[key] = #fresh > 0 and fresh or nil
-        end
-        GDB.pvpHistoryPruned = now
-    end
-    local player = playerName()
-    local key = normalizedName(player) .. "|" .. normalizedName(victim)
-    local history = GDB.pvpHistory[key]
-    if type(history) ~= "table" then history = {}; GDB.pvpHistory[key] = history end
-    local fresh = {}
-    for _, stamp in ipairs(history) do
-        if type(stamp) == "number" and now - stamp < 86400 then fresh[#fresh + 1] = stamp end
-    end
-    GDB.pvpHistory[key] = fresh
-    return fresh, now
-end
-
 local function recordKill(victim, victimLevel, outdoors)
     if not GD.bucket then trackingNote("No guild data available"); return end
     if not outdoors then trackingNote("Reward ignored: instanced area"); return end
     if not victim or victim == "" then trackingNote("Reward received without an identified enemy"); return end
-    local history, now = historyFor(victim)
-    if #history > 0 and now - history[#history] < 60 then trackingNote("Repeat victim: one-minute limit"); return end
-    if #history >= 5 then trackingNote("Repeat victim: daily limit"); return end
-    history[#history + 1] = now
     local level = tonumber(victimLevel) or 0
     local ownLevel = tonumber(unitValue(UnitLevel, "player")) or 60
     if level == -1 then level = math.min(60, ownLevel + 10)
