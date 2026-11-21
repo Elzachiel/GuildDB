@@ -68,4 +68,4 @@ Date and time in event commands use the local time shown by the game client. Boa
 - `Core/Runtime.lua` provides addon lifecycle, saved data, slash routing, and guild message sync.
 - `Features/` contains independent modules for profiles, announcements, events, shoutouts, PvP, guild guide, group requests, crafting, and polls.
 - `UI/Main.lua` builds the shared window, navigation, and roster view.
-- `GuildHall.toc` lists the files in WoW load order.
+- `GuildDB.toc` lists the files in WoW load order.

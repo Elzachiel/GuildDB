@@ -52,7 +52,7 @@ GH:RegisterRecordHandler("ML", function(id, timestamp, author, content, sender)
     local mapID, x, y, location = content:match("^(%d+)|([%d%.]+)|([%d%.]+)|(.*)$")
     local zone, class
     if location then zone, class = location:match("^(.-)|([A-Z]+)$") end
-    if not zone then zone, class = location, nil end -- Older GuildHall clients omit class.
+    if not zone then zone, class = location, nil end -- Older GuildDB clients omit class.
     mapID, x, y = tonumber(mapID), tonumber(x), tonumber(y)
     if not mapID or not x or not y or not zone then reject("malformed location payload"); return end
     if x < 0 or x > 1 or y < 0 or y > 1 or #zone > 80 then reject("coordinates or zone out of range"); return end
@@ -152,11 +152,11 @@ local function mapTabText()
     if #reports == 0 then
         return table.concat({
             "Guild member map", "",
-            "No fresh reports from other GuildHall users.",
+            "No fresh reports from other GuildDB users.",
             "Your sharing: " .. sharing .. "  ·  Your position: " .. positionText,
             sendText,
             inboundText,
-            "GuildHall pins update about every 4 seconds, expire after 45 seconds, and pause in instances.",
+            "GuildDB pins update about every 4 seconds, expire after 45 seconds, and pause in instances.",
         }, "\n\n")
     end
     local lines = { "Guild member locations (live pins; reports expire after 45 seconds):", "" }
@@ -218,12 +218,12 @@ local function createMemberIcon()
     icon.dotOutline = icon:CreateTexture(nil, "ARTWORK")
     icon.dotOutline:SetSize(11, 11)
     icon.dotOutline:SetPoint("CENTER")
-    icon.dotOutline:SetTexture("Interface\\AddOns\\GuildHall\\Assets\\MapDot")
+    icon.dotOutline:SetTexture("Interface\\AddOns\\GuildDB\\Assets\\MapDot")
     icon.dotOutline:SetVertexColor(0, 0, 0, 1)
     icon.dot = icon:CreateTexture(nil, "OVERLAY")
     icon.dot:SetSize(8, 8)
     icon.dot:SetPoint("CENTER")
-    icon.dot:SetTexture("Interface\\AddOns\\GuildHall\\Assets\\MapDot")
+    icon.dot:SetTexture("Interface\\AddOns\\GuildDB\\Assets\\MapDot")
     icon.label = icon:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     icon.label:SetPoint("BOTTOM", icon, "TOP", 0, 3)
     icon.label:SetTextColor(1, 1, 1, 1)
@@ -235,7 +235,7 @@ local function createMemberIcon()
         GameTooltip:SetText(frame.memberName or "Guild member")
         GameTooltip:AddLine(frame.zone or "", 0.8, 0.85, 0.9)
         GameTooltip:AddLine(("%.1f, %.1f"):format((frame.x or 0) * 100, (frame.y or 0) * 100), 0.6, 0.8, 1)
-        GameTooltip:AddLine("Live GuildHall location pin", 0.6, 0.8, 1)
+        GameTooltip:AddLine("Live GuildDB location pin", 0.6, 0.8, 1)
         GameTooltip:Show()
     end)
     icon:SetScript("OnLeave", function() GameTooltip:Hide() end)
