@@ -63,7 +63,7 @@ end
 local function showEventPopout(event)
     if not GH.ShowPopout then return end
     local eventType = event.eventType == "raid" and "raid" or "event"
-    local when = date("%a %b %d, %I:%M %p", event.at)
+    local when = date("%a %d %b %Y, %I:%M %p", event.at)
     local message = (event.by or "A guild officer") .. " scheduled " .. when
     if event.details and event.details ~= "" then message = message .. "\n" .. event.details end
     GH:ShowPopout(eventType == "raid" and "New guild raid" or "New guild event", event.title, message,
@@ -406,6 +406,73 @@ function GH:SetRaidSelection(eventId, player, selected)
     return true, "Invite roster updated."
 end
 
+-- Invites run directly from the GM's click so the client can enforce permissions.
+function GH:InviteRaidSelections(eventId)
+    if not self:IsRaidGM() then return false, "Only the GM can invite the selected raid roster." end
+    local event = self.bucket and findEvent(eventId)
+    if not event then return false, "That raid is no longer available." end
+    if InCombatLockdown and InCombatLockdown() then return false, "Leave combat before inviting the raid roster." end
+    local partyInfo = C_PartyInfo or {}
+    local invite = InviteByName or InviteUnit or partyInfo.InviteUnit
+    if type(invite) ~= "function" then return false, "This client does not expose a group invite function." end
+    local inRaid = IsInRaid and IsInRaid()
+    local grouped = inRaid or (IsInGroup and IsInGroup()) or (GetNumGroupMembers and GetNumGroupMembers() > 0)
+    if grouped and not ((UnitIsGroupLeader and UnitIsGroupLeader("player")) or (inRaid and UnitIsGroupAssistant and UnitIsGroupAssistant("player"))) then
+        return false, "You must be group leader or raid assistant to invite players."
+    end
+    if grouped and not inRaid then
+        local convert = ConvertToRaid or partyInfo.ConvertToRaid
+        if type(convert) ~= "function" then return false, "Convert your party to a raid before inviting the roster." end
+        local ok, reason = pcall(convert)
+        if not ok then return false, "Could not convert the party to a raid: " .. tostring(reason) end
+        if not (IsInRaid and IsInRaid()) then return true, "Raid conversion requested. Click Invite selected again once the group becomes a raid." end
+        inRaid = true
+    end
+    local online = {}
+    for index = 1, (GetNumGuildMembers and GetNumGuildMembers() or 0) do
+        local name, _, _, _, _, _, _, _, isOnline = GetGuildRosterInfo(index)
+        if name and isOnline then online[name:lower()] = name end
+    end
+    self.pendingRaidInvites = self.pendingRaidInvites or {}
+    local pending = self.pendingRaidInvites
+    local now = time()
+    for name, at in pairs(pending) do if now - at >= 60 then pending[name] = nil end end
+    local candidates, offline, already, waiting = {}, 0, 0, 0
+    for name, selection in pairs(event.selections or {}) do
+        local response = event.rsvps and event.rsvps[name]
+        local status = type(response) == "table" and response.status or response
+        if selection.selected and status == "going" then
+            if samePlayerName(name, self:PlayerName()) or (UnitInRaid and UnitInRaid(name)) or (UnitInParty and UnitInParty(name)) then
+                already = already + 1
+                pending[name] = nil
+            elseif pending[name] then waiting = waiting + 1
+            else
+                local target = online[name:lower()]
+                if not target then
+                    for _, member in pairs(online) do if samePlayerName(member, name) then target = member; break end end
+                end
+                if target then candidates[#candidates + 1] = { name = name, target = target }
+                else offline = offline + 1 end
+            end
+        end
+    end
+    table.sort(candidates, function(a, b) return a.name < b.name end)
+    if not inRaid then
+        for _ in pairs(pending) do return false, "Waiting for an invited player to join. Then click Invite selected again to form the raid." end
+    end
+    local capacity = math.max(0, 40 - (GetNumGroupMembers and GetNumGroupMembers() or 1))
+    if not inRaid then capacity = 1 end
+    local sent, failed = 0, 0
+    for _, candidate in ipairs(candidates) do
+        if sent >= capacity then break end
+        local ok = pcall(invite, candidate.target)
+        if ok then sent = sent + 1; pending[candidate.name] = now else failed = failed + 1 end
+    end
+    local message = ("Invite requests: %d. Already grouped: %d. Offline: %d. Pending: %d. Failed: %d."):format(sent, already, offline, waiting, failed)
+    if sent > 0 and not inRaid then message = message .. " Once that player joins, click Invite selected again to convert to a raid and invite the remaining players." end
+    return sent > 0, message
+end
+
 GH:RegisterHistoryProvider(function()
     local events = GH.bucket.events or {}
     for i = math.min(#events, 12), 1, -1 do
@@ -429,7 +496,7 @@ end)
 local function upcomingEvents()
     local events = {}
     for _, event in ipairs((GH.bucket and GH.bucket.events) or {}) do
-        if event.at >= time() then events[#events + 1] = event end
+        if event.at + 6 * 3600 >= time() then events[#events + 1] = event end
     end
     if GH.raidPreviewEvent then events[#events + 1] = GH.raidPreviewEvent end
     table.sort(events, function(a, b)
@@ -440,13 +507,24 @@ local function upcomingEvents()
 end
 GH.GetUpcomingEvents = upcomingEvents
 
-function GH:PostEventFields(dateText, timeText, title, details, eventType, calendarSettings)
-    local at = parseEventTime(tostring(dateText or "") .. " " .. tostring(timeText or ""))
-    return self:PostEvent(at, title, details, eventType, calendarSettings)
+function GH:ParseEventTimeFields(dateText, timeText)
+    local day, month, year = tostring(dateText or ""):match("^%s*(%d%d)[%-%/](%d%d)[%-%/](%d%d%d%d)%s*$")
+    local hour, minute, period = tostring(timeText or ""):upper():match("^%s*(%d%d?):(%d%d)%s*([AP]M)%s*$")
+    hour, minute = tonumber(hour), tonumber(minute)
+    if not year then return nil, "Enter the date as DD-MM-YYYY (for example, 21-11-2026)." end
+    if not hour or hour < 1 or hour > 12 or minute > 59 then
+        return nil, "Enter the start time with AM or PM (for example, 8:00 PM)."
+    end
+    hour = hour % 12 + (period == "PM" and 12 or 0)
+    local stamp = parseEventTime(("%s-%s-%s %02d:%02d"):format(year, month, day, hour, minute))
+    if not stamp then return nil, "Enter a valid calendar date and local start time." end
+    return stamp
 end
 
-function GH:ParseEventTimeFields(dateText, timeText)
-    return parseEventTime(tostring(dateText or "") .. " " .. tostring(timeText or ""))
+function GH:PostEventFields(dateText, timeText, title, details, eventType, calendarSettings)
+    local at, reason = self:ParseEventTimeFields(dateText, timeText)
+    if not at then return false, reason end
+    return self:PostEvent(at, title, details, eventType, calendarSettings)
 end
 
 function GH:SetRSVPForEvent(eventId, status, role, note, spec)
@@ -700,7 +778,7 @@ GH:RegisterTab("Events", function()
         end
         local mine = event.rsvps and event.rsvps[player]
         if type(mine) == "table" then mine = mine.status end
-        lines[#lines + 1] = ("%d. [%s] %s — %s"):format(index, event.eventType == "raid" and "RAID" or "EVENT", date("%a %b %d, %I:%M %p", event.at), GH:Display(event.title))
+        lines[#lines + 1] = ("%d. [%s] %s — %s"):format(index, event.eventType == "raid" and "RAID" or "EVENT", date("%a %d %b %Y, %I:%M %p", event.at), GH:Display(event.title))
         if event.details and event.details ~= "" then lines[#lines + 1] = GH:Display(event.details) end
         lines[#lines + 1] = ("Going: %d · Tentative: %d · Absent: %d · Your RSVP: %s"):format(counts.going, counts.tentative, counts.absent, mine or "Not set")
         lines[#lines + 1] = "Posted by " .. GH:Display(event.by)

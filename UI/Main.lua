@@ -164,6 +164,88 @@ local function splitSections(text)
     return sections
 end
 
+local raidStartTimes = {}
+for minutes = 0, 1439, 30 do
+    local hour = math.floor(minutes / 60)
+    raidStartTimes[#raidStartTimes + 1] = ("%d:%02d %s"):format((hour % 12 == 0) and 12 or hour % 12, minutes % 60, hour < 12 and "AM" or "PM")
+end
+
+local function createRaidDatePicker(dialog, field, offset)
+    local input = CreateFrame("Button", nil, dialog)
+    styleRaidButton(input, 370)
+    input:SetPoint("TOPLEFT", 20, -offset - 16)
+    input.selectedValue = field.value or date("%d-%m-%Y")
+    input:SetText(input.selectedValue)
+    local popup = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+    popup:SetSize(294, 286)
+    popup:SetFrameStrata("TOOLTIP")
+    popup:SetFrameLevel(dialog:GetFrameLevel() + 10)
+    popup:SetClampedToScreen(true)
+    popup:EnableMouse(true)
+    popup:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8", edgeFile = "Interface/Tooltips/UI-Tooltip-Border", edgeSize = 12 })
+    popup:SetBackdropColor(0.025, 0.032, 0.043, 1)
+    popup:SetBackdropBorderColor(GOLD[1], GOLD[2], GOLD[3], 0.9)
+    popup:SetPoint("TOPLEFT", input, "BOTTOMLEFT", 0, -4)
+    popup:Hide()
+    input.popup = popup
+    dialog.dropdowns[#dialog.dropdowns + 1] = input
+    local heading = popup:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    heading:SetPoint("TOP", 0, -16)
+    local day, month, year = input.selectedValue:match("^(%d%d)%-(%d%d)%-(%d%d%d%d)$")
+    local current = date("*t")
+    month, year = tonumber(month) or current.month, tonumber(year) or current.year
+    local cells = {}
+    local function render()
+        local first = date("*t", time({ year = year, month = month, day = 1, hour = 12 }))
+        local last = date("*t", time({ year = year, month = month + 1, day = 0, hour = 12 })).day
+        heading:SetText(date("%B %Y", time({ year = year, month = month, day = 1, hour = 12 })))
+        for index, cell in ipairs(cells) do
+            local number = index - first.wday + 1
+            cell:SetShown(number >= 1 and number <= last)
+            if number >= 1 and number <= last then
+                local value = ("%02d-%02d-%04d"):format(number, month, year)
+                cell.value = value
+                styleRaidButton(cell, 34, value == input.selectedValue and "primary" or "secondary")
+                cell:SetText(number)
+            end
+        end
+    end
+    for index, label in ipairs({ "Su", "Mo", "Tu", "We", "Th", "Fr", "Sa" }) do
+        local text = popup:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        text:SetPoint("TOPLEFT", 15 + (index - 1) * 38, -48)
+        text:SetWidth(34)
+        text:SetText(label)
+    end
+    for index = 1, 42 do
+        local cell = CreateFrame("Button", nil, popup)
+        cell:SetPoint("TOPLEFT", 15 + ((index - 1) % 7) * 38, -68 - math.floor((index - 1) / 7) * 34)
+        cell:SetScript("OnClick", function(button)
+            input.selectedValue = button.value
+            input:SetText(button.value)
+            popup:Hide()
+        end)
+        cells[index] = cell
+    end
+    for _, direction in ipairs({ -1, 1 }) do
+        local delta = direction
+        local button = CreateFrame("Button", nil, popup)
+        styleRaidButton(button, 30)
+        button:SetPoint(delta < 0 and "TOPLEFT" or "TOPRIGHT", delta < 0 and 12 or -12, -10)
+        button:SetText(delta < 0 and "<" or ">")
+        button:SetScript("OnClick", function()
+            local nextMonth = date("*t", time({ year = year, month = month + delta, day = 1, hour = 12 }))
+            month, year = nextMonth.month, nextMonth.year
+            render()
+        end)
+    end
+    input:SetScript("OnClick", function()
+        local shown = popup:IsShown()
+        for _, dropdown in ipairs(dialog.dropdowns) do dropdown.popup:Hide() end
+        if not shown then render(); popup:Show() end
+    end)
+    return input
+end
+
 local dialogCounter = 0
 local function showInputForm(title, fields, onAccept, acceptLabel, hideClose)
     dialogCounter = dialogCounter + 1
@@ -194,7 +276,9 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose)
         setTextColor(label, CREAM)
         local height = field.multiline and 84 or 24
         local input
-        if field.options then
+        if field.calendar then
+            input = createRaidDatePicker(dialog, field, offset)
+        elseif field.options then
             input = CreateFrame("Button", nil, dialog, "UIPanelButtonTemplate")
             GH:StyleButton(input)
             input:SetSize(370, 24)
@@ -204,7 +288,7 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose)
             -- Keep dropdown menus on UIParent so they render and receive clicks
             -- above the modal and its sibling edit boxes in the older client UI.
             local popup = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
-            popup:SetSize(370, #field.options * 24 + 8)
+            popup:SetSize(370, math.min(#field.options, 8) * 24 + 8)
             popup:SetFrameStrata("TOOLTIP")
             popup:SetFrameLevel(dialog:GetFrameLevel() + 10)
             popup:SetClampedToScreen(true)
@@ -217,12 +301,23 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose)
             input.popup = popup
             dialog.dropdowns[#dialog.dropdowns + 1] = input
             local dropdownInput, dropdownPopup = input, popup
+            local listScroll = CreateFrame("ScrollFrame", nil, popup)
+            listScroll:SetPoint("TOPLEFT", 4, -4)
+            listScroll:SetPoint("BOTTOMRIGHT", -4, 4)
+            local listContent = CreateFrame("Frame", nil, listScroll)
+            listContent:SetSize(356, #field.options * 24)
+            listScroll:SetScrollChild(listContent)
+            listScroll:EnableMouseWheel(true)
+            local maxScroll = math.max(0, (#field.options - 8) * 24)
+            listScroll:SetScript("OnMouseWheel", function(self, delta)
+                self:SetVerticalScroll(math.max(0, math.min(maxScroll, self:GetVerticalScroll() - delta * 72)))
+            end)
             for optionIndex, option in ipairs(field.options) do
                 local chosenOption = option
-                local optionButton = CreateFrame("Button", nil, popup, "UIPanelButtonTemplate")
-                GH:StyleButton(optionButton)
+                local optionButton = CreateFrame("Button", nil, listContent)
+                styleRaidButton(optionButton, 356)
                 optionButton:SetSize(356, 22)
-                optionButton:SetPoint("TOPLEFT", 5, -4 - (optionIndex - 1) * 24)
+                optionButton:SetPoint("TOPLEFT", 1, -(optionIndex - 1) * 24)
                 optionButton:SetText(chosenOption)
                 optionButton:SetScript("OnClick", function()
                     dropdownInput.selectedValue = chosenOption
@@ -233,6 +328,9 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose)
             input:SetScript("OnClick", function(self)
                 local wasShown = dropdownPopup:IsShown()
                 for _, dropdown in ipairs(dialog.dropdowns) do dropdown.popup:Hide() end
+                local selectedIndex = 1
+                for index, value in ipairs(field.options) do if value == dropdownInput.selectedValue then selectedIndex = index; break end end
+                listScroll:SetVerticalScroll(math.min(maxScroll, math.max(0, (selectedIndex - 3) * 24)))
                 dropdownPopup:SetShown(not wasShown)
             end)
         else
@@ -241,7 +339,7 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose)
             input:SetPoint("TOPLEFT", 20, -offset - 16)
             GH:StyleEditBox(input, field.multiline)
         end
-        if not field.options then
+        if not field.options and not field.calendar then
             input:SetAutoFocus(false)
             input:SetMaxLetters(field.max or 200)
             input:SetText(field.value or "")
@@ -279,11 +377,12 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose)
     UISpecialFrames = UISpecialFrames or {}
     table.insert(UISpecialFrames, 1, name)
     dialog:SetScript("OnHide", function()
+        for _, dropdown in ipairs(dialog.dropdowns) do dropdown.popup:Hide() end
         for i = #UISpecialFrames, 1, -1 do if UISpecialFrames[i] == name then table.remove(UISpecialFrames, i) end end
     end)
     dialog:Show()
     for index, input in ipairs(dialog.inputs) do
-        if not fields[index].readOnly and not fields[index].options then
+        if not fields[index].readOnly and not fields[index].options and not fields[index].calendar then
             input:SetFocus()
             break
         end
@@ -739,8 +838,8 @@ local function build()
         local tomorrow = time() + 86400
         showInputForm("Create guild raid", {
             { label = "Raid title", value = "Guild raid", max = 100 },
-            { label = "Date (YYYY-MM-DD)", value = date("%Y-%m-%d", tomorrow), max = 10 },
-            { label = "Start time, local (HH:MM, 24-hour)", value = "20:00", max = 5 },
+            { label = "Raid date (your local calendar)", value = date("%d-%m-%Y", tomorrow), calendar = true },
+            { label = "Start time (your local time)", value = "8:00 PM", options = raidStartTimes },
             { label = "Raid size target", value = "40", options = { "10", "20", "25", "40" } },
             { label = "Sign-ups", value = "Open", options = { "Open", "Locked" } },
             { label = "Details", value = "", max = 300, multiline = true },
@@ -1462,6 +1561,14 @@ function GH:RefreshUI()
                 row.classTitle = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
                 row.classTitle:SetJustifyH("LEFT")
                 row.classTitle:SetText("CLASS COMPOSITION  |  Signed up / Invited")
+                row.inviteButton = CreateFrame("Button", nil, row)
+                styleRaidButton(row.inviteButton, 136, "primary")
+                row.inviteButton:SetPoint("TOPRIGHT", -16, -216)
+                row.inviteButton:SetText("Invite selected")
+                row.inviteButton:SetScript("OnClick", function(button)
+                    local _, result = GH:InviteRaidSelections(button.eventId)
+                    if result then print("Guild Hall: " .. result) end
+                end)
                 row.signupRows = {}
                 row.rsvpButtons = {}
                 row.calendarButton = CreateFrame("Button", nil, row)
@@ -1487,8 +1594,8 @@ function GH:RefreshUI()
                         or settings.inviteMode == "guild" and "Mass invite guild" or "No invites"
                     showInputForm("Edit guild event", {
                         { label = "Title", value = event.title or "", max = 100 },
-                        { label = "Date (YYYY-MM-DD)", value = date("%Y-%m-%d", event.at), max = 10 },
-                        { label = "Start time, local (HH:MM, 24-hour)", value = date("%H:%M", event.at), max = 5 },
+                        { label = "Raid date (your local calendar)", value = date("%d-%m-%Y", event.at), calendar = true },
+                        { label = "Start time (your local time)", value = date("%I:%M %p", event.at):gsub("^0", ""), options = raidStartTimes },
                         { label = "Calendar category", value = category, options = { "Raid", "Dungeon", "PvP", "Meeting", "Other" } },
                         { label = "Sign-ups", value = settings.locked and "Locked" or "Open", options = { "Open", "Locked" } },
                         { label = "Invitations", value = inviteMode, options = { "No invites", "Selected players", "Mass invite guild" } },
@@ -1496,7 +1603,8 @@ function GH:RefreshUI()
                         { label = "Details", value = event.details or "", max = 300, multiline = true },
                         { label = "Raid size target", value = tostring(settings.raidSize or 40), options = { "10", "20", "25", "40" } },
                     }, function(values)
-                        local at = GH:ParseEventTimeFields(values[2], values[3])
+                        local at, reason = GH:ParseEventTimeFields(values[2], values[3])
+                        if not at then return false, reason end
                         local updatedSettings = calendarSettingsFromForm(values, 4)
                         updatedSettings.raidSize = tonumber(values[9])
                         return GH:EditEvent(self.eventId, at, values[1], values[8], updatedSettings)
@@ -1564,7 +1672,7 @@ function GH:RefreshUI()
             local category = calendarSettings.category or (event.eventType == "raid" and "Raid" or "Other")
             row.info:SetWidth(math.max(180, frame.detailChild:GetWidth() - 48))
             row.info:SetHeight(16)
-            row.info:SetText(date("%a, %b %d  |  %I:%M %p", event.at) .. " local  |  " .. category .. "  |  Led by " .. self:Display(event.by))
+            row.info:SetText(date("%a, %d %b %Y  |  %I:%M %p", event.at) .. " local  |  " .. category .. "  |  Led by " .. self:Display(event.by))
             row.state:SetText(calendarSettings.locked and "SIGNUPS LOCKED" or "SIGNUPS OPEN")
             if calendarSettings.locked then row.state:SetTextColor(0.92, 0.65, 0.28)
             else row.state:SetTextColor(0.35, 0.85, 0.58) end
@@ -1590,6 +1698,9 @@ function GH:RefreshUI()
                 row.calendarButton:SetEnabled(event.by == player)
             end
             local counts = self:GetRaidSignupSummary(event)
+            row.inviteButton.eventId = event.id
+            row.inviteButton:SetShown(not event.preview and self:IsRaidGM())
+            row.inviteButton:SetEnabled(counts.selected > 0)
             local mine = event.rsvps and event.rsvps[player]
             local myStatus = type(mine) == "table" and mine.status or mine
             local totals = { counts.going, counts.Tank, counts.Healer, counts.DPS, counts.tentative, counts.absent, counts.selected .. "/" .. (calendarSettings.raidSize or 40) }
