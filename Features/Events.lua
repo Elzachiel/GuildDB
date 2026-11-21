@@ -308,6 +308,8 @@ end
 
 -- Class comes from the live guild roster, including offline members.
 function GH:GetRaidPlayerClass(name)
+    local previewClass = self.raidPreviewEvent and self.raidPreviewEvent.classes[name]
+    if previewClass then return previewClass[1], previewClass[2] end
     if samePlayerName(name, self:PlayerName()) and UnitClass then
         local label, token = UnitClass("player")
         if token then return label, token end
@@ -429,7 +431,11 @@ local function upcomingEvents()
     for _, event in ipairs((GH.bucket and GH.bucket.events) or {}) do
         if event.at >= time() then events[#events + 1] = event end
     end
-    table.sort(events, function(a, b) return a.at < b.at end)
+    if GH.raidPreviewEvent then events[#events + 1] = GH.raidPreviewEvent end
+    table.sort(events, function(a, b)
+        if a.preview ~= b.preview then return a.preview == true end
+        return a.at < b.at
+    end)
     return events
 end
 GH.GetUpcomingEvents = upcomingEvents
@@ -452,6 +458,7 @@ function GH:SetRSVPForEvent(eventId, status, role, note, spec)
         if candidate.id == eventId then event = candidate; break end
     end
     if not event then return false, "That event is no longer upcoming." end
+    if event.preview then return false, "This is a local preview. Use /gh testraid40 clear to remove it." end
     if event.calendarSettings and event.calendarSettings.locked and not (event.rsvps and event.rsvps[self:PlayerName()]) then return false, "Sign-ups are locked for this event." end
     event.rsvps = event.rsvps or {}
     local player, ts = self:PlayerName(), time()
@@ -700,4 +707,43 @@ GH:RegisterTab("Events", function()
         lines[#lines + 1] = ""
     end
     return table.concat(lines, "\n")
+end)
+
+-- Temporary local data for checking a full raid layout; never enters synced buckets.
+GH:RegisterCommand("testraid40", function(rest)
+    if tostring(rest or ""):lower():match("^%s*clear%s*$") then
+        GH.raidPreviewEvent = nil
+        if GH.RefreshUI then GH:RefreshUI() end
+        print("Guild Hall: 40-player preview removed.")
+        return
+    end
+    local templates = {
+        { "Warrior", "WARRIOR", "Protection", "Tank" },
+        { "Paladin", "PALADIN", "Holy", "Healer" },
+        { "Hunter", "HUNTER", "Marksmanship", "DPS" },
+        { "Rogue", "ROGUE", "Combat", "DPS" },
+        { "Priest", "PRIEST", "Holy", "Healer" },
+        { "Shaman", "SHAMAN", "Restoration", "Healer" },
+        { "Mage", "MAGE", "Frost", "DPS" },
+        { "Warlock", "WARLOCK", "Affliction", "DPS" },
+        { "Druid", "DRUID", "Feral", "Tank" },
+        { "Warrior", "WARRIOR", "Fury", "DPS" },
+    }
+    local names = { "Aldren", "Bellara", "Caelthorn", "Duskblade", "Elowyn", "Frostmane", "Grimholt", "Hearthwick", "Ironbark", "Jorund", "Kaelara", "Luneth", "Mordain", "Nyssara", "Oakwarden", "Pyrestorm", "Quillshade", "Ravencrest", "Silverbrook", "Thornvale", "Umbralis", "Valewind", "Wildsong", "Xandriel", "Yarrow", "Zephyra", "Ashforge", "Brightwater", "Cinderveil", "Dawnwhisper", "Emberfall", "Flintguard", "Galestrider", "Hollowshade", "Ivorymoon", "Jadebranch", "Kestrelwind", "Lightwarden", "Moonbrook", "Nightwillow" }
+    local event = { id = "local-raid-preview", preview = true, at = time() + 86400,
+        title = "40-player layout test (local preview)", by = "Guild Hall preview",
+        details = "Temporary test roster: 40 signups, 34 Going, 4 Maybe, 2 Absent. Blue checks show 25 selected invites. Clear with /gh testraid40 clear.",
+        calendarSettings = { category = "Raid", raidSize = 40, locked = true }, rsvps = {}, selections = {}, classes = {} }
+    for index, baseName in ipairs(names) do
+        local template = templates[(index - 1) % #templates + 1]
+        local name = "Test " .. baseName
+        event.classes[name] = { template[1], template[2] }
+        event.rsvps[name] = { status = index <= 34 and "going" or index <= 38 and "tentative" or "absent",
+            role = template[4], spec = template[3], ts = time(), note = index % 7 == 0 and "May arrive 10 minutes late" or "" }
+        if index <= 25 then event.selections[name] = { selected = true, ts = time(), by = "Guild Hall preview" } end
+    end
+    GH.raidPreviewEvent = event
+    GH.activeTab = "Events"
+    if GH.Open then GH:Open() end
+    print("Guild Hall: Showing 40 test signups locally. Remove with /gh testraid40 clear or /reload.")
 end)

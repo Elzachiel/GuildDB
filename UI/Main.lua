@@ -1572,10 +1572,10 @@ function GH:RefreshUI()
             row.details:SetHeight(42)
             row.details:SetText(self:Display(event.details ~= "" and event.details or "No additional raid notes."))
             row.calendarButton.eventId = event.id
-            row.calendarButton:SetShown(event.by == player)
+            row.calendarButton:SetShown(not event.preview and event.by == player)
             row.editButton.eventId = event.id
             row.deleteButton.eventId = event.id
-            local canManageEvent = self:CanManage()
+            local canManageEvent = not event.preview and self:CanManage()
             row.editButton:SetShown(canManageEvent)
             row.deleteButton:SetShown(canManageEvent)
             local actionX = event.by == player and 152 or 16
@@ -1606,7 +1606,7 @@ function GH:RefreshUI()
             row.personalStatus:SetWidth(math.max(180, frame.detailChild:GetWidth() - 48))
             row.personalStatus:SetText("Your signup: " .. statusLabel .. (counts.unassigned > 0 and ("  |  " .. counts.unassigned .. " attending without a role") or ""))
             row.withdrawButton.eventId = event.id
-            row.withdrawButton:SetShown(mine ~= nil)
+            row.withdrawButton:SetShown(not event.preview and mine ~= nil)
             local widths = { 0.24, 0.18, 0.25, 0.14, 0.19 }
             local available, headerX = math.max(300, frame.detailChild:GetWidth() - 140), 44
             for column, text in ipairs(row.rosterHeaders) do
@@ -1682,7 +1682,7 @@ function GH:RefreshUI()
                 signup.eventId, signup.player = event.id, name
                 signup.selected = response.status == "going" and selection and selection.selected or false
                 signup.mark:SetShown(signup.selected)
-                signup:SetEnabled(GH:IsRaidGM() and response.status == "going")
+                signup:SetEnabled(not event.preview and GH:IsRaidGM() and response.status == "going")
                 local className, classFile = GH:GetRaidPlayerClass(name)
                 local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
                 local values = { GH:Display(name), GH:Display(className), GH:Display(response.spec ~= "" and response.spec or "Not set"), response.role or "Not set", response.status == "going" and "Going" or response.status == "tentative" and "Maybe" or "Absent" }
@@ -1708,7 +1708,7 @@ function GH:RefreshUI()
                 if response.status == "going" and selection and selection.selected then signup.band:SetColorTexture(0.07, 0.16, 0.22, 1) end
                 signup.remove:SetPoint("TOPRIGHT", row, "TOPRIGHT", -16, -281 - (index - 1) * 44)
                 signup.remove.eventId, signup.remove.player = event.id, name
-                signup.remove:SetShown(GH:IsRaidGM() or name == player)
+                signup.remove:SetShown(not event.preview and (GH:IsRaidGM() or name == player))
                 signup:Show()
             end
             for index = #names + 1, #row.signupRows do row.signupRows[index]:Hide(); row.signupRows[index].remove:Hide() end
@@ -1765,7 +1765,7 @@ function GH:RefreshUI()
                 button:SetText(mine and "Edit my signup" or "Sign up")
                 button:ClearAllPoints()
                 button:SetPoint("TOPRIGHT", mine and -136 or -16, -184)
-                if calendarSettings.locked and not mine then button:Disable() else button:Enable() end
+                if event.preview or (calendarSettings.locked and not mine) then button:Disable() else button:Enable() end
             end
             row:Show()
         end
