@@ -2,7 +2,7 @@
 local ADDON, GD = ...
 _G.GuildDB = GD
 
-GD.version = "0.1.87"
+GD.version = "0.1.88"
 GD.prefix = "GDB"
 GD.maxItems = 60
 GD.tabs = { "Roster" }

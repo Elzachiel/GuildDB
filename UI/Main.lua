@@ -1341,7 +1341,7 @@ function GD:RefreshUI()
             row.columns[3]:SetText(self:Display(member.rank or "Member"))
             row.columns[4]:SetText(self:Display(member.zone or "-"))
             row.columns[5]:SetText(self:Display(profile.role or "-"))
-            row.columns[6]:SetText(version or "-")
+            row.columns[6]:SetText(version or "X")
             for _, cell in ipairs(row.columns) do cell:Show() end
             row.label:Hide()
             row.meta:Hide()
