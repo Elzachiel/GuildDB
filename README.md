@@ -50,8 +50,10 @@ Copy this folder into the client's `Interface/AddOns` directory, enable **Guild 
 - `/gh craft who Recipe` searches online members' listed crafting skills.
 - `/gh poll create Question | Option 1 | Option 2 [| Option 3 | Option 4]` creates a poll (officer).
 - `/gh poll vote # option#` votes; `/gh poll close #` closes a poll (officer).
-- PvP → New season creates a PvP season (guild master only), with an end date in DD-MM-YYYY format. The end date includes that entire day in the creator's local time. The New season button offers the same fields. When the deadline passes, new kills count toward all-time stats only; the finished season remains visible. All members must update for the cutoff to apply consistently.
+- PvP → New Season creates a season (guild master only): enter its name, pick an end date from the calendar, and click Start. Existing seasons and all-time totals are kept. The end date includes that entire day in the creator's local time. When the deadline passes, new kills count toward all-time stats only; the finished season remains visible. All members must update for the cutoff to apply consistently.
 - `/gh pvp wipe CONFIRM` permanently clears all guild PvP points, kills, deaths, recent records, and seasons (guild master / rank 0 only). The saved reset syncs to updated members, including members who return later; older clients must update to honor resets. Repeat-victim history clears when a client receives the reset.
+- PvP → Delete Season lets the guild master choose a season and confirm its deletion. All-time stats are kept. The button is disabled when no seasons exist.
+- PvP → Wipe All Stats lets the guild master clear all PvP stats and seasons after confirmation. Click New Season afterward to begin a new Season 1. These three buttons are grouped at the bottom of the PvP screen.
 - `/gh shout Player Name | Message` posts a shoutout.
 - `/gh map waypoint CharacterName` sets a waypoint to a member's latest shared location; `/gh map clear` clears it.
 - `/gh popout pvp`, `/gh popout level10` (also 20/30/40/50/60), or `/gh popout profession150` (also 225/300) previews a popout locally.

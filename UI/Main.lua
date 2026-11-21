@@ -725,7 +725,7 @@ local function build()
     frame.pvpMyButton = CreateFrame("Button", nil, frame.detailPanel, "UIPanelButtonTemplate")
     GH:StyleButton(frame.pvpMyButton)
     frame.pvpMyButton:SetSize(98, 26)
-    frame.pvpMyButton:SetPoint("TOPRIGHT", -282, -12)
+    frame.pvpMyButton:SetPoint("TOPRIGHT", -142, -12)
     frame.pvpMyButton:SetScript("OnClick", function()
         frame.pvpMyOnly = not frame.pvpMyOnly
         GH:RefreshUI()
@@ -733,27 +733,75 @@ local function build()
     frame.pvpSeasonButton = CreateFrame("Button", nil, frame.detailPanel, "UIPanelButtonTemplate")
     GH:StyleButton(frame.pvpSeasonButton, "primary")
     frame.pvpSeasonButton:SetSize(112, 26)
-    frame.pvpSeasonButton:SetPoint("LEFT", frame.pvpMyButton, "RIGHT", 8, 0)
-    frame.pvpSeasonButton:SetText("New season")
+    frame.pvpSeasonButton:SetPoint("BOTTOMLEFT", 18, 12)
+    frame.pvpSeasonButton:SetText("New Season")
     frame.pvpSeasonButton:SetScript("OnClick", function()
         if not GH:CanManagePvPSeason() then return end
         local currentName = GH.bucket and GH.bucket.pvpSeason and GH.bucket.pvpSeason.name or ""
         local currentNumber = tonumber(currentName:match("(%d+)$")) or 0
         showInputForm("Start a PvP season", {
             { label = "Season name", value = "Season " .. tostring(currentNumber + 1), max = 80 },
-            { label = "End date DD-MM-YYYY (local, inclusive)", value = date("%d-%m-%Y", time() + 30 * 86400), max = 10 },
-            { label = "Season action (all-time stats are kept)", value = "Create next season", options = { "Create next season", "Start fresh as Season 1" } },
+            { label = "End date (includes this day)", value = date("%d-%m-%Y", time() + 30 * 86400), calendar = true },
         }, function(values)
-            local restart = values[3] == "Start fresh as Season 1"
-            local ok, result = GH:StartPvPSeason(values[1], values[2], restart)
-            if ok then frame.pvpSelectedStart = nil; frame.pvpAllTime = false end
+            local ok, result = GH:StartPvPSeason(values[1], values[2])
+            if ok then
+                frame.pvpSelectedStart = nil; frame.pvpAllTime = false
+                GH:RefreshUI()
+            end
             return ok, result
-        end, "Create", true)
+        end, "Start", true)
+    end)
+    frame.pvpDeleteButton = CreateFrame("Button", nil, frame.detailPanel, "UIPanelButtonTemplate")
+    GH:StyleButton(frame.pvpDeleteButton)
+    frame.pvpDeleteButton:SetSize(116, 26)
+    frame.pvpDeleteButton:SetPoint("LEFT", frame.pvpSeasonButton, "RIGHT", 8, 0)
+    frame.pvpDeleteButton:SetText("Delete Season")
+    frame.pvpDeleteButton:SetScript("OnClick", function()
+        if not GH:CanManagePvPSeason() then return end
+        local options, starts, selectedLabel = {}, {}, nil
+        local selected = GH:GetPvPLeaderboard(frame.pvpAllTime, frame.pvpSelectedStart)
+        for _, season in ipairs(GH:GetPvPSeasons()) do
+            if season.start > 0 then
+                local label = season.name .. " (" .. date("%d-%m-%Y %H:%M:%S", season.start) .. ")"
+                options[#options + 1], starts[label] = label, season.start
+                if season.start == selected.start then selectedLabel = label end
+            end
+        end
+        if #options == 0 then return end
+        showInputForm("Delete Season", {
+            { label = "Season to permanently delete", value = selectedLabel or options[1], options = options },
+            { label = "All-time stats will be kept.", value = "This removes the season and its leaderboard.", readOnly = true },
+        }, function(values)
+            local ok, result = GH:DeletePvPSeason(starts[values[1]])
+            if ok then
+                frame.pvpSelectedStart, frame.pvpAllTime = 0, true
+                GH:RefreshUI()
+            end
+            return ok, result
+        end, "Delete", true)
+    end)
+    frame.pvpWipeButton = CreateFrame("Button", nil, frame.detailPanel, "UIPanelButtonTemplate")
+    GH:StyleButton(frame.pvpWipeButton)
+    frame.pvpWipeButton:SetSize(120, 26)
+    frame.pvpWipeButton:SetPoint("LEFT", frame.pvpDeleteButton, "RIGHT", 8, 0)
+    frame.pvpWipeButton:SetText("Wipe All Stats")
+    frame.pvpWipeButton:SetScript("OnClick", function()
+        if not GH:CanManagePvPSeason() then return end
+        showInputForm("Wipe All PvP Stats?", {
+            { label = "Permanently erases PvP stats for the whole guild.", value = "All-time totals, kills, deaths, history and every season will be erased. You can then start a new Season 1.", multiline = true, readOnly = true },
+        }, function()
+            local ok, result = GH:WipePvPStats()
+            if ok then
+                frame.pvpSelectedStart, frame.pvpAllTime = nil, false
+                GH:RefreshUI()
+            end
+            return ok, result
+        end, "Wipe All", true)
     end)
     frame.pvpScopeButton = CreateFrame("Button", nil, frame.detailPanel, "UIPanelButtonTemplate")
     GH:StyleButton(frame.pvpScopeButton)
     frame.pvpScopeButton:SetSize(116, 26)
-    frame.pvpScopeButton:SetPoint("LEFT", frame.pvpSeasonButton, "RIGHT", 8, 0)
+    frame.pvpScopeButton:SetPoint("TOPRIGHT", -18, -12)
     local seasonMenu = CreateFrame("ScrollFrame", nil, UIParent, "UIPanelScrollFrameTemplate,BackdropTemplate")
     seasonMenu:SetSize(280, 220)
     seasonMenu:SetPoint("TOPRIGHT", frame.pvpScopeButton, "BOTTOMRIGHT", -24, -4)
@@ -770,9 +818,6 @@ local function build()
     frame.pvpScopeButton:SetScript("OnClick", function()
         if seasonMenu:IsShown() then seasonMenu:Hide(); return end
         local choices = GH:GetPvPSeasons()
-        if GH:CanManagePvPSeason() then
-            choices[#choices + 1] = { name = "Delete selected season...", deleteSeason = true }
-        end
         choices[#choices + 1] = { name = "Tracking details", tracking = true }
         for index, choice in ipairs(choices) do
             local option = seasonMenu.buttons[index]
@@ -786,29 +831,7 @@ local function build()
             option:SetText(choice.name)
             local start = choice.start
             local tracking = choice.tracking
-            local deleting = choice.deleteSeason
             option:SetScript("OnClick", function()
-                if deleting then
-                    seasonMenu:Hide()
-                    local selected = GH:GetPvPLeaderboard(frame.pvpAllTime, frame.pvpSelectedStart)
-                    if not selected or (selected.start or 0) == 0 then
-                        print("Guild Hall: Select a season first. All-time cannot be deleted here.")
-                        return
-                    end
-                    showInputForm("Delete PvP season", {
-                        { label = "Season to delete (all-time stats are kept)", value = selected.name, readOnly = true },
-                        { label = "Type DELETE to permanently remove this season", value = "", max = 6 },
-                    }, function(values)
-                        if values[2] ~= "DELETE" then return false, "Type DELETE to confirm." end
-                        local ok, result = GH:DeletePvPSeason(selected.start)
-                        if ok then
-                            frame.pvpSelectedStart, frame.pvpAllTime = 0, true
-                            GH:RefreshUI()
-                        end
-                        return ok, result
-                    end, "Delete", true)
-                    return
-                end
                 if tracking then
                     seasonMenu:Hide()
                     showInputForm("PvP tracking details", {
@@ -1292,12 +1315,12 @@ function GH:RefreshUI()
     frame.detailScroll:ClearAllPoints()
     if isPvP then
         frame.detailScroll:SetPoint("TOPLEFT", 10, -184)
-        frame.detailScroll:SetPoint("BOTTOMRIGHT", -10, 12)
+        frame.detailScroll:SetPoint("BOTTOMRIGHT", -10, self:CanManagePvPSeason() and 54 or 12)
     else
         frame.detailScroll:SetPoint("TOPLEFT", 10, -66)
         frame.detailScroll:SetPoint("BOTTOMRIGHT", -28, 54)
     end
-    for _, element in ipairs({ frame.pvpTitleSeason, frame.pvpSummary, frame.pvpInfo, frame.pvpTableRule, frame.pvpMyButton, frame.pvpSeasonButton, frame.pvpScopeButton }) do
+    for _, element in ipairs({ frame.pvpTitleSeason, frame.pvpSummary, frame.pvpInfo, frame.pvpTableRule, frame.pvpMyButton, frame.pvpSeasonButton, frame.pvpDeleteButton, frame.pvpWipeButton, frame.pvpScopeButton }) do
         element:SetShown(isPvP)
     end
     frame.eventCreateButton:SetShown(isEvents and self:CanManage())
@@ -1404,6 +1427,9 @@ function GH:RefreshUI()
         end
         frame.pvpMyButton:SetText(frame.pvpMyOnly and "Guild board" or "My stats")
         frame.pvpSeasonButton:SetShown(self:CanManagePvPSeason())
+        frame.pvpDeleteButton:SetShown(self:CanManagePvPSeason())
+        frame.pvpDeleteButton:SetEnabled(#self:GetPvPSeasons() > 1)
+        frame.pvpWipeButton:SetShown(self:CanManagePvPSeason())
         frame.pvpScopeButton:SetText("Seasons  v")
         local playerName = UnitName and UnitName("player") or "You"
         frame.pvpSummary:SetText(ownScore and ("You: |cffffcc33%d kills|r  -  #%d"):format(ownScore.kills, ownRank) or (playerName .. ": no PvP kills yet"))

@@ -65,6 +65,19 @@ function GH:CanManagePvPSeason()
     return self.bucket ~= nil and guildLeader(playerName())
 end
 
+-- Keep administrative actions ordered even when several happen in one second.
+-- Deleted season IDs must never be reused by a replacement season.
+local function nextSeasonStamp()
+    local stamp = math.max(time(), resetTime() + 1, (GH.bucket.pvpSeason.ts or 0) + 1)
+    for _, season in pairs(GH.bucket.pvpSeasons) do
+        stamp = math.max(stamp, (season.start or 0) + 1, (season.ts or 0) + 1)
+    end
+    for start, deleted in pairs(GH.bucket.pvpSeasonDeletes) do
+        stamp = math.max(stamp, (tonumber(start) or 0) + 1, (deleted.ts or 0) + 1)
+    end
+    return stamp
+end
+
 local function deleteSeason(start, stamp, author)
     local key = tostring(start)
     local previous = GH.bucket.pvpSeasonDeletes[key]
@@ -84,8 +97,9 @@ function GH:DeletePvPSeason(start)
     if not self:CanManagePvPSeason() then return false, "Only the guild master can delete seasons." end
     start = tonumber(start)
     if not start or start <= 0 then return false, "Select a season first. All-time cannot be deleted here." end
-    deleteSeason(start, time(), playerName())
-    self:SendRecord("PD", tostring(start), time(), playerName(), "")
+    local stamp = nextSeasonStamp()
+    deleteSeason(start, stamp, playerName())
+    self:SendRecord("PD", tostring(start), stamp, playerName(), "")
     return true, "Season deleted. All-time stats were kept."
 end
 
@@ -115,7 +129,7 @@ end)
 function GH:WipePvPStats()
     if not self.bucket then return false, "Join a guild first." end
     if not guildLeader(playerName()) then return false, "Only the guild master can wipe PvP stats." end
-    local stamp = math.max(time(), resetTime() + 1)
+    local stamp = nextSeasonStamp()
     applyReset(stamp, playerName())
     self:SendRecord("PR", "wipe", stamp, playerName(), "")
     return true, "All guild PvP stats and seasons reset. Updated members receive the reset through guild sync."
@@ -261,6 +275,7 @@ GH:RegisterRecordHandler("Y", function(id, ts, author, content)
     local name, start, ends = content:match("^(.-)\n(%d+)\n(%d+)$")
     if not name then name, start = content:match("^(.-)\n(%d+)$") end
     start = tonumber(start)
+    if start and start > 0 and start <= resetTime() then return end
     if start and GH.bucket.pvpSeasonDeletes[tostring(start)] then return end
     ends = tonumber(ends) or 0
     if not name or name == "" or #name > 80 or not start then return end
@@ -291,6 +306,7 @@ GH:RegisterRecordHandler("Z", function(id, ts, author, content)
     elseif resetTime() > 0 then return end
     local start, kills, points, deaths = content:match("^(%d+)\n(%d+)\n(%d+)\n(%d+)$")
     start, kills, points, deaths = tonumber(start), tonumber(kills), tonumber(points), tonumber(deaths)
+    if start and start > 0 and start <= resetTime() then return end
     if start and GH.bucket.pvpSeasonDeletes[tostring(start)] then return end
     if not start or not kills or not points or not deaths or #author > 100 then return end
     local key = totalsKey(start, author)
@@ -547,7 +563,7 @@ function GH:StartPvPSeason(name, endDate, restart)
     if not self:CanManagePvPSeason() then return false, "Only the guild master can start a PvP season." end
     name = (name or ""):gsub("^%s+", ""):gsub("%s+$", "")
     if name == "" or #name > 80 then return false, "Enter a season name (up to 80 characters)." end
-    local ts = math.max(time(), resetTime() + 1, (self.bucket.pvpSeason.start or 0) + 1)
+    local ts = nextSeasonStamp() + (restart and 1 or 0)
     local day, month, year = tostring(endDate or ""):match("^(%d%d)%-(%d%d)%-(%d%d%d%d)$")
     if not year then return false, "Enter an end date as DD-MM-YYYY (your local time)." end
     year, month, day = tonumber(year), tonumber(month), tonumber(day)
@@ -560,8 +576,15 @@ function GH:StartPvPSeason(name, endDate, restart)
     if ends <= ts then return false, "The end date must be today or later." end
     if restart then
         name = "Season 1"
+        local starts = {}
+        for _, season in ipairs(self:GetPvPSeasons()) do
+            if season.start > 0 then starts[#starts + 1] = season.start end
+        end
+        for _, start in ipairs(starts) do
+            deleteSeason(start, ts - 1, playerName())
+            self:SendRecord("PD", tostring(start), ts - 1, playerName(), "")
+        end
     end
-    if ends <= ts then return false, "Choose a later end date." end
     local player = playerName()
     local previous = self.bucket.pvpSeason
     if previous and (previous.start or 0) > 0 then
