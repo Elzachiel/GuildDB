@@ -14,7 +14,8 @@ GuildDB is a World of Warcraft guild addon for a shared roster, member profiles,
 - GuildDB can open, close, refresh, and switch tabs during combat. Protected guild-rank actions stay hidden until combat ends.
 - A guild guide for rules and loot rules.
 - Raid creation and signup area with raid size targets, player specs, Tank/Healer/DPS roles, attendance, and signup notes. The GM can check players for the invite roster; selections are shared with the guild.
-- PvP leaderboard with outdoor kills, deaths, seasons, and a Most Wanted list.
+- PvP leaderboard with outdoor kills, deaths, K/D ratios, seasons, and a Most Wanted list. K/D is kills divided by deaths, using one as the denominator until the first death. Shared honorable kills count as kills; assists are not tracked separately.
+- Outdoor PvP deaths count once per life when you took player or player-controlled pet damage in the preceding 30 seconds. Death records and season/all-time totals sync automatically with guild peers. Detection requires readable combat-log damage events from the client.
 - Looking For group board; posts expire after three hours.
 - Crafting request board; requests expire after seven days and can be claimed by crafters.
 - Officer polls with public totals; voter names are not shown in the interface.
@@ -38,6 +39,8 @@ Select a member in Roster and choose a rank from Set Guild Rank. Each hardware c
 PvP rankings use total eligible kills, regardless of victim level. Each kill counts equally; existing kill totals are preserved and historical level-based points no longer affect rankings. Only game-credited open-world kills count; battlegrounds, arenas, dungeons, raids, and scenarios are excluded. Honor messages and kill-credit updates are combined to avoid counting the same reward twice. Counter-only credits require one identifiable recent enemy death. Victim levels come from recently visible enemy players; unknown levels use your level, and skull-level enemies use your level plus 10, capped at 60. Every eligible kill counts, including repeated kills of the same victim, with no per-victim cooldown or daily cap. The detailed activity feed keeps up to 60 recent kills and deaths per guild. Leaderboard kill, point, and death totals are cumulative per member and season, synced separately from that feed. Existing saved recent records are folded into a member's totals the next time they record a PvP event; older records already discarded by the 60-entry cap cannot be recovered. A new season starts fresh at its start time.
 
 ## Install for development
+
+Release versions use `0.2.NN`, starting at `0.2.01`. Increment the final number for each release (`0.2.02`, `0.2.03`, and so on), keeping the TOC version and `GD.version` in sync.
 
 Copy this folder into the client's `Interface/AddOns` directory, enable **GuildDB** on the AddOns screen, and join a guild.
 

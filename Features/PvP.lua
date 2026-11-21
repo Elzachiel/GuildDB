@@ -15,6 +15,8 @@ local captureVisiblePlayers
 local unmatchedCredit
 local retryGroupCredit
 local groupEvidence = {}
+local lastPvPAttack
+local deathRecorded = false
 
 -- Combat unit APIs may return protected values on this client. Never let a
 -- failed optional unit read prevent an honor reward from being processed.
@@ -117,6 +119,7 @@ local function applyReset(stamp, author)
     GD.bucket.pvpSeason = { name = "All-time", start = 0, ts = stamp, by = author }
     honorCredits, seenPlayers = {}, {}
     unmatchedCredit, lastTarget, groupEvidence = nil, nil, {}
+    lastPvPAttack = nil
     if GDB then GDB.pvpHistory = {} end
     if GD.RefreshUI then GD:RefreshUI() end
 end
@@ -193,6 +196,58 @@ end
 local function encodeKill(record)
     return table.concat({ record.victim, record.victimLevel or 0, record.points or 1 }, "\n")
 end
+
+local function recordDeath()
+    if deathRecorded then return end
+    deathRecorded = true
+    local attack = lastPvPAttack
+    lastPvPAttack = nil
+    if not GD.bucket or not isOpenWorld() or not attack or attack.bucket ~= GD.bucket
+        or GetTime() - attack.at > 30 then return end
+    local record = GD:NewRecord({ killer = attack.name })
+    record.id = tostring(time()) .. "-death-" .. tostring(math.random(100000, 999999))
+    -- Update totals before adding the recent record, so migration cannot count it twice.
+    addLocalStat("deaths")
+    GD:StoreRecord("pvpDeaths", record, "X", record.killer)
+    trackingNote("Recorded PvP death: " .. record.killer)
+end
+
+local function combatLogEvent(_, event, _, sourceGUID, sourceName, sourceFlags, _, destGUID, _, _, _, ...)
+    event, sourceGUID, sourceName, sourceFlags, destGUID = readable(event), readable(sourceGUID),
+        readable(sourceName), readable(sourceFlags), readable(destGUID)
+    local ownGUID = unitValue(UnitGUID, "player")
+    if not ownGUID or destGUID ~= ownGUID then return end
+    if event == "UNIT_DIED" then recordDeath(); return end
+    if type(event) ~= "string" or (not event:match("_DAMAGE$") and event ~= "DAMAGE_SHIELD" and event ~= "DAMAGE_SPLIT")
+        or event == "ENVIRONMENTAL_DAMAGE" then return end
+    local amount = readable(select(event == "SWING_DAMAGE" and 1 or 4, ...))
+    if type(amount) ~= "number" or amount <= 0 or type(sourceGUID) ~= "string"
+        or sourceGUID == ownGUID or type(sourceName) ~= "string" or sourceName == "" then return end
+    -- Player-controlled pets also count as PvP attackers.
+    local playerControlled = type(sourceFlags) == "number"
+        and sourceFlags % 512 >= 256 -- COMBATLOG_OBJECT_CONTROL_PLAYER (0x100)
+    if not sourceGUID:match("^Player%-") and not playerControlled then return end
+    if not GD.bucket or not isOpenWorld() then return end
+    lastPvPAttack = { name = sourceName, at = GetTime(), bucket = GD.bucket }
+end
+
+GD:RegisterEventHandler("COMBAT_LOG_EVENT_UNFILTERED", function(_, ...)
+    -- Combat logs can be unavailable or protected on some builds. Optional
+    -- reads must never interrupt other addon events or the kill-credit path.
+    if CombatLogGetCurrentEventInfo then
+        pcall(function() combatLogEvent(CombatLogGetCurrentEventInfo()) end)
+    else
+        pcall(combatLogEvent, ...)
+    end
+end)
+GD:RegisterEventHandler("PLAYER_DEAD", recordDeath)
+local function resetDeathTracking()
+    -- PLAYER_ALIVE also fires on release; a ghost is still the same death.
+    if unitValue(UnitIsDeadOrGhost, "player") ~= false then return end
+    deathRecorded, lastPvPAttack = false, nil
+end
+GD:RegisterEventHandler("PLAYER_ALIVE", resetDeathTracking)
+GD:RegisterEventHandler("PLAYER_UNGHOST", resetDeathTracking)
 
 local function normalizedName(name)
     local baseName = tostring(name or ""):match("^([^-]+)") or tostring(name or "")
@@ -526,6 +581,8 @@ end)
 GD:RegisterEventHandler("PLAYER_ENTERING_WORLD", function()
     seenPlayers, groupEvidence = {}, {}
     lastTarget, unmatchedCredit = nil, nil
+    lastPvPAttack = nil
+    deathRecorded = unitValue(UnitIsDeadOrGhost, "player") == true
 end)
 function GD:StartPvPSeason(name, endDate, restart)
     if not self:CanManagePvPSeason() then return false, "Only the guild master can start a PvP season." end
@@ -655,7 +712,11 @@ function GD:GetPvPLeaderboard(allTime, selectedStart)
         end
     end
     local ranking = {}
-    for _, score in pairs(scores) do score.points = score.kills; ranking[#ranking + 1] = score end
+    for _, score in pairs(scores) do
+        score.points = score.kills
+        score.kd = score.kills / math.max(1, score.deaths)
+        ranking[#ranking + 1] = score
+    end
     table.sort(ranking, function(a, b)
         if a.points ~= b.points then return a.points > b.points end
         if a.kills ~= b.kills then return a.kills > b.kills end
@@ -711,7 +772,7 @@ GD:RegisterTab("PvP", function()
     end)
     local lines = { "PvP season: " .. GD:Display(season.name or "All-time"), "Ranked by kills since season start", "" }
     for rank, score in ipairs(ranking) do
-        lines[#lines + 1] = ("%d. %s — %d points · %d kills / %d deaths"):format(rank, GD:Display(score.name), score.points, score.kills, score.deaths)
+        lines[#lines + 1] = ("%d. %s — %d points · %d kills / %d deaths · %.2f K/D"):format(rank, GD:Display(score.name), score.points, score.kills, score.deaths, score.kills / math.max(1, score.deaths))
     end
     lines[#lines + 1] = ""
     lines[#lines + 1] = "Recent kills:"

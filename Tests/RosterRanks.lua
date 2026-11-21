@@ -292,3 +292,21 @@ combat = false
 events.PLAYER_REGEN_ENABLED()
 assert(GD.frame.rankLayer.shown, 'protected layer must return after combat')
 print('PASS: real combat tab switching, view refresh, Analytics filtering, close/reopen and protected rank isolation')
+
+-- Render and resize the PvP leaderboard with its K/D column.
+function GD:CanManagePvPSeason() return false end
+function GD:GetPvPSeasons() return {{name='All-time', start=0}} end
+local pvpScore = {name='Member Moon', kills=10, points=10, deaths=4, kd=2.5}
+function GD:GetPvPLeaderboard() return {name='All-time', start=0}, {pvpScore}, pvpScore, 1 end
+GD.activeTab = 'PvP'
+GD:RefreshUI()
+assert(#GD.frame.pvpHeaders == 6 and GD.frame.pvpHeaders[5].text == 'K/D')
+assert(GD.frame.pvpRows[1].kd.text == '2.50', 'leaderboard must display the computed ratio')
+assert(GD.frame.pvpRows[1].kills.text == '4', 'deaths must remain visible beside K/D')
+assert(GD.frame.pvpSummary.text:find('4 deaths', 1, true) and GD.frame.pvpSummary.text:find('2.50 K/D', 1, true))
+GD.frame.detailPanel.hooks.OnSizeChanged(GD.frame.detailPanel)
+pvpScore.deaths, pvpScore.kd = 5, 2
+GD:RefreshUI()
+assert(GD.frame.pvpRows[1].kd.text == '2.00', 'reused rows must refresh the ratio')
+assert(not GD.frame.pvpInfo.text:find('5 per day', 1, true), 'remove obsolete kill caps from the UI')
+print('PASS: PvP K/D column, personal summary, row reuse, and resize layout')
