@@ -1720,7 +1720,7 @@ function GH:RefreshUI()
             local actionX = event.by == player and 152 or 16
             row.editButton:ClearAllPoints()
             row.editButton:SetPoint("TOPLEFT", row, "TOPLEFT", actionX, -184)
-            local calendarExports = GuildDB and GuildDB.calendarExports
+            local calendarExports = GuildHallDB and GuildHallDB.calendarExports
             if calendarExports and calendarExports[event.id] then
                 row.calendarButton:SetText("Calendar added")
                 row.calendarButton:Disable()

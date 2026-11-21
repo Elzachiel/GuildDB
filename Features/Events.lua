@@ -248,8 +248,8 @@ function GH:DeleteEvent(eventId)
     if not event then return false, "That event is no longer available." end
     local player = self:PlayerName()
     local removedCalendarEntry, calendarMessage = self:RemoveGameCalendarEvent(event)
-    if removedCalendarEntry and GuildDB and GuildDB.calendarExports then
-        GuildDB.calendarExports[eventId] = nil
+    if removedCalendarEntry and GuildHallDB and GuildHallDB.calendarExports then
+        GuildHallDB.calendarExports[eventId] = nil
     end
     local ts = math.max(time(), (event.ts or 0) + 1)
     table.remove(self.bucket.events, index)
@@ -580,9 +580,9 @@ function GH:AddEventToGameCalendar(eventId)
         return false, "Only the event creator can add it to the guild calendar, to prevent duplicate entries."
     end
 
-    GuildDB = type(GuildDB) == "table" and GuildDB or {}
-    GuildDB.calendarExports = type(GuildDB.calendarExports) == "table" and GuildDB.calendarExports or {}
-    if GuildDB.calendarExports[eventId] then
+    GuildHallDB = type(GuildHallDB) == "table" and GuildHallDB or {}
+    GuildHallDB.calendarExports = type(GuildHallDB.calendarExports) == "table" and GuildHallDB.calendarExports or {}
+    if GuildHallDB.calendarExports[eventId] then
         return false, "This event was already added to your in-game calendar on this character."
     end
 
@@ -631,7 +631,7 @@ function GH:AddEventToGameCalendar(eventId)
     end)
     if not ok then return false, "Could not add the calendar event: " .. tostring(err) end
 
-    GuildDB.calendarExports[eventId] = time()
+    GuildHallDB.calendarExports[eventId] = time()
     if self.RefreshUI then self:RefreshUI() end
     local message = "Guild sign-up event added to the in-game calendar."
     if #inviteWarnings > 0 then message = message .. " " .. table.concat(inviteWarnings, " ") end

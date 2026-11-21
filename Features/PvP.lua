@@ -117,7 +117,7 @@ local function applyReset(stamp, author)
     GH.bucket.pvpSeason = { name = "All-time", start = 0, ts = stamp, by = author }
     honorCredits, seenPlayers = {}, {}
     unmatchedCredit, lastTarget, groupEvidence = nil, nil, {}
-    if GuildDB then GuildDB.pvpHistory = {} end
+    if GuildHallDB then GuildHallDB.pvpHistory = {} end
     if GH.RefreshUI then GH:RefreshUI() end
 end
 
@@ -200,30 +200,30 @@ local function normalizedName(name)
 end
 
 local function historyFor(victim)
-    if type(GuildDB) ~= "table" then GuildDB = {} end
-    if type(GuildDB.pvpHistory) ~= "table" then GuildDB.pvpHistory = {} end
+    if type(GuildHallDB) ~= "table" then GuildHallDB = {} end
+    if type(GuildHallDB.pvpHistory) ~= "table" then GuildHallDB.pvpHistory = {} end
     local now = time()
-    if now - (GuildDB.pvpHistoryPruned or 0) > 3600 then
-        for key, stamps in pairs(GuildDB.pvpHistory) do
+    if now - (GuildHallDB.pvpHistoryPruned or 0) > 3600 then
+        for key, stamps in pairs(GuildHallDB.pvpHistory) do
             local fresh = {}
             if type(stamps) == "table" then
                 for _, stamp in ipairs(stamps) do
                     if type(stamp) == "number" and now - stamp < 86400 then fresh[#fresh + 1] = stamp end
                 end
             end
-            GuildDB.pvpHistory[key] = #fresh > 0 and fresh or nil
+            GuildHallDB.pvpHistory[key] = #fresh > 0 and fresh or nil
         end
-        GuildDB.pvpHistoryPruned = now
+        GuildHallDB.pvpHistoryPruned = now
     end
     local player = playerName()
     local key = normalizedName(player) .. "|" .. normalizedName(victim)
-    local history = GuildDB.pvpHistory[key]
-    if type(history) ~= "table" then history = {}; GuildDB.pvpHistory[key] = history end
+    local history = GuildHallDB.pvpHistory[key]
+    if type(history) ~= "table" then history = {}; GuildHallDB.pvpHistory[key] = history end
     local fresh = {}
     for _, stamp in ipairs(history) do
         if type(stamp) == "number" and now - stamp < 86400 then fresh[#fresh + 1] = stamp end
     end
-    GuildDB.pvpHistory[key] = fresh
+    GuildHallDB.pvpHistory[key] = fresh
     return fresh, now
 end
 

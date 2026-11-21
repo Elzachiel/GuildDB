@@ -27,7 +27,7 @@ end
 
 local function currentRosterName()
     local playerName = UnitName and UnitName("player") or "Guild member"
-    local saved = GH.playerProfile or (GuildDB and GuildDB.playerProfile)
+    local saved = GH.playerProfile or (GuildHallDB and GuildHallDB.playerProfile)
     for _, member in ipairs(GH.roster or {}) do
         if sameCharacter(member.name, playerName) or profileMatches(saved, member.name) then
             return member.name
@@ -63,9 +63,9 @@ function GH:GetProfile(name)
     if not name then return nil end
     local wanted = baseName(name)
     local wantedKey = nameKey(name)
-    local localProfiles = GuildDB and GuildDB.localProfiles or {}
+    local localProfiles = GuildHallDB and GuildHallDB.localProfiles or {}
     local guildProfiles = self.bucket and self.bucket.profiles or {}
-    local ownProfile = GuildDB and GuildDB.playerProfile
+    local ownProfile = GuildHallDB and GuildHallDB.playerProfile
     local playerName = UnitName and UnitName("player") or ""
     local playerGUID = UnitGUID and UnitGUID("player")
     local isPlayer = wanted == baseName(playerName)
@@ -206,12 +206,12 @@ function GH:SetProfile(firstName, lastName, role, spec, timezone, alts, professi
         characterGUID = UnitGUID and UnitGUID("player") or nil,
     }
     self.bucket.profiles[player] = profile
-    GuildDB = type(GuildDB) == "table" and GuildDB or {}
-    GuildDB.localProfiles = type(GuildDB.localProfiles) == "table" and GuildDB.localProfiles or {}
-    GuildDB.localProfiles[player] = profile
-    GuildDB.localProfiles[playerBase] = profile
-    if profile.characterGUID then GuildDB.localProfiles[profile.characterGUID] = profile end
-    GuildDB.playerProfile = profile
+    GuildHallDB = type(GuildHallDB) == "table" and GuildHallDB or {}
+    GuildHallDB.localProfiles = type(GuildHallDB.localProfiles) == "table" and GuildHallDB.localProfiles or {}
+    GuildHallDB.localProfiles[player] = profile
+    GuildHallDB.localProfiles[playerBase] = profile
+    if profile.characterGUID then GuildHallDB.localProfiles[profile.characterGUID] = profile end
+    GuildHallDB.playerProfile = profile
     self.playerProfile = profile
     self.profileCache[playerBase] = profile
     self.profileCache[nameKey(player)] = profile
