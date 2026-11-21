@@ -2,6 +2,46 @@
 local _, GD = ...
 
 local GOLD = { 0.20, 0.62, 0.98 }
+local ACCENTS = {
+    { 0.20, 0.62, 0.98 }, -- blue
+    { 0.72, 0.42, 0.95 }, -- violet
+    { 0.20, 0.78, 0.58 }, -- teal
+    { 0.95, 0.48, 0.32 }, -- coral
+    { 0.95, 0.72, 0.25 }, -- amber
+    { 0.94, 0.38, 0.52 }, -- rose
+}
+local function updateAccent()
+    local index = GD.GetSetting and tonumber(GD:GetSetting("accentColor")) or 1
+    local color = ACCENTS[index] or ACCENTS[1]
+    GOLD[1], GOLD[2], GOLD[3] = color[1], color[2], color[3]
+end
+GD.GetAccentChoices = function() return ACCENTS end
+local function applyAccent(frame)
+    if not frame then return end
+    local r, g, b = GOLD[1], GOLD[2], GOLD[3]
+    if frame.detailPanel and frame.detailPanel.topAccent then
+        frame.detailPanel.topAccent:SetColorTexture(r, g, b, 1)
+        frame.detailTitle:SetTextColor(r, g, b)
+    end
+    for _, button in pairs(frame.tabButtons or {}) do
+        if button.accent then button.accent:SetColorTexture(r, g, b, 1) end
+    end
+    for _, row in ipairs(frame.listRows or {}) do
+        if row.selectedMarker then row.selectedMarker:SetColorTexture(r, g, b, 1) end
+    end
+    if frame.pvpTitleSeason then frame.pvpTitleSeason:SetTextColor(r, g, b) end
+    for _, key in ipairs({ "pvpMyButton", "pvpSeasonButton", "pvpDeleteButton", "pvpWipeButton", "pvpScopeButton", "contentActionButton", "profileEditButton", "rosterInviteButton", "craftSearchButton", "eventCreateButton", "eventCreateTypeButton" }) do
+        local button = frame[key]
+        if button and button.GetObjectType and button:GetObjectType() == "Button" then
+            local primary = key == "pvpSeasonButton" or key == "contentActionButton" or key == "profileEditButton" or key == "craftSearchButton"
+            GD:StyleButton(button, primary and "primary" or nil)
+        end
+    end
+    for _, row in ipairs(frame.actionRows or {}) do
+        for _, button in ipairs(row.buttons or {}) do GD:StyleButton(button, "primary") end
+    end
+    if GD.RefreshSettingsAppearance then GD:RefreshSettingsAppearance() end
+end
 local MUTED_GOLD = { 0.48, 0.60, 0.70 }
 local CREAM = { 0.84, 0.89, 0.94 }
 local PANEL = { 0.045, 0.055, 0.072, 0.99 }
@@ -36,9 +76,9 @@ end
 function GD:StyleButton(button, variant)
     if not button then return end
     local primary = variant == "primary"
-    local normalColor = primary and { 0.10, 0.32, 0.50 } or { 0.075, 0.09, 0.12 }
-    local pressedColor = primary and { 0.07, 0.23, 0.37 } or { 0.045, 0.06, 0.085 }
-    local borderColor = primary and { 0.20, 0.55, 0.84 } or { 0.16, 0.25, 0.34 }
+    local normalColor = primary and { GOLD[1] * 0.42, GOLD[2] * 0.42, GOLD[3] * 0.42 } or { 0.075, 0.09, 0.12 }
+    local pressedColor = primary and { GOLD[1] * 0.30, GOLD[2] * 0.30, GOLD[3] * 0.30 } or { 0.045, 0.06, 0.085 }
+    local borderColor = primary and GOLD or { 0.16, 0.25, 0.34 }
 
     button:SetNormalTexture("Interface/Buttons/WHITE8X8")
     button:SetPushedTexture("Interface/Buttons/WHITE8X8")
@@ -50,7 +90,7 @@ function GD:StyleButton(button, variant)
     local disabled = button:GetDisabledTexture()
     if normal then normal:SetAllPoints(button); normal:SetVertexColor(normalColor[1], normalColor[2], normalColor[3], 1) end
     if pushed then pushed:SetAllPoints(button); pushed:SetVertexColor(pressedColor[1], pressedColor[2], pressedColor[3], 1) end
-    if highlight then highlight:SetAllPoints(button); highlight:SetVertexColor(0.22, 0.52, 0.78, 0.20) end
+    if highlight then highlight:SetAllPoints(button); highlight:SetVertexColor(GOLD[1], GOLD[2], GOLD[3], 0.20) end
     if disabled then disabled:SetAllPoints(button); disabled:SetVertexColor(0.08, 0.09, 0.11, 0.65) end
 
     if not button.GuildDBBorder then
@@ -1054,7 +1094,9 @@ end
 
 function GD:RefreshUI()
     if not self.frame then return end
+    updateAccent()
     local frame = self.frame
+    applyAccent(frame)
     local active = self.activeTab or "Roster"
     if active == "Profiles" then
         self.selectedRosterName = self.profileTarget or self.selectedRosterName

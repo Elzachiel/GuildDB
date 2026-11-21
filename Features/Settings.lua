@@ -1,7 +1,7 @@
 -- Personal preferences plus per-guild, officer-managed feature visibility.
 local _, GD = ...
 
-local defaults = { onlineOnly = true, scale = 1, popups = true, levelGuildChat = false, shareMapLocation = false }
+local defaults = { onlineOnly = true, scale = 1, popups = true, levelGuildChat = false, shareMapLocation = false, accentColor = 1 }
 
 local function settings()
     if type(GDB) ~= "table" then GDB = {} end
@@ -56,6 +56,9 @@ function GD:SetSetting(key, value)
             end
         end
     elseif defaults[key] ~= nil then
+        if key == "accentColor" then
+            value = math.max(1, math.min(6, math.floor(tonumber(value) or 1)))
+        end
         db[key] = value
     else
         return
@@ -216,8 +219,43 @@ local function build(parent)
     scaleUp:GetFontString():SetFontObject("GameFontNormalLarge")
     updateScale()
 
-    label(parent, "Data", 12, -220, "GameFontNormalLarge", list)
-    makeButton(parent, "Re-sync now", 120, 12, -250, function()
+    label(parent, "Appearance", 12, -218, "GameFontNormalLarge", list)
+    label(parent, "Accent color", 12, -248, "GameFontNormal", list)
+    local choices = GD.GetAccentChoices and GD:GetAccentChoices() or {}
+    local accentText = label(parent, "", 112, -248, "GameFontHighlight", list)
+    local accentSwatch = parent:CreateTexture(nil, "ARTWORK")
+    accentSwatch:SetSize(18, 18)
+    accentSwatch:SetPoint("TOPLEFT", 270, -244)
+    list[#list + 1] = accentSwatch
+    local function updateAccent()
+        local index = GD:GetSetting("accentColor") or 1
+        local color = choices[index] or choices[1] or { 0.20, 0.62, 0.98 }
+        accentText:SetText(({ "Blue", "Violet", "Teal", "Coral", "Amber", "Rose" })[index] or "Blue")
+        accentSwatch:SetColorTexture(color[1], color[2], color[3], 1)
+    end
+    GD.RefreshSettingsAppearance = function()
+        updateAccent()
+        for _, item in ipairs(list) do
+            if item.mark and item.mark.SetVertexColor then
+                local color = choices[GD:GetSetting("accentColor") or 1] or choices[1]
+                item.mark:SetVertexColor(color[1], color[2], color[3], 1)
+            end
+            if item.GuildDBAccent and GD.StyleButton then GD:StyleButton(item, "primary") end
+        end
+    end
+    local accentPrevious = makeButton(parent, "<", 28, 220, -240, function()
+        GD:SetSetting("accentColor", ((GD:GetSetting("accentColor") or 1) - 2) % #choices + 1)
+        updateAccent()
+    end, list)
+    local accentNext = makeButton(parent, ">", 28, 244, -240, function()
+        GD:SetSetting("accentColor", (GD:GetSetting("accentColor") or 1) % #choices + 1)
+        updateAccent()
+    end, list)
+    accentPrevious.GuildDBAccent, accentNext.GuildDBAccent = true, true
+    updateAccent()
+
+    label(parent, "Data", 12, -290, "GameFontNormalLarge", list)
+    makeButton(parent, "Re-sync now", 120, 12, -320, function()
         local _, message = GD:RequestSync()
         print("GuildDB: " .. tostring(message))
     end, list)
@@ -227,7 +265,7 @@ local function build(parent)
             for _ in pairs(bucket) do records = records + 1 end
         end
     end
-    label(parent, ("Stored records: %d"):format(records), 12, -290, "GameFontDisableSmall", list)
+    label(parent, ("Stored records: %d"):format(records), 12, -360, "GameFontDisableSmall", list)
 
     label(parent, "Officer settings", 350, -10, "GameFontNormalLarge", list)
     label(parent, "Feature switches (guild-wide; GM or rank 1)", 350, -38, "GameFontDisableSmall", list)
@@ -243,9 +281,10 @@ local function build(parent)
     end
     label(parent, GD:CanManage() and "Online users update now; offline users on next sync." or "Only the guild leader or rank 1 can change these switches.", 350, -70 - (split + 1) * 30, "GameFontDisableSmall", list)
 
-    makeButton(parent, "Reset personal settings", 172, 12, -330, function()
+    makeButton(parent, "Reset personal settings", 172, 12, -400, function()
         for key, value in pairs(defaults) do GD:SetSetting(key, value) end
         updateScale()
+        updateAccent()
         GD:RefreshUI()
     end, list)
     for _, item in ipairs(list) do
