@@ -2,7 +2,7 @@
 local ADDON, GD = ...
 _G.GuildDB = GD
 
-GD.version = "0.2.13"
+GD.version = "0.2.15"
 -- New-member tracking begins with this release; keep this anchor on later bumps.
 GD.recentJoinsVersion = "0.1.88"
 GD.recentJoinsStart = 1795285809
@@ -128,6 +128,7 @@ end
 function GD:GetAddonVersion(name)
     if not name then return nil end
     local wanted = peerNameKey(name)
+    if self.bucket and wanted == peerNameKey(self:PlayerName()) then return self.version end
     local now = GetTime and GetTime() or 0
     for sender, status in pairs(self.addonPresence or {}) do
         if peerNameKey(sender) == wanted and now - (status.seen or 0) <= 150 then return status.version end
@@ -154,7 +155,7 @@ end
 local function ensureBucket()
     if not IsInGuild or not IsInGuild() then
         GD.guildName, GD.bucket = nil, nil
-        GD.guildKey, GD.addonPresence = nil, {}
+        GD.guildKey, GD.addonPresence, GD.guildSession = nil, {}, nil
         GD.roster = {}
         if GD.RefreshUI then GD:RefreshUI() end
         return false
@@ -164,12 +165,21 @@ local function ensureBucket()
     GD.guildName = name
     local faction = UnitFactionGroup and UnitFactionGroup("player") or "Neutral"
     local key = guildKey(name, faction)
-    if GD.guildKey ~= key then GD.addonPresence = {} end
+    local changedGuild = GD.guildKey ~= key
+    if changedGuild then GD.addonPresence = {} end
     GD.guildKey = key
     GDB.guilds[key] = GDB.guilds[key] or {}
     GD.bucket = GDB.guilds[key]
     for bucketKey, defaultValue in pairs(GD.bucketDefaults) do
         if type(GD.bucket[bucketKey]) ~= "table" then GD.bucket[bucketKey] = defaultValue() end
+    end
+    if changedGuild then
+        GD.nextPresence = 0
+        local session = {}
+        GD.guildSession = session
+        C_Timer.After(10, function()
+            if GD.bucket and GD.guildSession == session then GD:RequestSync() end
+        end)
     end
     if GD.RefreshUI then GD:RefreshUI() end
     return true
@@ -313,6 +323,19 @@ local function receiveSyncComplete(id, sender)
     GD.syncRequests[id] = nil
 end
 
+local function recordPresence(sender, version)
+    if not sender or #sender > 100 or not version or #version > 32 then return end
+    local now = GetTime and GetTime() or 0
+    local known = GD:GetAddonVersion(sender)
+    GD.addonPresence[sender] = { version = version, seen = now }
+    if not known and not samePlayer(sender, localPlayerName()) then
+        -- A new login/join needs to discover existing peers too. Coalesce
+        -- replies and jitter them so guild members do not all send at once.
+        GD.nextPresence = math.min(GD.nextPresence, now + 0.2 + math.random() * 2)
+    end
+    if GD.RefreshUI then GD:RefreshUI() end
+end
+
 local function receivePayload(payload, sender)
     if payload == "Q" then
         -- Compatibility with clients that still use the original request packet.
@@ -325,10 +348,7 @@ local function receivePayload(payload, sender)
         local completeId = payload:match("^K|([^|]+)$")
         if requestId then receiveSyncRequest(requestId, sender); return end
         if offerId then
-            if offerVersion and #offerVersion <= 32 then
-                GD.addonPresence[sender] = { version = offerVersion, seen = GetTime and GetTime() or 0 }
-                if GD.RefreshUI then GD:RefreshUI() end
-            end
+            recordPresence(sender, offerVersion)
             receiveSyncOffer(offerId, sender)
             return
         end
@@ -336,8 +356,7 @@ local function receivePayload(payload, sender)
         if completeId then receiveSyncComplete(completeId, sender); return end
         local version = payload:match("^H|([%w%.%-]+)$")
         if version and #version <= 32 and sender and #sender <= 100 then
-            GD.addonPresence[sender] = { version = version, seen = GetTime and GetTime() or 0 }
-            if GD.RefreshUI then GD:RefreshUI() end
+            recordPresence(sender, version)
         else
             if payload:match("^ML|") then
                 GD.mapInboundPackets = (GD.mapInboundPackets or 0) + 1
@@ -417,6 +436,11 @@ end
 
 frame:SetScript("OnUpdate", function(_, elapsed)
     local now = GetTime()
+    -- Guild info can be unavailable during login, without another guild event.
+    if GD.playerLoggedIn and not GD.bucket and now >= (GD.nextGuildCheck or 0) then
+        GD.nextGuildCheck = now + 2
+        if IsInGuild and IsInGuild() and ensureBucket() then requestGuildRoster() end
+    end
     cleanupPresence(now)
     -- Guild addon messages share a per-prefix server allowance. Match GuildHQ's
     -- burst + steady refill pacing so a sync queue doesn't outrun that limit.
@@ -425,6 +449,9 @@ frame:SetScript("OnUpdate", function(_, elapsed)
     GD.sendTokenAt = now
     if GD.bucket and now >= GD.nextPresence then
         GD:Enqueue("H|" .. GD.version)
+        -- A heartbeat is one chunk. Send it ahead of bulk sync traffic so
+        -- an active client cannot appear absent while its records drain.
+        table.insert(GD.sendQueue, 1, table.remove(GD.sendQueue))
         GD.nextPresence = now + 60
     end
     local queue = #GD.sendQueue > 0 and GD.sendQueue or GD.historyQueue
@@ -453,17 +480,17 @@ frame:SetScript("OnEvent", function(_, event, ...)
         local register = C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix or RegisterAddonMessagePrefix
         if register then register(GD.prefix) end
     elseif event == "PLAYER_LOGIN" then
+        GD.playerLoggedIn = true
         ensureBucket()
         GD.nextPresence = 0
         if IsInGuild and IsInGuild() then requestGuildRoster() end
-        C_Timer.After(10, function() if GD.bucket then GD:RequestSync() end end)
     elseif event == "PLAYER_GUILD_UPDATE" then
         if ensureBucket() then GD.nextPresence = 0; requestGuildRoster() end
     elseif event == "GUILD_ROSTER_UPDATE" then
         ensureBucket()
     elseif event == "CHAT_MSG_ADDON" then
         local prefix, message, channel, sender = ...
-        if prefix == GD.prefix and channel == "GUILD" and GD.bucket then receiveChunk(message, sender) end
+        if prefix == GD.prefix and channel == "GUILD" and (GD.bucket or ensureBucket()) then receiveChunk(message, sender) end
     end
     for _, handler in ipairs(GD.eventHandlers[event] or {}) do handler(event, ...) end
 end)
