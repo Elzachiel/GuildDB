@@ -2,7 +2,7 @@
 local ADDON, GD = ...
 _G.GuildDB = GD
 
-GD.version = "0.2.27"
+GD.version = "0.2.32"
 -- New-member tracking begins with this release; keep this anchor on later bumps.
 GD.recentJoinsVersion = "0.1.88"
 GD.recentJoinsStart = 1795285809
@@ -125,6 +125,7 @@ function GD:RegisterTab(name, renderer)
 end
 
 function GD:Display(value)
+    if value == "Windshaper Skyborne" then value = "Skyborne" end
     return tostring(value or ""):gsub("|", "||")
 end
 

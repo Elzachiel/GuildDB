@@ -146,3 +146,32 @@ assert(diagnostic():find('Destruction: 0 talent points', 1, true), 'omitted trai
 GD:RefreshPlayerSpec()
 assert(GD:GetProfile('Player Moon').spec == 'Demonology')
 print('PASS: Warlock 16/31/0 detection and zero-point output for omitted legacy/trait trees')
+
+-- Old peer profiles may still contain First Aid, Fishing, and other skills.
+local profileSkills = 'Blacksmithing 19, Mining 8, First Aid 1, Cooking 1, Fishing 5, Defense 60, Alchemy 30'
+local listed = GD:GetProfileProfessionList(profileSkills)
+assert(#listed == 3 and listed[1].name == 'Blacksmithing' and listed[2].name == 'Mining' and listed[3].name == 'Cooking')
+local formatted = GD:FormatProfileProfessions(profileSkills)
+assert(formatted == 'Blacksmithing 19, Mining 8, Cooking 1')
+assert(listed[1].color ~= listed[2].color and listed[2].color ~= listed[3].color, 'professions need distinct colors')
+assert(not formatted:find('First Aid', 1, true) and not formatted:find('Fishing', 1, true))
+assert(GD:FormatProfileProfessions('First Aid 20, Fishing 50') == 'Not set')
+assert(GD:FormatProfileProfessions(nil) == 'Not set')
+
+GetProfessions = function() return 1, 2, 3, 4, 5 end
+local apiSkills = { {'Blacksmithing',19}, {'Mining',8}, {'First Aid',1}, {'Fishing',5}, {'Cooking',1} }
+GetProfessionInfo = function(index) return apiSkills[index][1], 'icon', apiSkills[index][2] end
+local detectedSkills = GD:GetPlayerProfessions()
+assert(detectedSkills == 'Blacksmithing 19, Mining 8, Cooking 1', 'profession API must exclude secondary skills other than Cooking: ' .. detectedSkills)
+GetProfessions, GetProfessionInfo = nil, nil
+C_SkillInfo = {
+    GetNumSkillLines = function() return 7 end,
+    GetSkillLineInfo = function(index)
+        if index == 1 then return {name='Professions', isHeader=true} end
+        if index == 4 then return {name='Secondary Skills', isHeader=true} end
+        local skill = apiSkills[index < 4 and index - 1 or index - 2]
+        return {name=skill[1], rank=skill[2], maxRank=300}
+    end,
+}
+assert(GD:GetPlayerProfessions() == detectedSkills, 'Skills tab scanning must apply the same filter')
+print('PASS: profession colors, old profile filtering, two main professions plus Cooking, and both skill APIs')

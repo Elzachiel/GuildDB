@@ -240,9 +240,41 @@ function GD:GetProfile(name)
     return self.profileCache[wanted] or self.profileCache[wantedKey]
 end
 
--- WoW Forever exposes the character's Skills tab through C_SkillInfo. Read
--- its primary and secondary profession groups and keep the result in profile
--- data so it is shared with guildmates who also run GuildDB.
+-- Only the two main professions and Cooking belong in member profiles.
+local professionColors = {
+    alchemy = "79d98b", blacksmithing = "929ba6", enchanting = "bd91ff",
+    engineering = "f2c94c", herbalism = "65c96f", mining = "c9a66b",
+    leatherworking = "d49364", skinning = "c9b18a", tailoring = "91b9ed",
+    jewelcrafting = "64d9d0", inscription = "e6bb78", cooking = "f29d63",
+}
+
+function GD:GetProfileProfessionList(value)
+    local result, seen, mainCount = {}, {}, 0
+    local cooking
+    for entry in tostring(value or ""):gmatch("[^,]+") do
+        local name, rank = entry:match("^%s*(.-)%s+(%d+)%s*$")
+        local key = name and name:lower()
+        if professionColors[key] and not seen[key] and (key == "cooking" or mainCount < 2) then
+            seen[key] = true
+            if key ~= "cooking" then mainCount = mainCount + 1 end
+            local profession = { name = name, rank = tonumber(rank), color = professionColors[key] }
+            if key == "cooking" then cooking = profession
+            else result[#result + 1] = profession end
+        end
+    end
+    if cooking then result[#result + 1] = cooking end
+    return result
+end
+
+function GD:FormatProfileProfessions(value)
+    local lines = {}
+    for _, profession in ipairs(self:GetProfileProfessionList(value)) do
+        lines[#lines + 1] = profession.name .. " " .. profession.rank
+    end
+    return #lines > 0 and table.concat(lines, ", ") or "Not set"
+end
+
+-- WoW Forever exposes the character's Skills tab through C_SkillInfo.
 function GD:GetPlayerProfessions()
     local api = C_SkillInfo or {}
     local professions, seen = {}, {}
@@ -250,6 +282,7 @@ function GD:GetPlayerProfessions()
         if type(name) ~= "string" or name == "" then return end
         rank = tonumber(rank) or 0
         local key = name:lower()
+        if not professionColors[key] then return end
         if not seen[key] then
             seen[key] = #professions + 1
             professions[#professions + 1] = { name = name, rank = rank }
@@ -261,9 +294,12 @@ function GD:GetPlayerProfessions()
     if type(GetProfessions) == "function" and type(GetProfessionInfo) == "function" then
         local ok, a, b, c, d, e, f = pcall(GetProfessions)
         if ok then
-            for _, index in pairs({ a, b, c, d, e, f }) do
-                local got, name, _, rank = pcall(GetProfessionInfo, index)
-                if got then add(name, rank) end
+            local indices = { a, b, c, d, e, f }
+            for slot = 1, 6 do
+                if indices[slot] then
+                    local got, name, _, rank = pcall(GetProfessionInfo, indices[slot])
+                    if got then add(name, rank) end
+                end
             end
         end
     end
@@ -295,7 +331,12 @@ function GD:GetPlayerProfessions()
     for _, profession in ipairs(professions) do
         display[#display + 1] = profession.name .. " " .. profession.rank
     end
-    return table.concat(display, ", "), professions
+    local filtered = self:GetProfileProfessionList(table.concat(display, ", "))
+    display = {}
+    for _, profession in ipairs(filtered) do
+        display[#display + 1] = profession.name .. " " .. profession.rank
+    end
+    return table.concat(display, ", "), filtered
 end
 
 function GD:RefreshPlayerProfessions()

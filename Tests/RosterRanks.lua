@@ -73,6 +73,8 @@ function methods:GetWidth() return 600 end
 function methods:GetHeight() return 500 end
 function methods:GetText() return self.text or '' end
 function methods:GetStringHeight() return 20 end
+function methods:SetSize(width, height) self.width, self.height = width, height end
+function methods:SetColorTexture(...) self.color = {...} end
 function methods:GetVerticalScroll() return 0 end
 function methods:GetEffectiveScale() return 1 end
 function methods:GetLeft() return 100 end
@@ -256,6 +258,9 @@ function GD:StyleButton(button, variant)
     return styleButton(self, button, variant)
 end
 function GD:GetProfile() return nil end
+function GD:FormatProfileProfessions(value) return 'formatted professions: ' .. (value or 'Not set') end
+local profileProfessions = {}
+function GD:GetProfileProfessionList() return profileProfessions end
 function GD:CanManage() return true end
 function GD:GetAddonVersion() return nil end
 function GD:HideSettingsControls() end
@@ -292,6 +297,36 @@ combat = false
 events.PLAYER_REGEN_ENABLED()
 assert(GD.frame.rankLayer.shown, 'protected layer must return after combat')
 print('PASS: real combat tab switching, view refresh, Analytics filtering, close/reopen and protected rank isolation')
+
+local emptyProfileGetter = GD.GetProfile
+function GD:GetProfile() return {professions='Alchemy 300'} end
+profileProfessions = {
+    {name='Blacksmithing',rank=150,color='c4a484'},
+    {name='Mining',rank=75,color='c9a66b'},
+    {name='Cooking',rank=1,color='f29d63'},
+}
+GD.activeTab = 'Roster'
+GD:RefreshUI()
+local professionPanel = GD.frame.rosterProfessionPanel
+local professionRow = professionPanel.rows[1]
+assert(professionPanel.shown and not professionPanel.empty.shown and #professionPanel.rows == 3)
+assert(professionRow.name.text == 'Blacksmithing' and professionRow.count.text == '150 / 300')
+assert(professionRow.bar.width == professionRow.track.width / 2 and professionRow.bar.height == 7, 'skill bars must fill proportionally with Analytics styling')
+assert(professionRow.bar.color[1] ~= professionPanel.rows[3].bar.color[1], 'each profession must have its own color')
+profileProfessions = {{name='Cooking',rank=300,color='f29d63'}}
+GD:RefreshUI()
+assert(professionRow.name.text == 'Cooking' and professionRow.bar.width == professionRow.track.width and not professionPanel.rows[2].shown, 'member switches must update bars and hide unused rows')
+GD.frame.detailScroll.scripts.OnSizeChanged(GD.frame.detailScroll, 350)
+assert(professionRow.bar.width == professionRow.track.width, 'resize must preserve skill progress')
+GD.activeTab = 'Guide'
+GD:RefreshUI()
+assert(not professionPanel.shown and not GD.frame.rosterProfileFooter.shown, 'bars must hide outside the roster')
+GD.activeTab = 'Roster'
+profileProfessions = {}
+GD:RefreshUI()
+assert(professionPanel.empty.shown and not professionRow.shown, 'an empty profile must clear the previous member bars')
+GD.GetProfile = emptyProfileGetter
+print('PASS: roster horizontal profession bars, colors, progress, resize, row reuse, tab switching and empty profiles')
 
 -- Render and resize the PvP leaderboard with its K/D column.
 function GD:CanManagePvPSeason() return false end

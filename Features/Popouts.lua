@@ -88,7 +88,9 @@ local function nextToast()
         toast.body:SetTextColor(0.78, 0.84, 0.9)
     end
     fitTextHeight(toast, HEIGHT, 10, 4, 10)
-    toast.icon:SetTexture(item.icon or "Interface/Icons/INV_Misc_Note_01")
+    if toast.icon:SetTexture(item.icon or "Interface/Icons/INV_Misc_Note_01") == false then
+        toast.icon:SetTexture("Interface/Icons/INV_Misc_Note_01")
+    end
     toast.duration = math.max(2, tonumber(item.duration) or DEFAULT_DURATION)
     toast.elapsed = 0
     toast.onClick = item.onClick
@@ -177,14 +179,15 @@ local professionIconPatterns = {
     { "alchemy", "Interface/Icons/Trade_Alchemy" },
     { "leatherworking", "Interface/Icons/Trade_LeatherWorking" },
     { "tailor", "Interface/Icons/Trade_Tailoring" },
-    { "herbal", "Interface/Icons/Trade_Herbalism" },
+    { "herbal", "Interface/Icons/Spell_Nature_NatureTouch" },
     { "mining", "Interface/Icons/Trade_Mining" },
-    { "skinning", "Interface/Icons/Trade_Skinning" },
-    { "enchant", "Interface/Icons/Trade_Enchanting" },
+    { "skinning", "Interface/Icons/INV_Misc_Pelt_Wolf_01" },
+    { "enchant", "Interface/Icons/Trade_Engraving" },
     { "jewelcraft", "Interface/Icons/Trade_Jewelcrafting" },
     { "inscription", "Interface/Icons/Trade_Inscription" },
     { "fishing", "Interface/Icons/Trade_Fishing" },
     { "cooking", "Interface/Icons/INV_Misc_Food_15" },
+    { "first aid", "Interface/Icons/Spell_Holy_SealOfSacrifice" },
 }
 
 local function iconForProfession(profession)

@@ -738,7 +738,7 @@ local function openProfileEditor()
         { label = "Time zone", value = timezoneValue, onChange = function(value) saveChoice("timezone", value) end, options = { "Eastern Time (ET)", "Central Time (CT)", "Mountain Time (MT)", "Pacific Time (PT)", "Alaska Time (AKT)", "Hawaii Time (HT)", "UTC", "UK Time (GMT/BST)", "Central European Time (CET/CEST)", "Eastern European Time (EET/EEST)", "India Standard Time (IST)", "Japan Standard Time (JST)", "Australian Eastern Time (AET)", "New Zealand Time (NZT)" } },
         { label = "Alts", value = profile.alts or "", max = 200 },
         { label = "Race", value = playerRace or profile.race or "", max = 60, readOnly = true },
-        { label = "Professions", value = profile.professions or "Detected automatically from your Skills tab", max = 250, readOnly = true },
+        { label = "Professions", value = GD:FormatProfileProfessions(profile.professions), max = 250, readOnly = true },
     }, function(values)
         return GD:SetProfile(values[1], values[2], values[3], values[4], values[5], values[6], profile.professions, values[7])
     end)
@@ -998,6 +998,7 @@ local function build()
     frame.detailScroll:SetScript("OnSizeChanged", function(self, width)
         frame.detailChild:SetWidth(math.max(100, width - 4))
         frame.detailBody:SetWidth(math.max(80, width - 24))
+        if frame.rosterProfessionPanel and frame.rosterProfessionPanel:IsShown() then GD:LayoutRosterProfessions(frame) end
         if GD.activeTab == "Polls" and GD.RefreshPollCards and frame.pollCards then GD:RefreshPollCards(frame) end
     end)
     frame.pvpTitleSeason = frame.detailPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -1509,6 +1510,78 @@ local function makeTabButton(parent, tab, index)
     return button
 end
 
+function GD:LayoutRosterProfessions(frame)
+    local panel = frame.rosterProfessionPanel
+    local width = math.max(80, frame.detailBody:GetWidth())
+    panel:SetWidth(width)
+    for _, row in ipairs(panel.rows) do
+        row:SetWidth(width)
+        row.name:SetWidth(math.max(20, width - 78))
+        row.track:SetSize(width, 7)
+        row.bar:SetSize(math.max(1, width * math.min(300, math.max(0, row.rank)) / 300), 7)
+    end
+    frame.rosterProfileFooter:SetWidth(width)
+    frame.detailChild:SetHeight(math.max(400, frame.detailBody:GetStringHeight() + panel.contentHeight + frame.rosterProfileFooter:GetStringHeight() + 60))
+end
+
+function GD:ShowRosterProfessions(frame, value, footer)
+    local panel = frame.rosterProfessionPanel
+    if not panel then
+        panel = CreateFrame("Frame", nil, frame.detailChild)
+        panel:SetPoint("TOPLEFT", frame.detailBody, "BOTTOMLEFT", 0, -12)
+        panel.rows = {}
+        panel.empty = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        panel.empty:SetPoint("TOPLEFT")
+        panel.empty:SetText("Not set")
+        frame.rosterProfessionPanel = panel
+        frame.rosterProfileFooter = frame.detailChild:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        frame.rosterProfileFooter:SetPoint("TOPLEFT", panel, "BOTTOMLEFT", 0, -18)
+        frame.rosterProfileFooter:SetJustifyH("LEFT")
+        frame.rosterProfileFooter:SetWordWrap(true)
+        frame.rosterProfileFooter:SetSpacing(5)
+    end
+    local professions = self:GetProfileProfessionList(value)
+    panel.empty:SetShown(#professions == 0)
+    panel.empty:SetTextColor(CREAM[1], CREAM[2], CREAM[3])
+    for index, profession in ipairs(professions) do
+        local row = panel.rows[index]
+        if not row then
+            row = CreateFrame("Frame", nil, panel)
+            row:SetPoint("TOPLEFT", 0, -(index - 1) * 44)
+            row:SetHeight(36)
+            row.name = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            row.name:SetPoint("TOPLEFT")
+            row.name:SetJustifyH("LEFT")
+            row.name:SetWordWrap(false)
+            row.count = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            row.count:SetPoint("TOPRIGHT")
+            row.track = row:CreateTexture(nil, "BACKGROUND")
+            row.track:SetPoint("TOPLEFT", 0, -22)
+            row.bar = row:CreateTexture(nil, "ARTWORK")
+            row.bar:SetPoint("LEFT", row.track, "LEFT")
+            panel.rows[index] = row
+        end
+        local color = profession.color
+        local r, g, b = tonumber(color:sub(1, 2), 16) / 255, tonumber(color:sub(3, 4), 16) / 255, tonumber(color:sub(5, 6), 16) / 255
+        row.rank = profession.rank
+        row.name:SetText(profession.name)
+        row.name:SetTextColor(r, g, b)
+        row.count:SetText(profession.rank .. " / 300")
+        row.count:SetTextColor(CREAM[1], CREAM[2], CREAM[3])
+        row.track:SetColorTexture(r, g, b, 0.18)
+        row.bar:SetColorTexture(r, g, b, 1)
+        row:Show()
+    end
+    for index = #professions + 1, #panel.rows do panel.rows[index]:Hide() end
+    panel.contentHeight = math.max(20, #professions * 44 - 8)
+    panel:SetHeight(panel.contentHeight)
+    frame.rosterProfileFooter:SetText(footer)
+    frame.rosterProfileFooter:SetTextColor(CREAM[1], CREAM[2], CREAM[3])
+    panel:Show()
+    frame.rosterProfileFooter:Show()
+    self:LayoutRosterProfessions(frame)
+end
+
 function GD:RefreshUI()
     if not self.frame then return end
     -- Ordinary views remain interactive in combat. Only the separate protected
@@ -1517,6 +1590,7 @@ function GD:RefreshUI()
     updateTheme()
     updateAccent()
     local frame = self.frame
+    if frame.rosterProfessionPanel then frame.rosterProfessionPanel:Hide(); frame.rosterProfileFooter:Hide() end
     if frame.rankLayer and not inCombat then frame.rankLayer:SetShown(frame:IsShown()) end
     applyTheme(frame)
     applyAccent(frame)
@@ -1732,7 +1806,7 @@ function GD:RefreshUI()
                 profile and profile.race or "Race not listed",
                 rowMember and rowMember.class or "",
             }, "  · ")
-            local professions = profile and profile.professions or ""
+            local professions = self:FormatProfileProfessions(profile and profile.professions)
             if #professions > 38 then professions = professions:sub(1, 35) .. "..." end
             local professionInfo = professions ~= "" and ("Professions: " .. professions) or "Professions not listed"
             local statusLine = addonStatus ~= "" and (addonStatus .. "  -  " .. profileStatus) or profileStatus
@@ -1894,11 +1968,10 @@ function GD:RefreshUI()
         frame.detailTitle:SetText(self:Display(name or "Roster"))
         local status = member and (member.online and "Online" or "Offline") or "Unavailable"
         local zone = member and member.zone and member.zone ~= "" and self:Display(member.zone) or "Unknown"
-        local profileName = profile and table.concat({ profile.firstName or "", profile.lastName or "" }, " "):gsub("^%s+", ""):gsub("%s+$", "") or ""
-        if profileName == "" then profileName = "Not set" end
         local live = self.GetLiveAddonVersion and self:GetLiveAddonVersion(name)
         local addonLine = "GuildDB  " .. (version and ("v" .. version .. (live and "" or " (last known)")) or "Not yet detected") .. "\n\n"
-        frame.detailBody:SetText(addonLine .. "Name: " .. self:Display(profileName) .. "\n\nStatus: " .. status .. "  -  " .. zone .. "\n\nRole: " .. value("role") .. "\n\nProfessions: " .. value("professions") .. "\n\nSpecialization: " .. value("spec") .. "\n\nTime zone: " .. value("timezone") .. "\n\nAlts: " .. value("alts"))
+        frame.detailBody:SetText(addonLine .. "Status: " .. status .. "  -  " .. zone .. "\n\nRole: " .. value("role") .. "\n\nProfessions:")
+        self:ShowRosterProfessions(frame, profile and profile.professions, "Specialization: " .. value("spec") .. "\n\nTime zone: " .. value("timezone") .. "\n\nAlts: " .. value("alts"))
     elseif active == "PvP" then
         self:HideSettingsControls()
         frame.detailBody:Hide()
@@ -2568,7 +2641,7 @@ function GD:RefreshUI()
         frame.detailTitle:SetText(active)
         frame.detailBody:SetText(detail)
     end
-    if active ~= "Settings" and active ~= "PvP" and active ~= "Events" and not isActionList then frame.detailChild:SetHeight(math.max(400, frame.detailBody:GetStringHeight() + 20)) end
+    if active ~= "Roster" and active ~= "Settings" and active ~= "PvP" and active ~= "Events" and not isActionList then frame.detailChild:SetHeight(math.max(400, frame.detailBody:GetStringHeight() + 20)) end
     if active == "Home" and self.RefreshHome then self:RefreshHome() end
     if active == "Guild Info" and self.RefreshGuildInfo then self:RefreshGuildInfo() end
     if active == "Analytics" and self.RefreshAnalytics then self:RefreshAnalytics() end
