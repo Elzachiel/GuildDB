@@ -45,6 +45,15 @@ end
 local function heartbeat(message)
     return message and message:match('|H|' .. '([%w%.%-]+)$')
 end
+local function heartbeatCount()
+    local count = 0
+    for _, message in ipairs(sent) do if heartbeat(message) then count = count + 1 end end
+    return count
+end
+local function settle(gd)
+    tick(gd, 30)
+    for _ = 1, 8 do tick(gd, 0.2) end
+end
 
 local gd = client()
 gd.eventFrame:OnEvent('PLAYER_LOGIN')
@@ -52,17 +61,20 @@ assert(gd:GetAddonVersion('Alt Moon-Realm') == gd.version, 'recognize the curren
 assert(gd:GetAddonVersion('Main Moon') == nil, 'do not attribute an alt installation to another character')
 tick(gd)
 assert(heartbeat(sent[1]) == gd.version, 'announce on login')
+settle(gd) -- finish automatic startup discovery retries and drain identity packets
+local announcements = heartbeatCount()
 receive(gd, 'New Moon', 'H|0.2.13')
 assert(gd:GetAddonVersion('New Moon') == '0.2.13', 'detect a newcomer immediately')
 tick(gd, 3)
-assert(#sent == 2 and heartbeat(sent[2]), 'announce back so a newcomer discovers us promptly')
+assert(heartbeatCount() == announcements + 1, 'announce back so a newcomer discovers us promptly')
+announcements = heartbeatCount()
 receive(gd, 'New Moon', 'H|0.2.13')
 tick(gd, 3)
-assert(#sent == 2, 'known peer heartbeats must not create a reply loop')
+assert(heartbeatCount() == announcements, 'known peer heartbeats must not create a reply loop')
 receive(gd, 'Other Alt', 'O|sync-id|0.2.12')
 assert(gd:GetAddonVersion('Other Alt') == '0.2.12', 'sync offers also identify addon users')
 tick(gd, 3)
-assert(#sent == 3 and heartbeat(sent[3]), 'new sync responders also discover us')
+assert(heartbeatCount() == announcements + 1, 'new sync responders also discover us')
 gd:Enqueue('P|queued-record')
 gd.nextPresence = 0
 tick(gd, 2)

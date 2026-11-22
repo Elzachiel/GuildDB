@@ -2,7 +2,7 @@
 local ADDON, GD = ...
 _G.GuildDB = GD
 
-GD.version = "0.2.16"
+GD.version = "0.2.17"
 -- New-member tracking begins with this release; keep this anchor on later bumps.
 GD.recentJoinsVersion = "0.1.88"
 GD.recentJoinsStart = 1795285809
@@ -37,13 +37,14 @@ function GD:Decode(value)
     return (tostring(value or ""):gsub("%%(%x%x)", function(hex) return string.char(tonumber(hex, 16)) end))
 end
 
-function GD:Enqueue(payload, lowPriority)
+function GD:Enqueue(payload, lowPriority, urgent)
     local id = tostring(time()) .. tostring(math.random(1000, 999999))
     local size = 180
     local total = math.max(1, math.ceil(#payload / size))
     local queue = lowPriority and GD.historyQueue or GD.sendQueue
     for i = 1, total do
-        queue[#queue + 1] = table.concat({ "C", id, i, total, payload:sub((i - 1) * size + 1, i * size) }, "|")
+        local chunk = table.concat({ "C", id, i, total, payload:sub((i - 1) * size + 1, i * size) }, "|")
+        if urgent then table.insert(queue, i, chunk) else queue[#queue + 1] = chunk end
     end
 end
 
@@ -127,14 +128,47 @@ local function peerNameKey(name)
     return name:lower():gsub("[%s%-]", "")
 end
 
+local registerPrefix
+
+function GD:PresenceName()
+    local name = self:PlayerName()
+    if not GetNumGuildMembers or not GetGuildRosterInfo then return name end
+    local wanted, candidate = peerNameKey(name), nil
+    for index = 1, GetNumGuildMembers(true) do
+        local rosterName = GetGuildRosterInfo(index)
+        if rosterName then
+            if peerNameKey(rosterName) == wanted then return rosterName end
+            if peerNameKey(rosterName:match("^(%S+)")) == wanted then
+                if candidate then return name end -- a shared first name is ambiguous
+                candidate = rosterName
+            end
+        end
+    end
+    return candidate or name
+end
+
 function GD:GetAddonVersion(name)
     if not name then return nil end
     local wanted = peerNameKey(name)
-    if self.bucket and wanted == peerNameKey(self:PlayerName()) then return self.version end
+    if self.bucket and wanted == peerNameKey(self:PresenceName()) then return self.version end
     local now = GetTime and GetTime() or 0
+    local latest
     for sender, status in pairs(self.addonPresence or {}) do
-        if peerNameKey(sender) == wanted and now - (status.seen or 0) <= 150 then return status.version end
+        if peerNameKey(sender) == wanted and now - (status.seen or 0) <= 150
+            and (not latest or status.seen > latest.seen) then latest = status end
     end
+    return latest and latest.version
+end
+
+function GD:RequestPresence()
+    if not self.bucket then return false end
+    local now = GetTime and GetTime() or 0
+    if self.lastPresenceRequest and now - self.lastPresenceRequest < 3 then return false end
+    if registerPrefix then registerPrefix() end
+    self.lastPresenceRequest = now
+    self.presenceRequestPending = true
+    self.nextPresence = 0
+    return true
 end
 
 local function cleanupPresence(now)
@@ -158,6 +192,7 @@ local function ensureBucket()
     if not IsInGuild or not IsInGuild() then
         GD.guildName, GD.bucket = nil, nil
         GD.guildKey, GD.addonPresence, GD.guildSession = nil, {}, nil
+        GD.lastPresenceRequest, GD.presenceRequestPending = nil, nil
         GD.roster = {}
         if GD.RefreshUI then GD:RefreshUI() end
         return false
@@ -177,8 +212,17 @@ local function ensureBucket()
     end
     if changedGuild then
         GD.nextPresence = 0
+        GD.lastPresenceRequest = nil
+        GD:RequestPresence()
         local session = {}
         GD.guildSession = session
+        -- Login and guild joins can silently drop the first guild packet.
+        -- Retry discovery after the client has finished entering the world.
+        for _, delay in ipairs({3, 10, 25}) do
+            C_Timer.After(delay, function()
+                if GD.bucket and GD.guildSession == session then GD:RequestPresence() end
+            end)
+        end
         C_Timer.After(10, function()
             if GD.bucket and GD.guildSession == session then GD:RequestSync() end
         end)
@@ -214,6 +258,13 @@ local function isChatMessagingLocked()
     if not (C_ChatInfo and C_ChatInfo.InChatMessagingLockdown) then return false end
     local ok, locked = pcall(C_ChatInfo.InChatMessagingLockdown)
     return ok and locked == true
+end
+
+registerPrefix = function()
+    local register = C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix or RegisterAddonMessagePrefix
+    if not register then GD.prefixRegistration = "not required"; return end
+    local ok, result = pcall(register, GD.prefix)
+    GD.prefixRegistration = ok and result ~= false and "registered" or ("failed: " .. tostring(result))
 end
 
 local function requestGuildRoster()
@@ -325,12 +376,20 @@ local function receiveSyncComplete(id, sender)
     GD.syncRequests[id] = nil
 end
 
-local function recordPresence(sender, version)
+local function recordPresence(sender, version, character)
     if not sender or #sender > 100 or not version or #version > 32 then return end
+    -- Forever may supply only the first part of a two-part character name as
+    -- the chat sender. New presence packets carry the complete character name.
+    if character and #character > 0 and #character <= 100 then
+        local full, source = peerNameKey(character), peerNameKey(sender)
+        local first = peerNameKey(character:match("^(%S+)") or character)
+        if full == source or first == source then sender = character end
+    end
     local now = GetTime and GetTime() or 0
     local known = GD:GetAddonVersion(sender)
     GD.addonPresence[sender] = { version = version, seen = now }
-    if not known and not samePlayer(sender, localPlayerName()) then
+    GD.lastPresenceName = sender
+    if not known and not samePlayer(sender, GD:PresenceName()) then
         -- A new login/join needs to discover existing peers too. Coalesce
         -- replies and jitter them so guild members do not all send at once.
         GD.nextPresence = math.min(GD.nextPresence, now + 0.2 + math.random() * 2)
@@ -339,6 +398,18 @@ local function recordPresence(sender, version)
 end
 
 local function receivePayload(payload, sender)
+    local version, character, request = payload:match("^V|([%w%.%-]+)|([^|]+)|([01])$")
+    if version then
+        character = GD:Decode(character)
+        recordPresence(sender, version, character)
+        if request == "1" and not samePlayer(character, GD:PresenceName()) then
+            -- Replies use request=0, so discovery cannot create a reply loop.
+            local now = GetTime and GetTime() or 0
+            local replyAt = math.max(now + 0.2 + math.random() * 2, (GD.lastPresenceAnnouncement or 0) + 3)
+            GD.nextPresence = math.min(GD.nextPresence, replyAt)
+        end
+        return
+    end
     if payload == "Q" then
         -- Compatibility with clients that still use the original request packet.
         if not samePlayer(sender, localPlayerName()) then sendHistory(nil, sender) end
@@ -396,6 +467,7 @@ function GD:RequestSync()
 end
 
 function GD:Open()
+    self:RequestPresence()
     if not self.frame and self.BuildUI then
         local ok, err = pcall(self.BuildUI)
         if not ok then
@@ -405,6 +477,19 @@ function GD:Open()
     end
     if self.frame then self.frame:Show(); self:RefreshUI() end
 end
+
+GD:RegisterCommand("presence", function()
+    local last = GD.lastAddonSendByKind or {}
+    local announcement = last.V or last.H
+    print("GuildDB v" .. GD.version .. " presence: " .. tostring(GD.guildName or "no guild") ..
+        "; prefix " .. tostring(GD.prefixRegistration or "not initialized") ..
+        "; received " .. tostring(GD.presenceInboundPackets or 0) .. " guild packets.")
+    print("GuildDB: Last announcement: " .. (announcement and
+        (announcement.succeeded and "sent" or ("failed " .. tostring(announcement.error or announcement.result))) or "none") ..
+        "; last sender: " .. tostring(GD.lastPresenceName or "none") ..
+        "; messaging " .. (isChatMessagingLocked() and "locked" or "available") .. ".")
+    GD:RequestPresence()
+end)
 
 local function slashCommand(message)
     local command, rest = message:match("^(%S*)%s*(.-)$")
@@ -451,10 +536,12 @@ frame:SetScript("OnUpdate", function(_, elapsed)
     GD.sendTokens = math.min(8, GD.sendTokens + math.max(0, now - GD.sendTokenAt) * 0.9)
     GD.sendTokenAt = now
     if GD.bucket and now >= GD.nextPresence then
-        GD:Enqueue("H|" .. GD.version)
-        -- A heartbeat is one chunk. Send it ahead of bulk sync traffic so
-        -- an active client cannot appear absent while its records drain.
-        table.insert(GD.sendQueue, 1, table.remove(GD.sendQueue))
+        GD.lastPresenceAnnouncement = now
+        GD:Enqueue("V|" .. GD.version .. "|" .. GD:Encode(GD:PresenceName()) .. "|" ..
+            (GD.presenceRequestPending and "1" or "0"), false, true)
+        GD.presenceRequestPending = nil
+        -- Preserve the original announcement for older clients.
+        GD:Enqueue("H|" .. GD.version, false, true)
         GD.nextPresence = now + 60
     end
     local queue = #GD.sendQueue > 0 and GD.sendQueue or GD.historyQueue
@@ -480,10 +567,10 @@ frame:SetScript("OnEvent", function(_, event, ...)
         if name ~= ADDON then return end
         GDB = type(GDB) == "table" and GDB or {}
         GDB.guilds = type(GDB.guilds) == "table" and GDB.guilds or {}
-        local register = C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix or RegisterAddonMessagePrefix
-        if register then register(GD.prefix) end
+        registerPrefix()
     elseif event == "PLAYER_LOGIN" then
         GD.playerLoggedIn = true
+        registerPrefix()
         ensureBucket()
         GD.nextPresence = 0
         if IsInGuild and IsInGuild() then requestGuildRoster() end
@@ -491,9 +578,16 @@ frame:SetScript("OnEvent", function(_, event, ...)
         if ensureBucket() then GD.nextPresence = 0; requestGuildRoster() end
     elseif event == "GUILD_ROSTER_UPDATE" then
         ensureBucket()
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        registerPrefix()
+        if ensureBucket() then GD:RequestPresence() end
     elseif event == "CHAT_MSG_ADDON" then
         local prefix, message, channel, sender = ...
-        if prefix == GD.prefix and channel == "GUILD" and (GD.bucket or ensureBucket()) then receiveChunk(message, sender) end
+        if prefix == GD.prefix and channel == "GUILD" and (GD.bucket or ensureBucket()) then
+            GD.presenceInboundPackets = (GD.presenceInboundPackets or 0) + 1
+            if message:match("^C|") then receiveChunk(message, sender)
+            else receivePayload(message, sender) end
+        end
     end
     for _, handler in ipairs(GD.eventHandlers[event] or {}) do handler(event, ...) end
 end)
