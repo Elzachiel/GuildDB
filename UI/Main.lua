@@ -340,9 +340,14 @@ function GD:StyleButton(button, variant)
     else
         for _, edge in ipairs(button.GuildDBBorder) do edge:SetColorTexture(borderColor[1], borderColor[2], borderColor[3], 1) end
     end
+    -- Let the button switch fonts with its native hover state. Changing only
+    -- the FontString leaves the template's larger normal font active on leave
+    -- until the next appearance refresh.
+    button:SetNormalFontObject("GameFontNormalSmall")
+    button:SetHighlightFontObject("GameFontHighlight")
+    button:SetDisabledFontObject("GameFontDisableSmall")
     local text = button:GetFontString()
     if text then
-        text:SetFontObject("GameFontNormalSmall")
         text:SetTextColor(primary and 0.92 or CREAM[1], primary and 0.97 or CREAM[2], primary and 1 or CREAM[3])
     end
 end
