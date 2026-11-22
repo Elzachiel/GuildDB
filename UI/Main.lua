@@ -998,6 +998,7 @@ local function build()
     frame.detailScroll:SetScript("OnSizeChanged", function(self, width)
         frame.detailChild:SetWidth(math.max(100, width - 4))
         frame.detailBody:SetWidth(math.max(80, width - 24))
+        if GD.activeTab == "Polls" and GD.RefreshPollCards and frame.pollCards then GD:RefreshPollCards(frame) end
     end)
     frame.pvpTitleSeason = frame.detailPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     frame.pvpTitleSeason:SetPoint("TOPLEFT", frame.detailPanel, "TOPLEFT", 18, -40)
@@ -1597,7 +1598,7 @@ function GD:RefreshUI()
         if member.online then online = online + 1 end
         if self:GetAddonVersion(member.name) then usingAddon = usingAddon + 1 end
     end
-    local addonSummary = "    " .. usingAddon .. " using addon"
+    local addonSummary = "    " .. usingAddon .. " known addon users"
     frame.headerStatus:SetText((self.guildName and "|cff55cf9bGUILD CONNECTED|r    " or "|cffff6666NO GUILD|r    ") .. online .. " online" .. addonSummary)
     local faction = UnitFactionGroup and UnitFactionGroup("player") or nil
     local emblem = faction == "Horde" and "HordeEmblem.png" or "AllianceEmblem.png"
@@ -1722,7 +1723,8 @@ function GD:RefreshUI()
             local profile = row.rosterName and self:GetProfile(row.rosterName)
             local summary = profile and table.concat({ profile.role or "", profile.spec or "" }, " · "):gsub("^ · ", ""):gsub(" · $", "")
             local version = row.rosterName and self:GetAddonVersion(row.rosterName)
-            local addonStatus = version and ("GuildDB v" .. version) or "No addon detected"
+            local live = self.GetLiveAddonVersion and self:GetLiveAddonVersion(row.rosterName)
+            local addonStatus = version and ("GuildDB v" .. version .. (live and "" or " (last known)")) or "Not yet detected"
             local profileStatus = summary and summary ~= "" and summary or (profile and "Profile available" or "No profile yet")
             local rowMember = frame.rosterDisplay[index]
             local characterInfo = table.concat({
@@ -1840,6 +1842,8 @@ function GD:RefreshUI()
         for _, row in ipairs(frame.eventRows) do row:Hide() end
     end
     for _, row in ipairs(frame.actionRows) do row:Hide() end
+    for _, card in ipairs(frame.pollCards or {}) do card:Hide() end
+    if frame.pollEmpty then frame.pollEmpty:Hide() end
     if frame.actionEmpty then frame.actionEmpty:Hide() end
     frame.detailChild:SetWidth(math.max(100, frame.detailScroll:GetWidth() - 4))
     frame.detailBody:SetWidth(math.max(80, frame.detailScroll:GetWidth() - 28))
@@ -1892,7 +1896,8 @@ function GD:RefreshUI()
         local zone = member and member.zone and member.zone ~= "" and self:Display(member.zone) or "Unknown"
         local profileName = profile and table.concat({ profile.firstName or "", profile.lastName or "" }, " "):gsub("^%s+", ""):gsub("%s+$", "") or ""
         if profileName == "" then profileName = "Not set" end
-        local addonLine = "GuildDB  " .. (version and ("v" .. version) or "Not detected") .. "\n\n"
+        local live = self.GetLiveAddonVersion and self:GetLiveAddonVersion(name)
+        local addonLine = "GuildDB  " .. (version and ("v" .. version .. (live and "" or " (last known)")) or "Not yet detected") .. "\n\n"
         frame.detailBody:SetText(addonLine .. "Name: " .. self:Display(profileName) .. "\n\nStatus: " .. status .. "  -  " .. zone .. "\n\nRole: " .. value("role") .. "\n\nProfessions: " .. value("professions") .. "\n\nSpecialization: " .. value("spec") .. "\n\nTime zone: " .. value("timezone") .. "\n\nAlts: " .. value("alts"))
     elseif active == "PvP" then
         self:HideSettingsControls()
@@ -2429,6 +2434,11 @@ function GD:RefreshUI()
             frame.eventEmpty:Hide()
         end
         frame.detailChild:SetHeight(math.max(frame.detailScroll:GetHeight(), eventY + 12))
+    elseif active == "Polls" and self.RefreshPollCards then
+        self:HideSettingsControls()
+        frame.detailBody:Hide()
+        frame.detailTitle:SetText("POLLS")
+        self:RefreshPollCards(frame)
     elseif isActionList then
         self:HideSettingsControls()
         frame.detailBody:Hide()
@@ -2541,31 +2551,11 @@ function GD:RefreshUI()
                 if entry.status == "claimed" and (entry.crafter:lower() == player:lower() or entry.by:lower() == player:lower() or self:CanManage()) then actions[#actions + 1] = { label = "Complete", click = function() self:ChangeCraftingRequest(requestId, true) end } end
                 addActionRow(self:Display(entry.item) .. "  -  " .. entry.status:upper(), "By " .. self:Display(entry.by) .. (entry.crafter ~= "" and ("  -  Claimed by " .. self:Display(entry.crafter)) or "") .. "  -  " .. self:Display(entry.details), actions)
             end
-        else
-            entries = self.bucket and self.bucket.polls or {}
-            for _, poll in ipairs(entries) do
-                local pollId = poll.id
-                local actions = {}
-                if not poll.closed then
-                    for optionIndex, option in ipairs(poll.options) do
-                        if #actions >= 3 then break end
-                        local choice = optionIndex
-                        actions[#actions + 1] = { label = "Vote " .. choice, click = function() self:VotePoll(pollId, choice) end }
-                    end
-                    if self:CanManage() then actions[#actions + 1] = { label = "Close", click = function() self:ClosePoll(pollId) end } end
-                end
-                local counts = {}
-                for i = 1, #poll.options do counts[i] = 0 end
-                for _, vote in pairs(poll.votes or {}) do local choice = type(vote) == "table" and vote.choice or vote; if counts[choice] then counts[choice] = counts[choice] + 1 end end
-                local summary = {}
-                for i, option in ipairs(poll.options) do summary[#summary + 1] = self:Display(option) .. ": " .. counts[i] end
-                addActionRow((poll.closed and "CLOSED  -  " or "") .. self:Display(poll.question), table.concat(summary, "  |  "), actions)
-            end
         end
         if #entries == 0 then
             frame.actionEmpty = frame.actionEmpty or frame.detailChild:CreateFontString(nil, "OVERLAY", "GameFontNormal")
             frame.actionEmpty:SetPoint("TOPLEFT", 12, -14)
-            local emptyText = active == "Polls" and "No polls have been created." or (active == "Announcements" and "No announcements yet. Officers can create the first post." or "No active posts.")
+            local emptyText = active == "Announcements" and "No announcements yet. Officers can create the first post." or "No active posts."
             frame.actionEmpty:SetText(emptyText)
             frame.actionEmpty:SetTextColor(CREAM[1], CREAM[2], CREAM[3])
             frame.actionEmpty:Show()
@@ -2624,7 +2614,7 @@ function GD:IsSyncResponder(requester)
         -- GuildDB. Limiting this to officers meant no one answered when the
         -- online leader/rank-1 member did not have the addon installed.
         local candidateName = syncNameKey(member.name)
-        if member.online and candidateName ~= excluded and self:GetAddonVersion(member.name) then candidates[#candidates + 1] = member end
+        if member.online and candidateName ~= excluded and self:GetLiveAddonVersion(member.name) then candidates[#candidates + 1] = member end
     end
     table.sort(candidates, function(a, b)
         if a.rankIndex ~= b.rankIndex then return a.rankIndex < b.rankIndex end

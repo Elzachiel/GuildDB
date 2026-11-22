@@ -80,7 +80,8 @@ gd.nextPresence = 0
 tick(gd, 2)
 assert(heartbeat(sent[#sent]), 'presence must send ahead of queued records')
 tick(gd, 151)
-assert(gd:GetAddonVersion('New Moon') == nil, 'remote presence must still expire')
+assert(gd:GetLiveAddonVersion('New Moon') == nil, 'remote live presence must still expire')
+assert(gd:GetAddonVersion('New Moon') == '0.2.13', 'retain the last known version after presence expires')
 assert(gd:GetAddonVersion('Alt Moon') == gd.version, 'local installation never relies on an expiring echo')
 
 -- Guild metadata can arrive after login with no follow-up guild event.
@@ -122,3 +123,44 @@ receive(gd, 'Early Moon', 'H|0.2.13')
 assert(gd:GetAddonVersion('Early Moon') == '0.2.13', 'keep the first packet when guild metadata becomes ready')
 assert(rosterRequests > 0)
 print('PASS: alt detection, peer discovery, delayed guild startup, guild joins, and heartbeat priority')
+
+-- Remember installations across offline periods, reloads, and character changes.
+receive(gd, 'Offline Moon-Realm', 'H|0.2.13')
+local lastSeen = gd.bucket.addonUsers.offlinemoon.lastSeen
+assert(gd.bucket.addonUsers.offlinemoon.name == 'Offline Moon-Realm')
+tick(gd, 151)
+assert(gd:GetLiveAddonVersion('Offline Moon') == nil)
+assert(gd:GetAddonVersion('Offline Moon') == '0.2.13', 'offline characters retain their last reported version')
+assert(gd.bucket.addonUsers.offlinemoon.lastSeen == lastSeen, 'reading cached versions does not advance last seen')
+
+local savedDatabase = GDB
+clock, player = 10, 'Other Alt'
+gd = client()
+gd.eventFrame:OnEvent('PLAYER_LOGIN')
+assert(GDB == savedDatabase)
+assert(gd:GetAddonVersion('Offline Moon-Realm') == '0.2.13', 'saved reports survive a runtime reload')
+assert(gd:GetAddonVersion('Alt Moon') == gd.version, 'remember your previous character after switching alts')
+assert(gd:GetLiveAddonVersion('Alt Moon') == nil, 'previous characters are not treated as live peers')
+assert(gd:GetAddonVersion('Unseen Alt') == nil, 'do not assume unobserved alts have the addon')
+receive(gd, 'Offline Moon-Realm', 'H|0.2.17')
+assert(gd.bucket.addonUsers.offlinemoon.version == '0.2.17', 'new announcements replace the saved version')
+tick(gd, 151)
+assert(gd:GetAddonVersion('Offline Moon') == '0.2.17')
+assert(gd:GetLiveAddonVersion('Offline Moon') == nil)
+
+guildName = 'Other Guild'
+gd.eventFrame:OnEvent('PLAYER_GUILD_UPDATE', 'player')
+assert(gd:GetAddonVersion('Offline Moon') == nil, 'installation records stay scoped to their guild')
+guildName = 'Test Guild'
+gd.eventFrame:OnEvent('PLAYER_GUILD_UPDATE', 'player')
+assert(gd:GetAddonVersion('Offline Moon') == '0.2.17', 'returning to a guild restores its saved reports')
+
+-- A high-ranking member with a saved installation but no live announcement
+-- must not displace an available responder, even if the roster says online.
+assert(loadfile('UI/Main.lua'))('GuildDB', gd)
+gd.roster = {
+    {name = 'Offline Moon', rankIndex = 0, online = true},
+    {name = 'Other Alt', rankIndex = 3, online = true},
+}
+assert(gd:IsSyncResponder('Requester'), 'sync election must use live announcements rather than saved installations')
+print('PASS: saved addon versions persist across expiration, reloads and alts, remain guild-scoped, and do not affect live sync election')

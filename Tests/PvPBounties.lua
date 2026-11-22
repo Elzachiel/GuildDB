@@ -43,8 +43,9 @@ local function score(client, name, allTime)
     for _, row in ipairs(ranking) do if row.name == name then return row end end
 end
 death('d1', 1000)
+assert(#gd:GetPvPBounties() == 0, 'one guild death must not show an enemy on the board')
 death('d2', 1001)
-assert(gd:GetPvPBounties()[1].status == 'WAIT' and gd:GetPvPBounties()[1].reward == 0)
+assert(#gd:GetPvPBounties() == 0, 'two guild deaths must not show an enemy on the board')
 death('d3', 1002)
 assert(gd:GetPvPBounties()[1].reward == 3 and gd:GetPvPBounties()[1].status == 'OPEN', 'same member dying three times opens +3')
 death('d4', 1003)
@@ -80,8 +81,9 @@ assert(score(peer, 'Late Moon', true).bountyPoints == nil)
 
 -- New deaths build a fresh bounty, rather than reusing the original thirteen.
 death('new1', 1990)
-assert(gd:GetPvPBounties()[1].reward == 0 and gd:GetPvPBounties()[1].status == 'WAIT', 'a new counter cannot reuse the paid reward')
+assert(#gd:GetPvPBounties() == 0, 'a fresh counter stays hidden and cannot reuse the paid reward')
 death('new2', 1991)
+assert(#gd:GetPvPBounties() == 0, 'a fresh bounty needs three guild deaths before reappearing')
 death('new3', 1992)
 assert(gd:GetPvPBounties()[1].reward == 3)
 ownKill(1999)

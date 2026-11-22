@@ -105,19 +105,20 @@ function GD:GetPvPBounties()
     local rows = {}
     if not self.bucket then return rows end
     for _, enemy in pairs(state().enemies) do
-        -- Enemies with only our kills and no bounty activity need no target row.
-        if enemy.deaths > 0 or enemy.claim then
-            local claiming = enemy.claim and time() <= enemy.claim.ts + CREDIT_WINDOW
+        local claiming = enemy.claim and time() <= enemy.claim.ts + CREDIT_WINDOW
+        -- Track one/two guild deaths internally, but only show a target once
+        -- a bounty opens. Keep claim/payout rows for completed bounties.
+        if enemy.deaths >= 3 or claiming or (enemy.claim and enemy.deaths == 0) then
             local open = enemy.deaths >= 3 and not claiming
             local reward = open and math.min(10, enemy.deaths)
                 or (claiming or enemy.deaths == 0) and enemy.claim and enemy.claim.reward or 0
             rows[#rows + 1] = { name = enemy.name, deaths = enemy.deaths, reward = reward,
-                status = open and "OPEN" or claiming and "CLAIM" or enemy.deaths > 0 and "WAIT" or "PAID",
+                status = open and "OPEN" or claiming and "CLAIM" or "PAID",
                 last = enemy.last }
         end
     end
     table.sort(rows, function(a, b)
-        local order = { OPEN = 4, CLAIM = 3, WAIT = 2, PAID = 1 }
+        local order = { OPEN = 4, CLAIM = 3, PAID = 1 }
         if order[a.status] ~= order[b.status] then return order[a.status] > order[b.status] end
         if a.reward ~= b.reward then return a.reward > b.reward end
         if a.deaths ~= b.deaths then return a.deaths > b.deaths end

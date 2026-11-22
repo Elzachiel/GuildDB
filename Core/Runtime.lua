@@ -2,7 +2,7 @@
 local ADDON, GD = ...
 _G.GuildDB = GD
 
-GD.version = "0.2.17"
+GD.version = "0.2.27"
 -- New-member tracking begins with this release; keep this anchor on later bumps.
 GD.recentJoinsVersion = "0.1.88"
 GD.recentJoinsStart = 1795285809
@@ -83,6 +83,18 @@ function GD:RegisterBucket(key, defaultValue)
     self.bucketDefaults[key] = defaultValue
 end
 
+GD:RegisterBucket("addonUsers", function() return {} end)
+
+function GD:RememberAddonVersion(name, version)
+    if not self.bucket then return end
+    self.bucket.addonUsers = self.bucket.addonUsers or {}
+    local key = (tostring(name or ""):match("^([^-]+)") or ""):lower():gsub("[%s%-]", "")
+    if key == "" then return end
+    local record = self.bucket.addonUsers[key] or {}
+    record.name, record.version, record.lastSeen = name, version, time()
+    self.bucket.addonUsers[key] = record
+end
+
 function GD:RegisterRecordHandler(kind, handler, contentLimit)
     self.recordHandlers[kind] = handler
     self.recordLimits[kind] = contentLimit or 1200
@@ -147,7 +159,7 @@ function GD:PresenceName()
     return candidate or name
 end
 
-function GD:GetAddonVersion(name)
+function GD:GetLiveAddonVersion(name)
     if not name then return nil end
     local wanted = peerNameKey(name)
     if self.bucket and wanted == peerNameKey(self:PresenceName()) then return self.version end
@@ -158,6 +170,14 @@ function GD:GetAddonVersion(name)
             and (not latest or status.seen > latest.seen) then latest = status end
     end
     return latest and latest.version
+end
+
+function GD:GetAddonVersion(name)
+    if not name then return nil end
+    local live = self:GetLiveAddonVersion(name)
+    if live then return live end
+    local record = self.bucket and self.bucket.addonUsers and self.bucket.addonUsers[peerNameKey(name)]
+    return record and record.version
 end
 
 function GD:RequestPresence()
@@ -210,6 +230,7 @@ local function ensureBucket()
     for bucketKey, defaultValue in pairs(GD.bucketDefaults) do
         if type(GD.bucket[bucketKey]) ~= "table" then GD.bucket[bucketKey] = defaultValue() end
     end
+    GD:RememberAddonVersion(GD:PresenceName(), GD.version)
     if changedGuild then
         GD.nextPresence = 0
         GD.lastPresenceRequest = nil
@@ -386,8 +407,9 @@ local function recordPresence(sender, version, character)
         if full == source or first == source then sender = character end
     end
     local now = GetTime and GetTime() or 0
-    local known = GD:GetAddonVersion(sender)
+    local known = GD:GetLiveAddonVersion(sender)
     GD.addonPresence[sender] = { version = version, seen = now }
+    GD:RememberAddonVersion(sender, version)
     GD.lastPresenceName = sender
     if not known and not samePlayer(sender, GD:PresenceName()) then
         -- A new login/join needs to discover existing peers too. Coalesce
