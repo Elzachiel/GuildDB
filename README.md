@@ -28,6 +28,7 @@ GuildDB is a World of Warcraft guild addon for a shared roster, member profiles,
 - Crafting request board; requests expire after seven days and can be claimed by crafters.
 - Officer polls appear as individual cards with colored horizontal bars, option names and vote totals above each bar, and a Vote button beneath it. Bar lengths show each option's share of the votes, with percentages beside the totals. Use the buttons to vote or change your choice; your selection is marked Voted. Each poll has separate Close and Delete controls for the GM and rank 1 officers. Closing preserves that poll's results; deleting removes it and syncs the deletion so old history cannot restore it. Voter names are not shown in the interface.
 - Shoutouts between guild members.
+- Raid Info, Guild Info, and Polls show a NEW badge for unseen content. Opening a section marks its current content as read. Read status is saved per character and guild across reloads. Upcoming raid/event creations and edits, Guild Info revisions (including clearing the page), and new or closed polls trigger badges; votes and signup changes do not. Existing content is unread until first opened; expired events and deleted records do not trigger badges.
 - Pop-up notifications for new guild announcements and events, stacking PvP rewards, and guild-wide level/profession milestones for members running GuildDB.
 
 Officers (guild leader and rank 1) can create announcements, schedule raids and events, edit the guide, create or close polls, and start PvP seasons. Any guild member can edit their own profile, RSVP, vote, make or claim board requests, and post shoutouts.
@@ -44,6 +45,8 @@ GuildDB remembers each character's last reported addon version in the saved data
 
 GuildDB announces its version and full character name at login and once per minute. Login and guild joins retry discovery during the first 25 seconds; opening GuildDB also requests replies from online peers. Older clients still receive the original version announcement. Use `/gd presence` to inspect prefix registration, outgoing announcements, and incoming guild packets when diagnosing detection problems.
 
+At login or UI reload, GuildDB prints a colored welcome message with `/gd` and your installed version. Use `/gd version` to display your installed version again.
+
 Select a member in Roster and choose a rank from Set Guild Rank. Each hardware click submits one secure rank step and refreshes the roster from the game. If the chosen rank is several steps away, the same control shows Continue to the chosen rank; click again after each confirmed step until it is reached. This avoids sending several commands against the same stale rank. Guild permissions still apply, and rank changes are unavailable during combat. The dropdown stays inside GuildDB and remains open during ordinary background refreshes.
 
 PvP rankings use total eligible kills plus automatic bounty bonuses, regardless of victim level. Each kill contributes one base point; existing kill totals are preserved and historical level-based points no longer affect rankings. Only game-credited open-world kills count; battlegrounds, arenas, dungeons, raids, and scenarios are excluded. Honor messages and kill-credit updates are combined to avoid counting the same reward twice. Counter-only credits require one identifiable recent enemy death. Victim levels come from recently visible enemy players; unknown levels use your level, and skull-level enemies use your level plus 10, capped at 60. Every eligible kill counts, including repeated kills of the same victim, with no per-victim cooldown or daily cap. The detailed activity feed keeps up to 60 recent kills and deaths per guild. Leaderboard kill, point, and death totals are cumulative per member and season, synced separately from that feed. Existing saved recent records are folded into a member's totals the next time they record a PvP event; older records already discarded by the 60-entry cap cannot be recovered. A new season starts fresh at its start time.
@@ -57,6 +60,8 @@ Copy this folder into the client's `Interface/AddOns` directory, enable **GuildD
 ## Commands
 
 - `/gd` opens GuildDB; `/gd sync` requests recent guild data.
+- `/gd version` shows your installed version.
+- `/gd bankapi` checks guild-bank API availability, event registration and events observed since its first use this session, and reads the selected tab's item links and counts locally. Run once before opening the guild bank, then open a populated tab and run it again. `/gd bankapi query` requests that selected tab's data while the bank is open; wait for the response, then rerun `/gd bankapi`. This diagnostic does not move items, save snapshots, or share bank contents. Runtime results are needed to confirm Forever compatibility.
 - `/gd post Message text` posts an announcement (officer).
 - `/gd event YYYY-MM-DD HH:MM | Title | Details` schedules an event (officer).
 - `/gd raid YYYY-MM-DD HH:MM | Title | Details` schedules a raid (officer).

@@ -2,7 +2,7 @@
 local ADDON, GD = ...
 _G.GuildDB = GD
 
-GD.version = "0.2.32"
+GD.version = "0.2.36"
 -- New-member tracking begins with this release; keep this anchor on later bumps.
 GD.recentJoinsVersion = "0.1.88"
 GD.recentJoinsStart = 1795285809
@@ -28,6 +28,14 @@ GD.addonPresence = {}
 GD.syncRequests = {}
 GD.syncOffers = {}
 GD.syncServed = {}
+
+local chatPrefix = "|cffb19cffGuildDB:|r "
+
+function GD:PrintWelcome()
+    if self.welcomeShown then return end
+    self.welcomeShown = true
+    print(chatPrefix .. "Ready. Type |cffffd100/gd|r to open. |cffaaaaaav" .. self.version .. "|r")
+end
 
 function GD:Encode(value)
     return (tostring(value or ""):gsub("%%", "%%25"):gsub("|", "%%7C"):gsub("\r", "%%0D"):gsub("\n", "%%0A"))
@@ -514,6 +522,10 @@ GD:RegisterCommand("presence", function()
     GD:RequestPresence()
 end)
 
+GD:RegisterCommand("version", function()
+    print(chatPrefix .. "Installed version: |cffffd100v" .. GD.version .. "|r")
+end)
+
 local function slashCommand(message)
     local command, rest = message:match("^(%S*)%s*(.-)$")
     command = (command or ""):lower()
@@ -523,7 +535,7 @@ local function slashCommand(message)
     end
     local handler = GD.commands[command]
     if handler then handler(rest or "") else
-        print("GuildDB commands: /gd sync, /gd profile, /gd spec, /gd map, /gd guide, /gd looking, /gd craft, /gd poll, /gd pvp, /gd raid, /gd event, /gd rsvp, /gd post, /gd shout, /gd testpopout")
+        print("GuildDB commands: /gd version, /gd bankapi, /gd sync, /gd profile, /gd spec, /gd map, /gd guide, /gd looking, /gd craft, /gd poll, /gd pvp, /gd raid, /gd event, /gd rsvp, /gd post, /gd shout, /gd testpopout")
     end
 end
 
@@ -593,6 +605,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
         registerPrefix()
     elseif event == "PLAYER_LOGIN" then
         GD.playerLoggedIn = true
+        GD:PrintWelcome()
         registerPrefix()
         ensureBucket()
         GD.nextPresence = 0

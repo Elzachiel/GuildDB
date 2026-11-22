@@ -1492,6 +1492,11 @@ local function makeTabButton(parent, tab, index)
     button.label:SetWidth(155)
     button.label:SetJustifyH("LEFT")
     button.label:SetText(tab == "Events" and "Raid Info" or tab)
+    button.unread = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    button.unread:SetPoint("RIGHT", -10, 0)
+    button.unread:SetText("NEW")
+    button.unread:SetTextColor(1, 0.82, 0.25)
+    button.unread:Hide()
     button:SetScript("OnEnter", function(self)
         if GD.activeTab ~= tab then self.bg:SetColorTexture(PANEL_ALT[1], PANEL_ALT[2], PANEL_ALT[3], 1) end
     end)
@@ -1604,6 +1609,7 @@ function GD:RefreshUI()
         active = "Settings"
         self.activeTab = active
     end
+    if self.UpdateUnreadState then self:UpdateUnreadState(active) end
     local renderer = self.views and self.views[active] or rosterText
     local text = renderer() or ""
     local rosterDisplay = {}
@@ -1734,6 +1740,9 @@ function GD:RefreshUI()
             button:SetPoint("TOPLEFT", 9, -48 - (navIndex - 1) * 40)
         end
         local selected = tab == active
+        local unread = self.GetTabUnreadCount and self:GetTabUnreadCount(tab) > 0
+        button.unread:SetShown(unread == true)
+        button.label:SetWidth(unread and 115 or 155)
         button.accent:SetShown(selected)
         button.bg:SetColorTexture(selected and PANEL_ALT[1] or PANEL[1], selected and PANEL_ALT[2] or PANEL[2], selected and PANEL_ALT[3] or PANEL[3], 1)
         setTextColor(button.label, selected and CREAM or MUTED_GOLD)
