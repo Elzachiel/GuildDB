@@ -385,6 +385,38 @@ local function styleRaidInviteCheck(button)
     button.mark:SetVertexColor(0.25, 0.68, 1, 1)
 end
 
+-- Match the compact checkbox used by Settings and the roster's Online filter.
+function GD:StyleCheckbox(button)
+    button:SetSize(22, 22)
+    button:SetNormalTexture("Interface/Buttons/WHITE8X8")
+    button:SetPushedTexture("Interface/Buttons/WHITE8X8")
+    button:SetHighlightTexture("Interface/Buttons/WHITE8X8")
+    button:SetDisabledTexture("Interface/Buttons/WHITE8X8")
+    button:GetNormalTexture():SetAllPoints(button)
+    button:GetNormalTexture():SetVertexColor(0.075, 0.09, 0.12, 1)
+    button:GetPushedTexture():SetAllPoints(button)
+    button:GetPushedTexture():SetVertexColor(0.045, 0.06, 0.085, 1)
+    button:GetHighlightTexture():SetAllPoints(button)
+    button:GetHighlightTexture():SetVertexColor(0.22, 0.52, 0.78, 0.20)
+    button:GetDisabledTexture():SetAllPoints(button)
+    button:GetDisabledTexture():SetVertexColor(0.08, 0.09, 0.11, 0.65)
+    button.border = button.border or {}
+    for index = 1, 4 do
+        button.border[index] = button.border[index] or button:CreateTexture(nil, "OVERLAY")
+        button.border[index]:SetColorTexture(0.16, 0.25, 0.34, 1)
+    end
+    button.border[1]:SetPoint("TOPLEFT"); button.border[1]:SetPoint("TOPRIGHT"); button.border[1]:SetHeight(1)
+    button.border[2]:SetPoint("BOTTOMLEFT"); button.border[2]:SetPoint("BOTTOMRIGHT"); button.border[2]:SetHeight(1)
+    button.border[3]:SetPoint("TOPLEFT"); button.border[3]:SetPoint("BOTTOMLEFT"); button.border[3]:SetWidth(1)
+    button.border[4]:SetPoint("TOPRIGHT"); button.border[4]:SetPoint("BOTTOMRIGHT"); button.border[4]:SetWidth(1)
+    button.mark = button.mark or button:CreateTexture(nil, "OVERLAY")
+    button.mark:SetTexture("Interface/Buttons/UI-CheckBox-Check")
+    button.mark:SetSize(17, 17)
+    button.mark:SetPoint("CENTER")
+    button.mark:SetVertexColor(0.25, 0.68, 1, 1)
+    button:SetCheckedTexture(button.mark)
+end
+
 function GD:StyleEditBox(editBox, multiline)
     if not editBox then return end
     editBox:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8" })
@@ -554,7 +586,40 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose, se
         setTextColor(label, CREAM)
         local height = field.multiline and 84 or 24
         local input
-        if field.calendar then
+        if field.checkbox then
+            input = CreateFrame("CheckButton", nil, dialog)
+            GD:StyleCheckbox(input)
+            input:SetPoint("TOPLEFT", 18, -offset - 12)
+            input:SetChecked(field.value == true)
+            label:ClearAllPoints()
+            label:SetPoint("LEFT", input, "RIGHT", 4, 0)
+            label:SetFontObject("GameFontNormal")
+        elseif field.weekdays then
+            input = CreateFrame("Frame", nil, dialog)
+            input.selectedValue = {}
+            input:SetSize(370, 24)
+            input:SetPoint("TOPLEFT", 20, -offset - 16)
+            local selected = {}
+            for _, day in ipairs(field.value or {}) do selected[day] = true end
+            local function updateDays()
+                input.selectedValue = {}
+                for day = 1, 7 do if selected[day] then table.insert(input.selectedValue, day) end end
+            end
+            for day, label in ipairs({"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}) do
+                local weekday = day
+                local button = CreateFrame("Button", nil, input, "UIPanelButtonTemplate")
+                button:SetSize(48, 24)
+                button:SetPoint("TOPLEFT", (day - 1) * 53, 0)
+                button:SetText(label)
+                GD:StyleButton(button, selected[day] and "primary" or nil)
+                button:SetScript("OnClick", function()
+                    selected[weekday] = not selected[weekday]
+                    GD:StyleButton(button, selected[weekday] and "primary" or nil)
+                    updateDays()
+                end)
+            end
+            updateDays()
+        elseif field.calendar then
             input = createRaidDatePicker(dialog, field, offset)
         elseif field.options then
             input = CreateFrame("Button", nil, dialog, "UIPanelButtonTemplate")
@@ -618,7 +683,7 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose, se
             input:SetPoint("TOPLEFT", 20, -offset - 16)
             GD:StyleEditBox(input, field.multiline)
         end
-        if not field.options and not field.calendar then
+        if not field.options and not field.calendar and not field.weekdays and not field.checkbox then
             input:SetAutoFocus(false)
             input:SetMaxLetters(field.max or 200)
             input:SetText(field.value or "")
@@ -648,7 +713,10 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose, se
     accept:SetText(acceptLabel or "Save")
     local function valuesFromForm()
         local values = {}
-        for i, input in ipairs(dialog.inputs) do values[i] = input.selectedValue or input:GetText() end
+        for i, input in ipairs(dialog.inputs) do
+            if fields[i].checkbox then values[i] = input:GetChecked() == true
+            else values[i] = input.selectedValue or input:GetText() end
+        end
         return values
     end
     if secureAction then
@@ -694,7 +762,7 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose, se
     end)
     dialog:Show()
     for index, input in ipairs(dialog.inputs) do
-        if not fields[index].readOnly and not fields[index].options and not fields[index].calendar then
+        if not fields[index].readOnly and not fields[index].options and not fields[index].calendar and not fields[index].weekdays and not fields[index].checkbox then
             input:SetFocus()
             break
         end
@@ -826,7 +894,15 @@ local function build()
     frame.close:GetFontString():ClearAllPoints()
     frame.close:GetFontString():SetPoint("CENTER", frame.close, "CENTER", 0, 0)
     frame.close:SetScript("OnClick", function() frame:Hide() end)
-    frame.headerStatus:SetPoint("RIGHT", frame.close, "LEFT", -10, 0)
+    frame.discordButton = CreateFrame("Button", nil, frame.header, "UIPanelButtonTemplate")
+    frame.discordButton:SetSize(164, 30)
+    frame.discordButton:SetPoint("RIGHT", frame.close, "LEFT", -12, 0)
+    frame.discordButton:SetText("Discord Not Set")
+    frame.discordButton:SetScript("OnClick", function() GD:ShowGuildDiscordInvite() end)
+    frame:HookScript("OnHide", function()
+        if GD.discordInviteDialog then GD.discordInviteDialog:Hide() end
+    end)
+    frame.headerStatus:SetPoint("RIGHT", frame.discordButton, "LEFT", -12, 0)
     frame.sidebar = CreateFrame("Frame", nil, frame)
     frame.sidebar:SetPoint("TOPLEFT", 1, -71)
     frame.sidebar:SetPoint("BOTTOMLEFT", 1, 1)
@@ -1226,8 +1302,22 @@ local function build()
             { label = "Sign-ups", value = "Open", options = { "Open", "Locked" } },
             { label = "Details", value = "", max = 300, multiline = true },
             { label = "Guild calendar", value = "Create guild calendar event", options = { "Create guild calendar event", "GuildDB only" } },
+            { label = "Repeat", value = "Once", options = { "Once", "Weekly for 4 weeks" } },
+            { label = "Announce sign-ups to online GuildDB users", value = false, checkbox = true },
         }, function(values)
-            local settings = { category = "Raid", raidSize = tonumber(values[4]), locked = values[5] == "Locked" }
+            local settings = { category = "Raid", raidSize = tonumber(values[4]), locked = values[5] == "Locked", announce = values[9] == true }
+            if values[8] == "Weekly for 4 weeks" then
+                local at, reason = GD:ParseEventTimeFields(values[2], values[3])
+                if not at then return false, reason end
+                showInputForm("Recurring raids - 4 weeks", {
+                    {label = "Repeat on these days", weekdays = true, value = {date("*t", at).wday}},
+                    {label = "Four-week schedule ends on (inclusive)", readOnly = true, value = GD:GetRaidRepeatUntil(at)},
+                    {label = "Calendar copies", value = "Use Create calendar on each raid", readOnly = true},
+                }, function(repeatValues)
+                    return GD:PostRecurringRaid(at, values[1], values[6], settings, repeatValues[1], repeatValues[2])
+                end, "Create series")
+                return true
+            end
             local ok, result, eventId = GD:PostEventFields(values[2], values[3], values[1], values[6], "raid", settings)
             if not ok then return false, result end
             if values[7] == "Create guild calendar event" then
@@ -1353,11 +1443,11 @@ local function build()
     rankLayer:EnableMouse(false)
     rankLayer:SetAttribute("_onstate-combat", "if newstate == '1' then self:Hide() end")
     RegisterStateDriver(rankLayer, "combat", "[combat] 1; 0")
-    rankLayer:SetShown(frame:IsShown())
+    rankLayer:SetShown(frame:IsShown() and GD.activeTab == "Roster")
     frame:HookScript("OnShow", function()
         if not (InCombatLockdown and InCombatLockdown()) then
             GD:PositionRankLayer()
-            rankLayer:Show()
+            rankLayer:SetShown(GD.activeTab == "Roster")
         end
     end)
     frame:HookScript("OnHide", function()
@@ -1601,9 +1691,9 @@ function GD:RefreshUI()
     updateAccent()
     local frame = self.frame
     if frame.rosterProfessionPanel then frame.rosterProfessionPanel:Hide(); frame.rosterProfileFooter:Hide() end
-    if frame.rankLayer and not inCombat then frame.rankLayer:SetShown(frame:IsShown()) end
     applyTheme(frame)
     applyAccent(frame)
+    if self.RefreshDiscordInviteButton then self:RefreshDiscordInviteButton() end
     local active = self.activeTab or "Home"
     if active == "Profiles" then
         self.selectedRosterName = self.profileTarget or self.selectedRosterName
@@ -1613,6 +1703,12 @@ function GD:RefreshUI()
     if active ~= "Settings" and self.GetSetting and not self:GetSetting("feature:" .. active) then
         active = "Settings"
         self.activeTab = active
+    end
+    -- These full-window overlays belong to roster controls. Keeping them above
+    -- other pages can obstruct native EditBox hit testing on Forever clients.
+    if frame.actionLayer then frame.actionLayer:SetShown(active == "Roster") end
+    if frame.rankLayer and not inCombat then
+        frame.rankLayer:SetShown(frame:IsShown() and active == "Roster")
     end
     if self.UpdateUnreadState then self:UpdateUnreadState(active) end
     local renderer = self.views and self.views[active] or rosterText
@@ -1626,7 +1722,8 @@ function GD:RefreshUI()
             local profile = self:GetProfile(member.name)
             profile = profile or {}
             local haystack = table.concat({ member.name or "", member.rank or "", member.class or "", member.zone or "", profile.role or "", profile.professions or "" }, " "):lower()
-            if (not frame.rosterOnlineOnly or member.online) and (query == "" or haystack:find(query, 1, true)) then
+            if (not frame.rosterOnlineOnly or member.online) and (query == "" or haystack:find(query, 1, true))
+                and (not self.RosterMemberMatchesFilters or self:RosterMemberMatchesFilters(member, profile, self.rosterFilters)) then
                 rosterDisplay[#rosterDisplay + 1] = member
             end
         end
@@ -1657,6 +1754,11 @@ function GD:RefreshUI()
             return ascending and av < bv or (not ascending and av > bv)
         end)
         frame.rosterDisplay = rosterDisplay
+        if self.selectedRosterName then
+            local found = false
+            for _, member in ipairs(rosterDisplay) do if member.name == self.selectedRosterName then found = true; break end end
+            if not found then self.selectedRosterName = nil; self.selectedSection = nil end
+        end
         text = ""
         for _, member in ipairs(rosterDisplay) do text = text .. member.name .. "\n" end
     end
@@ -1702,13 +1804,27 @@ function GD:RefreshUI()
         frame.rosterSearch:Show()
         frame.rosterOnlineCheck:Show()
         frame.rosterHeaderRule:Show()
+        if self.RefreshRosterFilters then self:RefreshRosterFilters(true, #rosterDisplay) end
+        local filtersExpanded = self.RefreshRosterFilters and frame.rosterFiltersExpanded
         for _, header in ipairs(frame.rosterHeaders) do
+            if self.RefreshRosterFilters then
+                header:ClearAllPoints()
+                local offsets = {name = 10, level = 145, rank = 215, zone = 300, role = 425, hq = 490}
+                header:SetPoint("TOPLEFT", offsets[header.sortKey], filtersExpanded and -120 or -44)
+            end
             local arrow = header.sortKey == (self.rosterSortField or "name") and (self.rosterSortAscending == false and " v" or " ^") or ""
             header.title:SetText(header.title:GetText():gsub(" [%^v]$", "") .. arrow)
             header:Show()
         end
         frame.listScroll:ClearAllPoints()
-        frame.listScroll:SetPoint("TOPLEFT", 8, -68)
+        frame.listScroll:SetPoint("TOPLEFT", 8, filtersExpanded and -144 or -68)
+        if self.RefreshRosterFilters then
+            frame.rosterHeaderRule:ClearAllPoints()
+            frame.rosterHeaderRule:SetPoint("TOPLEFT", 8, filtersExpanded and -139 or -63)
+            frame.rosterHeaderRule:SetPoint("TOPRIGHT", -8, filtersExpanded and -139 or -63)
+            frame.rosterEmpty:ClearAllPoints()
+            frame.rosterEmpty:SetPoint("TOPLEFT", 14, filtersExpanded and -158 or -82)
+        end
         frame.listScroll:SetPoint("BOTTOMRIGHT", -8, 8)
         frame.rosterEmpty:SetShown(#rosterDisplay == 0)
         frame.detailPanel:ClearAllPoints()
@@ -1717,6 +1833,7 @@ function GD:RefreshUI()
         frame.detailPanel:SetWidth(270)
     else
         frame.listPanel:Hide()
+        if self.RefreshRosterFilters then self:RefreshRosterFilters(false) end
         frame.listHeader:Show()
         frame.listRule:Show()
         frame.rosterSearch:Hide()
@@ -1941,7 +2058,8 @@ function GD:RefreshUI()
     frame.detailMeta:SetWidth(math.max(100, frame.detailPanel:GetWidth() - 36))
     frame.listChild:SetWidth(math.max(100, frame.listScroll:GetWidth() - 4))
     if active == "Settings" then
-        self:HideSettingsControls()
+        -- Hiding a pressed button cancels its pending mouse-up click. Settings
+        -- stays visible while background roster/presence updates refresh it.
         frame.detailBody:Hide()
         frame.detailMeta:SetText("Personal preferences and officer controls")
         frame.detailTitle:SetText("Settings")
@@ -2140,7 +2258,7 @@ function GD:RefreshUI()
                 row.title:SetWidth(360)
                 row.title:SetJustifyH("LEFT")
                 row.title:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
-                row.info = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+                row.info = row:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
                 row.info:SetPoint("TOPLEFT", row.title, "BOTTOMLEFT", 0, -4)
                 row.info:SetWidth(360)
                 row.info:SetHeight(28)
@@ -2202,6 +2320,14 @@ function GD:RefreshUI()
                     local _, result = GD:InviteRaidSelections(button.eventId)
                     if result then print("GuildDB: " .. result) end
                 end)
+                row.announceButton = CreateFrame("Button", nil, row)
+                styleRaidButton(row.announceButton, 168, "secondary")
+                row.announceButton:SetPoint("RIGHT", row.inviteButton, "LEFT", -8, 0)
+                row.announceButton:SetText("Announce sign-ups")
+                row.announceButton:SetScript("OnClick", function(button)
+                    local _, result = GD:AnnounceRaidSignups(button.eventId)
+                    if result then print("GuildDB: " .. result) end
+                end)
                 row.signupRows = {}
                 row.rsvpButtons = {}
                 row.calendarButton = CreateFrame("Button", nil, row)
@@ -2225,7 +2351,7 @@ function GD:RefreshUI()
                     local category = settings.category or (event.eventType == "raid" and "Raid" or "Other")
                     local inviteMode = settings.inviteMode == "selected" and "Selected players"
                         or settings.inviteMode == "guild" and "Mass invite guild" or "No invites"
-                    showInputForm("Edit guild event", {
+                    local fields = {
                         { label = "Title", value = event.title or "", max = 100 },
                         { label = "Raid date (your local calendar)", value = date("%d-%m-%Y", event.at), calendar = true },
                         { label = "Start time (your local time)", value = date("%I:%M %p", event.at):gsub("^0", ""), options = raidStartTimes },
@@ -2235,11 +2361,19 @@ function GD:RefreshUI()
                         { label = "Players to invite (comma separated)", value = settings.inviteNames or "", max = 200 },
                         { label = "Details", value = event.details or "", max = 300, multiline = true },
                         { label = "Raid size target", value = tostring(settings.raidSize or 40), options = { "10", "20", "25", "40" } },
-                    }, function(values)
+                    }
+                    if settings.seriesId then fields[#fields + 1] = {
+                        label = "Apply changes to (date changes shift the series)", value = "This raid only",
+                        options = {"This raid only", "All upcoming in series"},
+                    } end
+                    showInputForm("Edit guild event", fields, function(values)
                         local at, reason = GD:ParseEventTimeFields(values[2], values[3])
                         if not at then return false, reason end
                         local updatedSettings = calendarSettingsFromForm(values, 4)
                         updatedSettings.raidSize = tonumber(values[9])
+                        if values[10] == "All upcoming in series" then
+                            return GD:EditRaidSeries(self.eventId, at, values[1], values[8], updatedSettings)
+                        end
                         return GD:EditEvent(self.eventId, at, values[1], values[8], updatedSettings)
                     end)
                 end)
@@ -2248,12 +2382,22 @@ function GD:RefreshUI()
                 row.deleteButton:SetPoint("LEFT", row.editButton, "RIGHT", 8, 0)
                 row.deleteButton:SetText("Delete raid")
                 row.deleteButton:SetScript("OnClick", function(self)
-                    showInputForm("Remove guild event", {
+                    local event
+                    for _, candidate in ipairs(GD.bucket and GD.bucket.events or {}) do
+                        if candidate.id == self.eventId then event = candidate; break end
+                    end
+                    if not event then return end
+                    local fields = {
                         { label = "Type REMOVE to confirm", value = "", max = 12 },
-                    }, function(values)
+                    }
+                    if event.calendarSettings and event.calendarSettings.seriesId then fields[#fields + 1] = {
+                        label = "Remove", value = "This raid only", options = {"This raid only", "All upcoming in series"},
+                    } end
+                    showInputForm("Remove guild event", fields, function(values)
                         if tostring(values[1] or ""):upper() ~= "REMOVE" then
                             return false, "Type REMOVE to confirm event removal."
                         end
+                        if values[2] == "All upcoming in series" then return GD:DeleteRaidSeries(self.eventId) end
                         return GD:DeleteEvent(self.eventId)
                     end)
                 end)
@@ -2299,19 +2443,20 @@ function GD:RefreshUI()
             row:ClearAllPoints()
             row:SetPoint("TOPLEFT", 4, -eventY)
             row:SetPoint("RIGHT", frame.detailChild, "RIGHT", -4, 0)
-            row.title:SetText(self:Display(event.title))
+            row.title:SetText(self:Display(event.title) .. ((event.calendarSettings or {}).seriesId and " |cff8ba7bf[Weekly]|r" or ""))
             row.title:SetWidth(math.max(180, frame.detailChild:GetWidth() - 200))
             local calendarSettings = event.calendarSettings or {}
             local category = calendarSettings.category or (event.eventType == "raid" and "Raid" or "Other")
             row.info:SetWidth(math.max(180, frame.detailChild:GetWidth() - 48))
-            row.info:SetHeight(16)
-            row.info:SetText(date("%a, %d %b %Y  |  %I:%M %p", event.at) .. " local  |  " .. category .. "  |  Led by " .. self:Display(event.by))
+            row.info:SetHeight(22)
+            row.info:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+            row.info:SetText(date("%A, %d %b %Y  |  %I:%M %p", event.at) .. " local")
             row.state:SetText(calendarSettings.locked and "SIGNUPS LOCKED" or "SIGNUPS OPEN")
             if calendarSettings.locked then row.state:SetTextColor(0.92, 0.65, 0.28)
             else row.state:SetTextColor(0.35, 0.85, 0.58) end
             row.details:SetWidth(math.max(180, frame.detailChild:GetWidth() - 48))
-            row.details:SetHeight(42)
-            row.details:SetText(self:Display(event.details ~= "" and event.details or "No additional raid notes."))
+            row.details:SetHeight(30)
+            row.details:SetText(category .. "  |  Led by " .. self:Display(event.by) .. "\n" .. self:Display(event.details ~= "" and event.details or "No additional raid notes."))
             row.calendarButton.eventId = event.id
             row.calendarButton:SetShown(not event.preview and event.by == player)
             row.editButton.eventId = event.id
@@ -2334,6 +2479,9 @@ function GD:RefreshUI()
             row.inviteButton.eventId = event.id
             row.inviteButton:SetShown(not event.preview and self:IsRaidGM())
             row.inviteButton:SetEnabled(counts.selected > 0)
+            row.announceButton.eventId = event.id
+            row.announceButton:SetShown(canManageEvent and event.eventType == "raid")
+            row.announceButton:SetEnabled(not calendarSettings.locked and event.at >= time())
             local mine = event.rsvps and event.rsvps[player]
             local myStatus = type(mine) == "table" and mine.status or mine
             local totals = { counts.going, counts.Tank, counts.Healer, counts.DPS, counts.tentative, counts.absent, counts.selected .. "/" .. (calendarSettings.raidSize or 40) }

@@ -1,7 +1,7 @@
 -- Personal preferences plus per-guild, officer-managed feature visibility.
 local _, GD = ...
 
-local defaults = { onlineOnly = true, scale = 1, popups = true, levelGuildChat = false, shareMapLocation = false, accentColor = 1, uiTheme = 1 }
+local defaults = { onlineOnly = true, scale = 1, popups = true, levelGuildChat = false, shareMapLocation = false, accentColor = 1, uiTheme = 1, showMinimapButton = true, minimapAngle = 225 }
 
 local function settings()
     if type(GDB) ~= "table" then GDB = {} end
@@ -65,6 +65,9 @@ function GD:SetSetting(key, value)
             value = math.max(1, math.min(7, math.floor(tonumber(value) or 1)))
         elseif key == "uiTheme" then
             value = math.max(1, math.min(4, math.floor(tonumber(value) or 1)))
+        elseif key == "minimapAngle" then
+            value = (tonumber(value) or 225) % 360
+            if type(GDB.minimap) == "table" then GDB.minimap.minimapPos = value end
         end
         db[key] = value
     else
@@ -77,6 +80,9 @@ function GD:SetSetting(key, value)
             self.frame.rosterOnlineCheck.mark:SetShown(self.frame.rosterOnlineOnly)
         end
         if self.RebuildRoster then self:RebuildRoster() end
+    end
+    if (key == "showMinimapButton" or key == "minimapAngle") and self.RefreshMinimapButton then
+        self:RefreshMinimapButton()
     end
     if self.RefreshUI then self:RefreshUI() end
 end
@@ -250,26 +256,37 @@ local function build(parent)
     pvpPanel:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0, 0)
     pvpPanel:Hide()
     list[#list + 1] = pvpPanel
-    GD.settingsPanels = { personalPanel, appearancePanel, officerPanel, pvpPanel }
+    local gmPanel = CreateFrame("Frame", nil, parent)
+    gmPanel:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -40)
+    gmPanel:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0, 0)
+    gmPanel:Hide()
+    list[#list + 1] = gmPanel
+    GD.settingsPanels = { personalPanel, appearancePanel, officerPanel, pvpPanel, gmPanel }
 
     local appearanceTab
     local officerTab
     local pvpTab
     local personalTab
+    local gmTab
     local function selectSettingsSection(section)
         local canManage = GD:CanManage()
         if (section == "officer" or section == "pvp") and not canManage then section = "personal" end
+        local canManageInvite = GD.CanManageGuildInvite and GD:CanManageGuildInvite()
+        if section == "gm" and not canManageInvite then section = "personal" end
         GD.settingsSection = section
         personalPanel:SetShown(section == "personal")
         appearancePanel:SetShown(section == "appearance")
         officerPanel:SetShown(section == "officer")
         pvpPanel:SetShown(section == "pvp")
+        gmPanel:SetShown(section == "gm")
         officerTab:SetShown(canManage)
         pvpTab:SetShown(canManage)
+        gmTab:SetShown(canManageInvite == true)
         GD:StyleButton(personalTab, section == "personal" and "primary" or nil)
         GD:StyleButton(appearanceTab, section == "appearance" and "primary" or nil)
         GD:StyleButton(officerTab, section == "officer" and "primary" or nil)
         GD:StyleButton(pvpTab, section == "pvp" and "primary" or nil)
+        GD:StyleButton(gmTab, section == "gm" and "primary" or nil)
     end
     personalTab = makeButton(parent, "Personal", 88, 12, -8, function()
         selectSettingsSection("personal")
@@ -287,6 +304,10 @@ local function build(parent)
         selectSettingsSection("pvp")
     end, list)
     pvpTab.GuildDBSettingsTab = true
+    gmTab = makeButton(parent, "GM", 64, 374, -8, function()
+        selectSettingsSection("gm")
+    end, list)
+    gmTab.GuildDBSettingsTab = true
     GD.RefreshSettingsSection = function()
         selectSettingsSection(GD.settingsSection or "personal")
     end
@@ -297,16 +318,17 @@ local function build(parent)
     check(personalPanel, "Show GuildDB popups", "popups", 12, -72, list)
     check(personalPanel, "Guild chat ding for level milestones", "levelGuildChat", 12, -102, list)
     check(personalPanel, "Share my location with GuildDB members", "shareMapLocation", 12, -132, list)
-    label(personalPanel, "Window scale", 12, -178, "GameFontNormal", list)
-    local scaleText = label(personalPanel, "", 105, -178, "GameFontHighlight", list)
+    check(personalPanel, "Show minimap button", "showMinimapButton", 12, -162, list)
+    label(personalPanel, "Window scale", 12, -208, "GameFontNormal", list)
+    local scaleText = label(personalPanel, "", 105, -208, "GameFontHighlight", list)
     local function updateScale()
         scaleText:SetText(("%d%%"):format(math.floor((GD:GetSetting("scale") or 1) * 100 + 0.5)))
     end
-    local scaleDown = makeButton(personalPanel, "-", 32, 160, -170, function()
+    local scaleDown = makeButton(personalPanel, "-", 32, 160, -200, function()
         GD:SetSetting("scale", math.max(0.8, math.floor(((GD:GetSetting("scale") or 1) - 0.1) * 10 + 0.5) / 10))
         updateScale()
     end, list)
-    local scaleUp = makeButton(personalPanel, "+", 32, 200, -170, function()
+    local scaleUp = makeButton(personalPanel, "+", 32, 200, -200, function()
         GD:SetSetting("scale", math.min(1.2, math.floor(((GD:GetSetting("scale") or 1) + 0.1) * 10 + 0.5) / 10))
         updateScale()
     end, list)
@@ -350,6 +372,7 @@ local function build(parent)
         GD:StyleButton(appearanceTab, GD.settingsSection == "appearance" and "primary" or nil)
         GD:StyleButton(officerTab, GD.settingsSection == "officer" and "primary" or nil)
         GD:StyleButton(pvpTab, GD.settingsSection == "pvp" and "primary" or nil)
+        GD:StyleButton(gmTab, GD.settingsSection == "gm" and "primary" or nil)
         for _, item in ipairs(list) do
             if item.mark and item.mark.SetVertexColor then
                 local color = choices[GD:GetSetting("accentColor") or 1] or choices[1]
@@ -381,8 +404,8 @@ local function build(parent)
     themePrevious.GuildDBAccent, themeNext.GuildDBAccent = true, true
     updateTheme()
 
-    label(personalPanel, "Data", 12, -220, "GameFontNormalLarge", list)
-    makeButton(personalPanel, "Re-sync now", 120, 12, -250, function()
+    label(personalPanel, "Data", 12, -250, "GameFontNormalLarge", list)
+    makeButton(personalPanel, "Re-sync now", 120, 12, -280, function()
         local _, message = GD:RequestSync()
         print("GuildDB: " .. tostring(message))
     end, list)
@@ -392,7 +415,7 @@ local function build(parent)
             for _ in pairs(bucket) do records = records + 1 end
         end
     end
-    label(personalPanel, ("Stored records: %d"):format(records), 12, -290, "GameFontDisableSmall", list)
+    label(personalPanel, ("Stored records: %d"):format(records), 12, -320, "GameFontDisableSmall", list)
 
     label(officerPanel, "Officer settings", 12, -10, "GameFontNormalLarge", list)
     label(officerPanel, "Feature switches (guild-wide; GM or rank 1)", 12, -38, "GameFontDisableSmall", list)
@@ -407,6 +430,44 @@ local function build(parent)
         check(officerPanel, tab == "Events" and "Raid Info" or tab, "feature:" .. tab, 12 + column * 180, -70 - (row - 1) * 30, list, true)
     end
     label(officerPanel, GD:CanManage() and "Online users update now; offline users on next sync." or "Only the guild leader or rank 1 can change these switches.", 12, -70 - (split + 1) * 30, "GameFontDisableSmall", list)
+
+    label(gmPanel, "Guild Discord invite", 12, -10, "GameFontNormalLarge", list)
+    local inviteHelp = label(gmPanel, "Paste your Discord server invite below. Members can copy it using Join Guild Discord in the header.", 12, -42, "GameFontHighlight", list)
+    inviteHelp:SetWidth(400)
+    local inviteInput = CreateFrame("EditBox", nil, gmPanel, "BackdropTemplate")
+    inviteInput:SetSize(400, 28)
+    inviteInput:SetPoint("TOPLEFT", 12, -90)
+    inviteInput:SetAutoFocus(false)
+    inviteInput:SetMaxLetters(200)
+    GD:StyleEditBox(inviteInput)
+    local inviteDirty, loadingInvite, inviteBucket = false, false, GD.bucket
+    inviteInput:SetScript("OnTextChanged", function() if not loadingInvite then inviteDirty = true end end)
+    inviteInput:SetScript("OnEscapePressed", function(input) input:ClearFocus() end)
+    list[#list + 1] = inviteInput
+    local inviteStatus = label(gmPanel, "Only the guild master can change this link. Leave blank and save to remove it.", 12, -172, "GameFontDisableSmall", list)
+    inviteStatus:SetWidth(400)
+    local saveInvite = makeButton(gmPanel, "Save Discord invite", 160, 12, -132, function()
+        if inviteBucket ~= GD.bucket then return end
+        local ok, message = GD:SetGuildDiscordInvite(inviteInput:GetText())
+        if ok then
+            inviteDirty, loadingInvite = false, true
+            inviteInput:SetText(GD:GetGuildDiscordInvite())
+            loadingInvite = false
+            inviteInput:ClearFocus()
+        end
+        inviteStatus:SetText(message or "")
+    end, list)
+    gmPanel.update = function()
+        if inviteBucket ~= GD.bucket then inviteDirty = false; inviteBucket = GD.bucket end
+        if not inviteDirty then
+            loadingInvite = true
+            inviteInput:SetText(GD.GetGuildDiscordInvite and GD:GetGuildDiscordInvite() or "")
+            loadingInvite = false
+        end
+        local permitted = GD.CanManageGuildInvite and GD:CanManageGuildInvite()
+        inviteInput:SetEnabled(permitted == true)
+        saveInvite:SetEnabled(permitted == true)
+    end
 
     label(pvpPanel, "PvP seasonal ranks", 12, -10, "GameFontNormalLarge", list)
     label(pvpPanel, "Rank uses seasonal kills; points stay separate. Rank is not shown in All-time view.", 12, -38, "GameFontDisableSmall", list)
@@ -466,7 +527,7 @@ local function build(parent)
     end
     pvpPanel.update = updatePvpRanks
 
-    makeButton(personalPanel, "Reset personal settings", 172, 12, -330, function()
+    makeButton(personalPanel, "Reset personal settings", 172, 12, -360, function()
         for key, value in pairs(defaults) do GD:SetSetting(key, value) end
         updateScale()
         updateAccent()

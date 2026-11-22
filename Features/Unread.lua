@@ -18,6 +18,8 @@ local function snapshot(tab)
     elseif tab == "Guild Info" then
         local info = bucket.guildInfo
         if info and info.ts then result.info = revision(info) end
+        local rules = bucket.guildRules
+        if rules and rules.ts then result.rules = revision(rules) end
     elseif tab == "Polls" then
         for _, poll in ipairs(bucket.polls or {}) do
             if poll.id then
@@ -39,13 +41,13 @@ local function receipts()
     return GD.bucket.unreadSeen[player]
 end
 
-function GD:GetTabUnreadCount(tab)
+function GD:GetTabUnreadCount(tab, recordId)
     if not tracked[tab] then return 0 end
     local seen = receipts()
     if not seen then return 0 end
     local previous, count = seen[tab] or {}, 0
     for id, value in pairs(snapshot(tab)) do
-        if previous[id] ~= value then count = count + 1 end
+        if (not recordId or recordId == id) and previous[id] ~= value then count = count + 1 end
     end
     return count
 end
@@ -55,5 +57,14 @@ function GD:UpdateUnreadState(active)
     -- displayed in a visible section counts as read.
     if not tracked[active] or not self.frame or not self.frame:IsShown() then return end
     local seen = receipts()
-    if seen then seen[active] = snapshot(active) end
+    if seen then
+        local current = snapshot(active)
+        if active == "Guild Info" then
+            local section = self.guildInfoSection == "rules" and "rules" or "info"
+            seen[active] = seen[active] or {}
+            seen[active][section] = current[section]
+        else
+            seen[active] = current
+        end
+    end
 end

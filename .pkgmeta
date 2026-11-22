@@ -1,1 +1,3 @@
 package-as: GuildDB
+ignore:
+  - AGENTS.md

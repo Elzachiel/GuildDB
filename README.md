@@ -9,6 +9,8 @@ GuildDB is a World of Warcraft guild addon for a shared roster, member profiles,
 ## Features
 
 - Online-only guild roster with GuildDB presence and reported addon version.
+- Roster filters combine class, role (including Unknown), level range, and profession with the existing search and Online Only setting. Clear filters resets the four filters while preserving search and Online Only. The result count includes characters; role and profession rely on shared profiles. Filters stay active while switching tabs during the current session and are not sent to guild peers.
+- Minimap launcher: enabled by default and registered as GuildDB through bundled LibDataBroker/LibDBIcon libraries, including in minimap-button menus. Left-click toggles GuildDB, right-click opens Settings, and dragging repositions it around the minimap. Its position survives reloads. Show or hide it under Settings → Personal → Show minimap button; `/gd` still works when the button is hidden.
 - Opt-in guild member location sharing with fresh reports, World Map pins, and waypoint navigation.
 - Member profiles for role, specialization, time zone, alts, and listed professions or recipes.
 - Home dashboard above Roster with a message of the day, officer announcements, and recently observed new members.
@@ -17,6 +19,8 @@ GuildDB is a World of Warcraft guild addon for a shared roster, member profiles,
 - Analytics shows guild makeup with class, race, spec, role, and level charts. Switch between all roster members and online members; hover a chart row for its count and percentage. Race, spec, and role use shared profiles, with missing values counted as Unknown. Counts represent characters, including alts.
 - GuildDB can open, close, refresh, and switch tabs during combat. Protected guild-rank actions stay hidden until combat ends.
 - A guild guide for rules and loot rules.
+- Guild Info has separate Guild Info and Guild Rules pages, editable by the GM and rank 1 officers. Empty installations include starter guild rules and an introduction explaining that the guild is growing and GuildDB is a work in progress. Existing saved information is preserved; edits are shared with guild peers. Each page keeps its own unread status.
+- The guild master can save or remove a Discord server invite under Settings → GM. A Join Guild Discord button using the shared button style and selected accent color stays in the window header on every tab and is disabled until an invite is configured. It opens a selected, copyable link with Ctrl+C instructions. Invites sync with guild data; only rank 0 can set them.
 - Raid creation and signup area with raid size targets, player specs, Tank/Healer/DPS roles, attendance, and signup notes. The GM can check players for the invite roster; selections are shared with the guild.
 - PvP leaderboard with outdoor kills, deaths, K/D ratios, seasons, and a Most Wanted list. K/D is kills divided by deaths, using one as the denominator until the first death. Shared honorable kills count as kills; assists are not tracked separately.
 - PvP includes Leaderboard, Bounty Board, and Nemesis views. Bounties open automatically when an enemy has killed guild members three times, including repeat kills of the same member. Three deaths gives +3 bonus points, five gives +5, and the reward caps at +10. No officer creates, approves, or edits rewards. The first subsequent credited outdoor kill freezes the reward; every guild member receiving kill credit in that defeat's 10-second credit window gets the full bonus once. The enemy's death counter restarts after a claim; new deaths build the next bounty. There is no daily payout cap or expiry. Bounties span seasons; each member's bonus counts toward the season containing their credited kill and all-time points.
@@ -53,7 +57,7 @@ PvP rankings use total eligible kills plus automatic bounty bonuses, regardless 
 
 ## Install for development
 
-Release versions use `0.2.NN`, starting at `0.2.01`. Increment the final number for every addon change (`0.2.02`, `0.2.03`, and so on), keeping the TOC version and `GD.version` in sync.
+Release versions use `0.2.NN`, starting at `0.2.01`. Increment the final number after every five completed addon features or fixes, keeping the TOC version and `GD.version` in sync. Track progress toward the next bump in AGENTS.md; instruction-only and documentation-only updates do not count.
 
 Copy this folder into the client's `Interface/AddOns` directory, enable **GuildDB** on the AddOns screen, and join a guild.
 

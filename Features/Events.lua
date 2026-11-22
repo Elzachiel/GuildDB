@@ -26,6 +26,8 @@ local function encodeEvent(record)
         settings.inviteNames or "",
         tostring(settings.raidSize or 40),
     }, "\n")
+    if settings.announce == false then metadata = metadata .. "\n" .. (settings.seriesId or "") .. "\n0"
+    elseif settings.seriesId then metadata = metadata .. "\n" .. settings.seriesId end
     return table.concat({ record.at, record.title, details .. EVENT_SETTINGS_MARKER .. metadata }, "\n")
 end
 
@@ -60,13 +62,14 @@ local function samePlayerName(left, right)
     return key(left) ~= "" and key(left) == key(right)
 end
 
-local function showEventPopout(event)
+local function showEventPopout(event, signupAnnouncement)
     if not GD.ShowPopout then return end
     local eventType = event.eventType == "raid" and "raid" or "event"
     local when = date("%a %d %b %Y, %I:%M %p", event.at)
     local message = (event.by or "A guild officer") .. " scheduled " .. when
     if event.details and event.details ~= "" then message = message .. "\n" .. event.details end
-    GD:ShowPopout(eventType == "raid" and "New guild raid" or "New guild event", event.title, message,
+    if signupAnnouncement then message = "Raid sign-ups: " .. when .. "\nOpen Raid Info to sign up or change your attendance." end
+    GD:ShowPopout(signupAnnouncement and "Raid sign-ups" or (eventType == "raid" and "New guild raid" or "New guild event"), event.title, message,
         eventType == "raid" and "Interface/Icons/INV_Misc_GroupLooking" or "Interface/Icons/INV_Misc_Note_01",
         function() GD.activeTab = "Events"; GD:Open() end, 8)
 end
@@ -80,14 +83,18 @@ local function storeEvent(id, ts, author, content, eventType, sender)
     local details, metadata = remainder:match("^(.*)\n\n%[GuildDB calendar settings%]\n(.*)$")
     local settings = {}
     if metadata then
-        local category, locked, inviteMode, inviteNames, raidSize = metadata:match("^(.-)\n(.-)\n(.-)\n(.-)\n(%d+)$")
+        local category, locked, inviteMode, inviteNames, raidSize, seriesId, announce = metadata:match("^(.-)\n(.-)\n(.-)\n(.-)\n(%d+)\n([%w%-]*)\n([01])$")
+        if not category then category, locked, inviteMode, inviteNames, raidSize, seriesId = metadata:match("^(.-)\n(.-)\n(.-)\n(.-)\n(%d+)\n([%w%-]*)$") end
+        if not category then category, locked, inviteMode, inviteNames, raidSize = metadata:match("^(.-)\n(.-)\n(.-)\n(.-)\n(%d+)$") end
         if not category then category, locked, inviteMode, inviteNames = metadata:match("^(.-)\n(.-)\n(.-)\n(.*)$") end
         if category then
             settings.category = CALENDAR_TYPES[category] and category or (eventType == "raid" and "Raid" or "Other")
             settings.locked = locked == "1"
+            settings.announce = announce ~= "0"
             settings.inviteMode = (inviteMode == "selected" or inviteMode == "guild") and inviteMode or "none"
             settings.inviteNames = (inviteNames or ""):sub(1, 200)
             settings.raidSize = math.max(1, math.min(40, tonumber(raidSize) or 40))
+            if seriesId and seriesId ~= "" and #seriesId <= 80 then settings.seriesId = seriesId end
         end
     else
         details = remainder
@@ -100,7 +107,7 @@ local function storeEvent(id, ts, author, content, eventType, sender)
         eventType = eventType, calendarSettings = settings, rsvps = current and current.rsvps or {}, selections = current and current.selections or {}, signupDeletes = current and current.signupDeletes or {} }
     if current then GD.bucket.events[index] = event else table.insert(GD.bucket.events, 1, event) end
     if GD.RefreshUI then GD:RefreshUI() end
-    if isNew and sender and samePlayerName(sender, author) then showEventPopout(event) end
+    if isNew and settings.announce ~= false and sender and samePlayerName(sender, author) then showEventPopout(event) end
 end
 
 local function normalizeCalendarSettings(settings, eventType)
@@ -111,6 +118,7 @@ local function normalizeCalendarSettings(settings, eventType)
     return {
         category = category,
         locked = settings.locked == true,
+        announce = settings.announce ~= false,
         inviteMode = inviteMode,
         inviteNames = tostring(settings.inviteNames or ""):gsub("[\r\n]", ","):sub(1, 200),
         raidSize = math.max(1, math.min(40, math.floor(tonumber(settings.raidSize) or 40))),
@@ -195,8 +203,34 @@ function GD:PostEvent(at, title, details, eventType, calendarSettings)
     local record = self:NewRecord({ at = at, title = title:sub(1, 100), details = (details or ""):sub(1, 300), eventType = eventType, calendarSettings = settings, rsvps = {} })
     local kind = eventType == "raid" and "D" or "E"
     self:StoreRecord("events", record, kind, encodeEvent(record))
-    showEventPopout(record)
+    if settings.announce then showEventPopout(record) end
     return true, (eventType == "raid" and "Raid" or "Event") .. " saved and sent to online GuildDB users.", record.id
+end
+
+-- Announcements are live messages, never history: signing in later must not
+-- replay an old invitation to sign up.
+local raidAnnouncements = {}
+GD:RegisterRecordHandler("RA", function(id, ts, author, content, sender)
+    if not sender or not samePlayerName(sender, author) or not isOfficer(author) then return end
+    if ts < time() - 60 or ts > time() + 10 or ts <= (raidAnnouncements[id] or 0) then return end
+    local at, title = content:match("^(%d+)\n([^\n]+)$")
+    at = tonumber(at)
+    if not at or at < time() or #title > 100 or eventDeleteTimestamp(id) >= ts then return end
+    raidAnnouncements[id] = ts
+    showEventPopout({id=id,at=at,title=title,eventType="raid",by=author}, true)
+end)
+
+function GD:AnnounceRaidSignups(eventId)
+    if not self:CanManage() then return false, "Only the guild leader or rank 1 can announce raid sign-ups." end
+    local event = findEvent(eventId)
+    if not event or event.eventType ~= "raid" or event.at < time() then return false, "Choose an upcoming raid." end
+    if event.calendarSettings and event.calendarSettings.locked then return false, "Open sign-ups before announcing this raid." end
+    if time() - (raidAnnouncements[eventId] or 0) < 10 then return false, "Wait a few seconds before announcing this raid again." end
+    local ts = time()
+    raidAnnouncements[eventId] = ts
+    self:SendRecord("RA", eventId, ts, self:PlayerName(), event.at .. "\n" .. event.title)
+    showEventPopout(event, true)
+    return true, "Raid sign-up popout sent to online guildmates using GuildDB."
 end
 
 local function onEventRecord(kind, id, ts, author, content, sender)
@@ -214,7 +248,7 @@ GD:RegisterRecordHandler("EVX", function(id, ts, author)
     if GD.RefreshUI then GD:RefreshUI() end
 end)
 
-function GD:EditEvent(eventId, at, title, details, calendarSettings)
+function GD:EditEvent(eventId, at, title, details, calendarSettings, seriesUpdate)
     if not self:CanManage() then return false, "Only the guild leader or rank 1 can edit events." end
     local event = findEvent(eventId)
     if not event then return false, "That event is no longer available." end
@@ -222,7 +256,12 @@ function GD:EditEvent(eventId, at, title, details, calendarSettings)
 
     local player = self:PlayerName()
     local settings = normalizeCalendarSettings(calendarSettings or event.calendarSettings, event.eventType)
-    local calendarUpdated, calendarMessage = self:UpdateGameCalendarEvent(event, at, title, details, settings)
+    settings.seriesId = event.calendarSettings and event.calendarSettings.seriesId
+    if not calendarSettings or calendarSettings.announce == nil then
+        settings.announce = not event.calendarSettings or event.calendarSettings.announce ~= false
+    end
+    local calendarUpdated, calendarMessage
+    if not seriesUpdate then calendarUpdated, calendarMessage = self:UpdateGameCalendarEvent(event, at, title, details, settings) end
 
     local updated = { id = event.id, ts = math.max(time(), (event.ts or 0) + 1), by = player,
         at = at, title = title:sub(1, 100), details = (details or ""):sub(1, 300),
@@ -242,12 +281,13 @@ function GD:EditEvent(eventId, at, title, details, calendarSettings)
     return true, result
 end
 
-function GD:DeleteEvent(eventId)
+function GD:DeleteEvent(eventId, seriesUpdate)
     if not self:CanManage() then return false, "Only the guild leader or rank 1 can remove events." end
     local event, index = findEvent(eventId)
     if not event then return false, "That event is no longer available." end
     local player = self:PlayerName()
-    local removedCalendarEntry, calendarMessage = self:RemoveGameCalendarEvent(event)
+    local removedCalendarEntry, calendarMessage
+    if not seriesUpdate then removedCalendarEntry, calendarMessage = self:RemoveGameCalendarEvent(event) end
     if removedCalendarEntry and GDB and GDB.calendarExports then
         GDB.calendarExports[eventId] = nil
     end
@@ -475,7 +515,7 @@ end
 
 GD:RegisterHistoryProvider(function()
     local events = GD.bucket.events or {}
-    for i = math.min(#events, 12), 1, -1 do
+    for i = #events, 1, -1 do
         local event = events[i]
         GD:SendRecord(event.eventType == "raid" and "D" or "E", event.id, event.ts, event.by, encodeEvent(event))
         for player, removal in pairs(event.signupDeletes or {}) do
@@ -525,6 +565,116 @@ function GD:PostEventFields(dateText, timeText, title, details, eventType, calen
     local at, reason = self:ParseEventTimeFields(dateText, timeText)
     if not at then return false, reason end
     return self:PostEvent(at, title, details, eventType, calendarSettings)
+end
+
+-- Build a finite series in local calendar days so weekly raids retain their
+-- wall-clock start time across daylight-saving transitions.
+function GD:GetRaidRepeatUntil(at)
+    local first = date("*t", at)
+    return date("%d-%m-%Y", time({year=first.year,month=first.month,day=first.day+27,hour=12,min=0,sec=0}))
+end
+
+function GD:BuildRaidOccurrences(at, weekdays, untilDate)
+    if type(at) ~= "number" or at < time() then return nil, "Choose a future start date and time." end
+    local selected = {}
+    for _, day in ipairs(weekdays or {}) do
+        if type(day) == "number" and day >= 1 and day <= 7 and day == math.floor(day) then selected[day] = true end
+    end
+    if not next(selected) then return nil, "Select at least one weekday." end
+    local finish, reason = self:ParseEventTimeFields(untilDate or self:GetRaidRepeatUntil(at), "11:59 PM")
+    if not finish then return nil, reason end
+    if finish < at then return nil, "Repeat-until date must be on or after the first raid date." end
+    local first, occurrences = date("*t", at), {}
+    local limit = time({year=first.year,month=first.month,day=first.day+27,hour=23,min=59,sec=0})
+    if finish > limit then return nil, "Recurring raids cover four weeks at a time. Choose an end date within that window." end
+    for offset = 0, 27 do
+        local stamp = time({year=first.year, month=first.month, day=first.day + offset, hour=first.hour, min=first.min, sec=0})
+        if stamp > finish then break end
+        local actual = date("*t", stamp)
+        if selected[actual.wday] then
+            if actual.hour ~= first.hour or actual.min ~= first.min then return nil, "A raid falls at an unavailable daylight-saving time. Choose another start time." end
+            occurrences[#occurrences + 1] = stamp
+        end
+    end
+    if #occurrences == 0 then return nil, "No selected weekdays fall within these dates." end
+    return occurrences
+end
+
+function GD:PostRecurringRaid(at, title, details, settings, weekdays, untilDate)
+    if not self:CanManage() then return false, "Only the guild leader or rank 1 can post raids." end
+    if not self.bucket then return false, "Join a guild first." end
+    if not title or title:match("^%s*$") then return false, "Enter a raid title." end
+    local occurrences, reason = self:BuildRaidOccurrences(at, weekdays, untilDate)
+    if not occurrences then return false, reason end
+    if #(self.bucket.events or {}) + #occurrences > self.maxItems then
+        return false, "There is not enough event space for this series. Remove old events or choose an earlier end date."
+    end
+    local seriesId = self:NewRecord({}).id
+    local firstRecord
+    for index, stamp in ipairs(occurrences) do
+        local calendarSettings = normalizeCalendarSettings(settings, "raid")
+        calendarSettings.category, calendarSettings.seriesId = "Raid", seriesId
+        calendarSettings.announce = calendarSettings.announce and index == 1
+        local record = self:NewRecord({at=stamp, title=title:sub(1,100), details=(details or ""):sub(1,300),
+            eventType="raid", calendarSettings=calendarSettings, rsvps={}})
+        record.id = seriesId .. "-" .. index
+        firstRecord = firstRecord or record
+        self:StoreRecord("events", record, "D", encodeEvent(record))
+    end
+    if firstRecord.calendarSettings.announce then showEventPopout(firstRecord) end
+    return true, ("Created %d weekly raids with separate sign-ups. Use Create calendar on each raid for a native calendar copy."):format(#occurrences)
+end
+
+local function seriesEvents(event)
+    local seriesId = event.calendarSettings and event.calendarSettings.seriesId
+    local result = {}
+    if seriesId then
+        for _, candidate in ipairs(GD.bucket.events or {}) do
+            if candidate.calendarSettings and candidate.calendarSettings.seriesId == seriesId and candidate.at >= time() then
+                result[#result + 1] = candidate
+            end
+        end
+    end
+    return result
+end
+
+function GD:EditRaidSeries(eventId, at, title, details, settings)
+    if not self:CanManage() then return false, "Only the guild leader or rank 1 can edit raids." end
+    local event = findEvent(eventId)
+    if not event then return false, "That raid is no longer available." end
+    if type(at) ~= "number" or not title or title:match("^%s*$") then return false, "Enter a valid date, time, and title." end
+    local events = seriesEvents(event)
+    if #events == 0 then return false, "There are no upcoming raids in this series." end
+    local old, new = date("*t", event.at), date("*t", at)
+    -- Calendar-day difference, measured at local noon and rounded
+    -- across DST, shifts each occurrence without drifting its local start time.
+    local oldNoon = time({year=old.year,month=old.month,day=old.day,hour=12,min=0,sec=0})
+    local newNoon = time({year=new.year,month=new.month,day=new.day,hour=12,min=0,sec=0})
+    local dayShift = math.floor((newNoon - oldNoon) / 86400 + 0.5)
+    local updates = {}
+    for _, candidate in ipairs(events) do
+        local day = date("*t", candidate.at)
+        local stamp = time({year=day.year,month=day.month,day=day.day+dayShift,hour=new.hour,min=new.min,sec=0})
+        local actual = date("*t", stamp)
+        if stamp < time() or actual.hour ~= new.hour or actual.min ~= new.min then
+            return false, "This change moves a raid into the past or an unavailable daylight-saving time."
+        end
+        updates[#updates+1] = {event=candidate, at=stamp}
+    end
+    for _, update in ipairs(updates) do
+        self:EditEvent(update.event.id, update.at, title, details, settings, true)
+    end
+    return true, ("Updated %d upcoming raids; existing sign-ups were kept. Native calendar copies must be edited separately in the game calendar."):format(#updates)
+end
+
+function GD:DeleteRaidSeries(eventId)
+    if not self:CanManage() then return false, "Only the guild leader or rank 1 can remove raids." end
+    local event = findEvent(eventId)
+    if not event then return false, "That raid is no longer available." end
+    local events = seriesEvents(event)
+    if #events == 0 then return false, "There are no upcoming raids in this series." end
+    for _, candidate in ipairs(events) do self:DeleteEvent(candidate.id, true) end
+    return true, ("Removed %d upcoming raids. Native calendar copies must be removed separately in the game calendar."):format(#events)
 end
 
 function GD:SetRSVPForEvent(eventId, status, role, note, spec)

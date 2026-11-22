@@ -1,6 +1,14 @@
 # Versioning
 
-For every addon change, increment the final number in the `0.2.NN` version
-(for example, `0.2.02` to `0.2.03`). Keep `## Version` in `GuildDB.toc` and
-`GD.version` in `Core/Runtime.lua` identical. Bump once per completed change,
-including fixes, without resetting the final number to `01`.
+reviAfter every five completed addon changes, increment the final number in the
+`0.2.NN` version (for example, `0.2.40` to `0.2.41`). Keep `## Version` in
+`GuildDB.toc` and `GD.version` in `Core/Runtime.lua` identical. Never reset the
+final number to `01`.
+
+Count each completed feature or fix once, regardless of how many files it
+touches. Update the counter below after each completed addon change. On the
+fifth change, bump both version fields and reset the counter to zero.
+Instruction-only or documentation-only updates do not count.
+
+Current version: `0.2.45`
+Completed addon changes toward the next version bump: **1 / 5**
