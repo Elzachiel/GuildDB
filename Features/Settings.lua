@@ -130,7 +130,9 @@ local function receiveFeatures(id, ts, author, content, sender)
     if not found then return end
     local current = GD.bucket.guildSettings or {}
     if (current.ts or 0) > ts or ((current.ts or 0) == ts and tostring(current.by or "") > author) then return end
-    GD.bucket.guildSettings = { features = features, ts = ts, by = author }
+    local config = GD.bucket.guildSettings or {}
+    config.features, config.ts, config.by = features, ts, author
+    GD.bucket.guildSettings = config
     if GD.RefreshUI then GD:RefreshUI() end
 end
 GD:RegisterRecordHandler("F", receiveFeatures)
@@ -243,22 +245,31 @@ local function build(parent)
     officerPanel:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0, 0)
     officerPanel:Hide()
     list[#list + 1] = officerPanel
-    GD.settingsPanels = { personalPanel, appearancePanel, officerPanel }
+    local pvpPanel = CreateFrame("Frame", nil, parent)
+    pvpPanel:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -40)
+    pvpPanel:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0, 0)
+    pvpPanel:Hide()
+    list[#list + 1] = pvpPanel
+    GD.settingsPanels = { personalPanel, appearancePanel, officerPanel, pvpPanel }
 
     local appearanceTab
     local officerTab
+    local pvpTab
     local personalTab
     local function selectSettingsSection(section)
         local canManage = GD:CanManage()
-        if section == "officer" and not canManage then section = "personal" end
+        if (section == "officer" or section == "pvp") and not canManage then section = "personal" end
         GD.settingsSection = section
         personalPanel:SetShown(section == "personal")
         appearancePanel:SetShown(section == "appearance")
         officerPanel:SetShown(section == "officer")
+        pvpPanel:SetShown(section == "pvp")
         officerTab:SetShown(canManage)
+        pvpTab:SetShown(canManage)
         GD:StyleButton(personalTab, section == "personal" and "primary" or nil)
         GD:StyleButton(appearanceTab, section == "appearance" and "primary" or nil)
         GD:StyleButton(officerTab, section == "officer" and "primary" or nil)
+        GD:StyleButton(pvpTab, section == "pvp" and "primary" or nil)
     end
     personalTab = makeButton(parent, "Personal", 88, 12, -8, function()
         selectSettingsSection("personal")
@@ -272,6 +283,10 @@ local function build(parent)
         selectSettingsSection("officer")
     end, list)
     officerTab.GuildDBSettingsTab = true
+    pvpTab = makeButton(parent, "PvP", 64, 302, -8, function()
+        selectSettingsSection("pvp")
+    end, list)
+    pvpTab.GuildDBSettingsTab = true
     GD.RefreshSettingsSection = function()
         selectSettingsSection(GD.settingsSection or "personal")
     end
@@ -334,6 +349,7 @@ local function build(parent)
         GD:StyleButton(personalTab, GD.settingsSection == "personal" and "primary" or nil)
         GD:StyleButton(appearanceTab, GD.settingsSection == "appearance" and "primary" or nil)
         GD:StyleButton(officerTab, GD.settingsSection == "officer" and "primary" or nil)
+        GD:StyleButton(pvpTab, GD.settingsSection == "pvp" and "primary" or nil)
         for _, item in ipairs(list) do
             if item.mark and item.mark.SetVertexColor then
                 local color = choices[GD:GetSetting("accentColor") or 1] or choices[1]
@@ -391,6 +407,64 @@ local function build(parent)
         check(officerPanel, tab == "Events" and "Raid Info" or tab, "feature:" .. tab, 12 + column * 180, -70 - (row - 1) * 30, list, true)
     end
     label(officerPanel, GD:CanManage() and "Online users update now; offline users on next sync." or "Only the guild leader or rank 1 can change these switches.", 12, -70 - (split + 1) * 30, "GameFontDisableSmall", list)
+
+    label(pvpPanel, "PvP seasonal ranks", 12, -10, "GameFontNormalLarge", list)
+    label(pvpPanel, "Rank uses seasonal kills; points stay separate. Rank is not shown in All-time view.", 12, -38, "GameFontDisableSmall", list)
+    label(pvpPanel, "Tier", 18, -76, "GameFontNormal", list)
+    label(pvpPanel, "Minimum seasonal kills", 150, -76, "GameFontNormal", list)
+    local tierNames = { "Silver", "Gold", "Platinum", "Elite" }
+    local rankInputs = {}
+    local loadingRankInputs = false
+    local rankInputsDirty = false
+    for index, tier in ipairs(tierNames) do
+        local y = -106 - (index - 1) * 32
+        label(pvpPanel, tier, 18, y, "GameFontHighlight", list)
+        local input = CreateFrame("EditBox", nil, pvpPanel, "BackdropTemplate")
+        input:SetSize(80, 24)
+        input:SetPoint("TOPLEFT", 150, y + 5)
+        input:SetAutoFocus(false)
+        input:SetNumeric(true)
+        input:SetMaxLetters(7)
+        input:SetJustifyH("CENTER")
+        if GD.StyleEditBox then GD:StyleEditBox(input) end
+        input:SetScript("OnMouseDown", function(self) self:SetFocus() end)
+        input:SetScript("OnTextChanged", function()
+            if not loadingRankInputs then rankInputsDirty = true end
+        end)
+        list[#list + 1] = input
+        rankInputs[index] = input
+    end
+    local rankStatus = label(pvpPanel, "", 188, -258, "GameFontDisableSmall", list)
+    local function savePvpRankThresholds()
+        local values = {}
+        for index, input in ipairs(rankInputs) do values[index] = tonumber(input:GetText()) end
+        local ok, message = GD:SetPvPRankThresholds(values)
+        print("GuildDB: " .. tostring(message))
+        if ok then
+            local thresholds = GD:GetPvPRankThresholds()
+            loadingRankInputs = true
+            for index, input in ipairs(rankInputs) do input:SetText(tostring(thresholds[index])) end
+            loadingRankInputs = false
+            rankInputsDirty = false
+        end
+        rankStatus:SetText(message or "")
+        return ok
+    end
+    local savePvpRanks = makeButton(pvpPanel, "Save rank thresholds", 156, 18, -250, savePvpRankThresholds, list)
+    local rankPermission = label(pvpPanel, "Only the guild leader or rank 1 can edit these guild-wide thresholds.", 18, -286, "GameFontDisableSmall", list)
+    local function updatePvpRanks()
+        if not rankInputsDirty then
+            local thresholds = GD:GetPvPRankThresholds()
+            loadingRankInputs = true
+            for index, input in ipairs(rankInputs) do input:SetText(tostring(thresholds[index])) end
+            loadingRankInputs = false
+        end
+        local permitted = GD:CanManage()
+        for _, input in ipairs(rankInputs) do input:SetEnabled(permitted) end
+        savePvpRanks:SetShown(permitted)
+        rankPermission:SetShown(not permitted)
+    end
+    pvpPanel.update = updatePvpRanks
 
     makeButton(personalPanel, "Reset personal settings", 172, 12, -330, function()
         for key, value in pairs(defaults) do GD:SetSetting(key, value) end

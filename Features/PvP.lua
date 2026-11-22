@@ -19,6 +19,96 @@ local groupEvidence = {}
 local deathRecorded = false
 local deathSerial = 0
 
+local DEFAULT_PVP_RANK_THRESHOLDS = { 25, 75, 150, 300 }
+
+local function pvpRankThresholds()
+    local configured = GD.bucket and GD.bucket.guildSettings and GD.bucket.guildSettings.pvpRankThresholds
+    if type(configured) ~= "table" then return DEFAULT_PVP_RANK_THRESHOLDS end
+    local result = {}
+    for index = 1, 4 do
+        local value = tonumber(configured[index])
+        if not value then return DEFAULT_PVP_RANK_THRESHOLDS end
+        result[index] = math.max(1, math.min(1000000, math.floor(value)))
+    end
+    for index = 2, 4 do
+        if result[index] <= result[index - 1] then return DEFAULT_PVP_RANK_THRESHOLDS end
+    end
+    return result
+end
+
+function GD:GetPvPRankThresholds()
+    local thresholds = pvpRankThresholds()
+    return { thresholds[1], thresholds[2], thresholds[3], thresholds[4] }
+end
+
+function GD:GetPvPRank(kills)
+    local tiers = { "Bronze", "Silver", "Gold", "Platinum", "Elite" }
+    kills = math.max(0, tonumber(kills) or 0)
+    local rank = "Bronze"
+    for index, threshold in ipairs(pvpRankThresholds()) do
+        if kills >= threshold then rank = tiers[index + 1] else break end
+    end
+    return rank
+end
+
+local function validRankThresholds(content)
+    local values = {}
+    for value in (content .. "\n"):gmatch("(.-)\n") do
+        local number = tonumber(value)
+        if not number or number ~= math.floor(number) or number < 1 or number > 1000000 then return nil end
+        values[#values + 1] = number
+    end
+    if #values ~= 4 then return nil end
+    for index = 2, 4 do if values[index] <= values[index - 1] then return nil end end
+    return values
+end
+
+local function pvpGuildRank(name)
+    if not name or not GetNumGuildMembers or not GetGuildRosterInfo then return nil end
+    local wanted = (tostring(name):match("^([^-]+)") or tostring(name)):lower()
+    for index = 1, GetNumGuildMembers() do
+        local member, _, rank = GetGuildRosterInfo(index)
+        if member and (member:match("^([^-]+)") or member):lower() == wanted then return tonumber(rank) end
+    end
+end
+
+GD:RegisterRecordHandler("FR", function(id, ts, author, content, sender)
+    if id ~= "ranks" or not GD.bucket or #content > 80 or ts <= 0 or ts > time() + 60 then return end
+    if GetNumGuildMembers and GetNumGuildMembers() == 0 then return end
+    local authorRank = pvpGuildRank(author)
+    if pvpGuildRank(sender) == nil or authorRank == nil or authorRank > 1 then return end
+    local values = validRankThresholds(content)
+    if not values then return end
+    local config = GD.bucket.guildSettings or { features = {} }
+    if (config.pvpRankTs or 0) > ts or ((config.pvpRankTs or 0) == ts and tostring(config.pvpRankBy or "") > author) then return end
+    config.pvpRankThresholds, config.pvpRankTs, config.pvpRankBy = values, ts, author
+    GD.bucket.guildSettings = config
+    if GD.RefreshUI then GD:RefreshUI() end
+end)
+
+GD:RegisterHistoryProvider(function()
+    local config = GD.bucket and GD.bucket.guildSettings
+    if not config or not config.pvpRankTs or config.pvpRankTs <= 0 then return end
+    local thresholds = pvpRankThresholds()
+    GD:SendRecord("FR", "ranks", config.pvpRankTs, config.pvpRankBy or "Guild officer", table.concat(thresholds, "\n"))
+end)
+
+function GD:SetPvPRankThresholds(values)
+    if not self.bucket or not self:CanManage() then return false, "Only the guild leader or rank 1 can change PvP ranks." end
+    local entries = {}
+    for index = 1, 4 do entries[index] = tostring(values and values[index] or "") end
+    local normalized = validRankThresholds(table.concat(entries, "\n"))
+    if not normalized then return false, "Use four increasing whole-number kill thresholds." end
+    local config = self.bucket.guildSettings or { features = {} }
+    local ts = math.max(time(), (tonumber(config.pvpRankTs) or 0) + 1)
+    local author = self:PlayerName()
+    config.pvpRankThresholds, config.pvpRankTs, config.pvpRankBy = normalized, ts, author
+    self.bucket.guildSettings = config
+    self:SendRecord("FR", "ranks", ts, author, table.concat(normalized, "\n"))
+    if self.RefreshUI then self:RefreshUI() end
+    return true, "PvP rank thresholds saved."
+end
+
 -- Combat unit APIs may return protected values on this client. Never let a
 -- failed optional unit read prevent an honor reward from being processed.
 local function readable(value)

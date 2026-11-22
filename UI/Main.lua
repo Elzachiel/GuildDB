@@ -121,7 +121,7 @@ local function applyTheme(frame)
 end
 
 local pvpColumnWidths = { 0.06, 0.25, 0.10, 0.10, 0.10, 0.39 }
-local pvpScoreColumnWidths = { 0.05, 0.23, 0.10, 0.09, 0.09, 0.09, 0.35 }
+local pvpScoreColumnWidths = { 0.045, 0.205, 0.11, 0.09, 0.08, 0.08, 0.08, 0.31 }
 local function layoutPvPColumn(text, index, parent, width, inset, header, rivals)
     local widths = rivals and pvpColumnWidths or pvpScoreColumnWidths
     local offset = 0
@@ -135,8 +135,9 @@ end
 
 local function layoutPvPRow(row, width, rivals)
     row.killCount:SetShown(not rivals)
+    row.pvpRank:SetShown(not rivals)
     local columns = rivals and { row.rank, row.player, row.points, row.kills, row.kd, row.last }
-        or { row.rank, row.player, row.points, row.killCount, row.kills, row.kd, row.last }
+        or { row.rank, row.player, row.pvpRank, row.points, row.killCount, row.kills, row.kd, row.last }
     for index, text in ipairs(columns) do layoutPvPColumn(text, index, row, width, 0, false, rivals) end
 end
 
@@ -1033,6 +1034,7 @@ local function build()
     addPvpHeader("DEATHS", 370, 90, "CENTER")
     addPvpHeader("K/D", 440, 70, "CENTER")
     addPvpHeader("LAST KILL", 490, 280)
+    addPvpHeader("", 0, 1)
     addPvpHeader("", 0, 1)
     frame.pvpRows = {}
     frame.pvpViewButtons = {}
@@ -1964,7 +1966,7 @@ function GD:RefreshUI()
         local boardWidth = math.max(1, frame.detailPanel:GetWidth() - 28)
         local labels = isBounty and { "#", "ENEMY", "DEATHS", "BONUS", "STATUS", "LAST ENCOUNTER" }
             or isRivals and { "#", "ENEMY", "KILLS", "DEATHS", "K/D", "LAST ENCOUNTER" }
-            or { "#", "PLAYER", "POINTS", "KILLS", "DEATHS", "K/D", "LAST KILL" }
+            or { "#", "PLAYER", "RANK", "POINTS", "KILLS", "DEATHS", "K/D", "LAST KILL" }
         for index, header in ipairs(frame.pvpHeaders) do
             header:SetShown(labels[index] ~= nil)
             if labels[index] then
@@ -1981,6 +1983,7 @@ function GD:RefreshUI()
                 row.bg:SetAllPoints()
                 row.rank = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
                 row.player = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                row.pvpRank = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
                 row.points = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
                 row.killCount = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
                 row.kills = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -1994,6 +1997,8 @@ function GD:RefreshUI()
             row:SetPoint("RIGHT", frame.detailChild, "RIGHT", -4, 0)
             row.rank:SetText(tostring(i))
             row.player:SetText(self:Display(isRivals and score.name or leaderboardName(score.name)))
+            row.pvpRank:SetText(not isRivals and (season.start or 0) > 0 and self:GetPvPRank(score.kills or 0) or "—")
+            row.pvpRank:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
             local classColor = not isRivals and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classByName[characterKey(score.name)]]
             if classColor then row.player:SetTextColor(classColor.r, classColor.g, classColor.b)
             else row.player:SetTextColor(CREAM[1], CREAM[2], CREAM[3]) end
