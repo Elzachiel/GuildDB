@@ -2,7 +2,7 @@
 local ADDON, GD = ...
 _G.GuildDB = GD
 
-GD.version = "0.2.15"
+GD.version = "0.2.16"
 -- New-member tracking begins with this release; keep this anchor on later bumps.
 GD.recentJoinsVersion = "0.1.88"
 GD.recentJoinsStart = 1795285809
@@ -12,6 +12,7 @@ GD.tabs = { "Home", "Roster" }
 GD.activeTab = "Home"
 GD.bucketDefaults = {}
 GD.recordHandlers = {}
+GD.recordLimits = {}
 GD.historyProviders = {}
 GD.eventHandlers = {}
 GD.commands = {}
@@ -81,8 +82,9 @@ function GD:RegisterBucket(key, defaultValue)
     self.bucketDefaults[key] = defaultValue
 end
 
-function GD:RegisterRecordHandler(kind, handler)
+function GD:RegisterRecordHandler(kind, handler, contentLimit)
     self.recordHandlers[kind] = handler
+    self.recordLimits[kind] = contentLimit or 1200
 end
 
 function GD:RegisterHistoryProvider(handler, responderOnly)
@@ -227,7 +229,7 @@ local function parseRecord(payload, sender)
     if not kind or not id or not timestamp or not author then return end
     id, author, content = GD:Decode(id), GD:Decode(author), GD:Decode(content)
     timestamp = tonumber(timestamp)
-    if not timestamp or #id > 100 or #author > 100 or #content > 1200 then return end
+    if not timestamp or #id > 100 or #author > 100 or #content > (GD.recordLimits[kind] or 1200) then return end
     local handler = GD.recordHandlers[kind]
     if handler then handler(id, timestamp, author, content, sender) end
 end
@@ -372,7 +374,8 @@ end
 local function receiveChunk(message, sender)
     local id, part, total, body = message:match("^C|([^|]+)|(%d+)|(%d+)|(.*)$")
     part, total = tonumber(part), tonumber(total)
-    if not id or not part or not total or total < 1 or total > 20 or part > total then return end
+    -- Long Guild Info text can expand to three times its size after encoding.
+    if not id or not part or not total or total < 1 or total > 60 or part < 1 or part > total then return end
     local key = tostring(sender or "") .. ":" .. id
     local slot = GD.fragments[key]
     if not slot then slot = { total = total, parts = {}, count = 0 }; GD.fragments[key] = slot end

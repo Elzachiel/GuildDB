@@ -116,6 +116,7 @@ local function applyTheme(frame)
     if frame.rosterSearch then frame.rosterSearch:SetBackdropColor(PANEL_ALT[1], PANEL_ALT[2], PANEL_ALT[3], 1) end
     for surface, kind in pairs(themedSurfaces) do GD:StyleSurface(surface, kind) end
     if frame.home and GD.RefreshHomeAppearance then GD:RefreshHomeAppearance() end
+    if frame.guildInfo and GD.RefreshGuildInfoAppearance then GD:RefreshGuildInfoAppearance() end
     if frame.close then GD:StyleButton(frame.close) end
     if frame.rosterOnlineCheck then GD:StyleButton(frame.rosterOnlineCheck) end
 end
@@ -1786,6 +1787,7 @@ function GD:RefreshUI()
     frame.detailTitle:Show()
     frame.footer:Show()
     if frame.home then frame.home:Hide() end
+    if frame.guildInfo and active ~= "Guild Info" then frame.guildInfo:Hide() end
     if frame.analytics then frame.analytics:Hide() end
     local isActionList = active == "Looking For" or active == "Crafting" or active == "Polls" or active == "Announcements"
     frame.detailRule:SetShown(not isPvP and not isEvents and not isActionList)
@@ -2578,6 +2580,7 @@ function GD:RefreshUI()
     end
     if active ~= "Settings" and active ~= "PvP" and active ~= "Events" and not isActionList then frame.detailChild:SetHeight(math.max(400, frame.detailBody:GetStringHeight() + 20)) end
     if active == "Home" and self.RefreshHome then self:RefreshHome() end
+    if active == "Guild Info" and self.RefreshGuildInfo then self:RefreshGuildInfo() end
     if active == "Analytics" and self.RefreshAnalytics then self:RefreshAnalytics() end
 end
 
