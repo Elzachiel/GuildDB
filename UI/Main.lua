@@ -1926,7 +1926,7 @@ function GD:RefreshUI()
         frame.pvpScopeButton:SetText("Seasons  v")
         local playerName = UnitName and UnitName("player") or "You"
         frame.pvpSummary:SetText(ownScore and ("You: |cffffcc33%d points|r (%d bounty) / %d kills / %d deaths / %.2f K/D - #%d"):format(ownScore.points, ownScore.bountyPoints or 0, ownScore.kills, ownScore.deaths, ownScore.kd, ownRank) or (playerName .. ": no PvP stats yet"))
-        frame.pvpInfo:SetText("Top 10 by total points  |  Points = kills + bounty bonus  |  Open world only  |  K/D uses kills and deaths")
+        frame.pvpInfo:SetText("Ranked by total points  |  Points = kills + bounty bonus  |  Open world only  |  K/D uses kills and deaths")
         if isBounty then
             ranking = self:GetPvPBounties()
             frame.pvpScopeButton:Hide()
@@ -1940,8 +1940,6 @@ function GD:RefreshUI()
         elseif frame.pvpMyOnly then
             local own = ownScore
             ranking = own and { own } or {}
-        else
-            while #ranking > 10 do table.remove(ranking) end
         end
         local function leaderboardName(characterName)
             local profile = self:GetProfile(characterName)
