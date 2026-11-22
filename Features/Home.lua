@@ -46,20 +46,9 @@ function GD:CanEditHomeMOTD()
     return rank <= 1
 end
 
--- Current clients expose GetMOTD in C_GuildInfo; the legacy global can be
--- absent or retain a compatibility cache. Use the same API family as the writer.
-local function readGuildMOTD()
-    local modern = C_GuildInfo and C_GuildInfo.GetMOTD
-    local getters = {}
-    if type(modern) == "function" then getters[#getters + 1] = modern end
-    if type(GetGuildRosterMOTD) == "function" then getters[#getters + 1] = GetGuildRosterMOTD end
-    for _, getter in ipairs(getters) do
-        if type(getter) == "function" then
-            local ok, text = pcall(getter)
-            if ok and not (issecretvalue and issecretvalue(text)) and type(text) == "string" then return text end
-        end
-    end
-end
+-- Keep the native value from GUILD_MOTD. Calling the client getters while
+-- rebuilding the dashboard can trigger ADDON_ACTION_BLOCKED on some clients.
+local nativeMOTD
 
 -- Native MOTD writes are asynchronous. A successful Lua call alone does not
 -- mean the server accepted the change, and the roster getter may lag the event.
@@ -76,8 +65,7 @@ local function finishMOTD(update, eventText)
     update.bucket.homeMOTD = record
     motdUpdate = nil
     if eventText then
-        motdReadback = { bucket = update.bucket, text = eventText,
-            previous = readGuildMOTD() }
+        motdReadback = { bucket = update.bucket, text = eventText, previous = nativeMOTD }
     end
     GD:SendRecord("HM", "motd", record.ts, record.by, record.text)
     refresh()
@@ -86,7 +74,7 @@ end
 local function checkMOTD()
     local update = motdUpdate
     if not update or GD.bucket ~= update.bucket then return end
-    local native = readGuildMOTD()
+    local native = nativeMOTD
     if type(native) == "string" and normalizeMOTD(native) == update.text then
         finishMOTD(update)
     end
@@ -326,8 +314,9 @@ end)
 GD:RegisterEventHandler("GUILD_MOTD", function(_, text)
     if issecretvalue and issecretvalue(text) then return end
     if type(text) == "string" and GD.bucket then
+        nativeMOTD = text
         motdReadback = { bucket = GD.bucket, text = text,
-            previous = readGuildMOTD() }
+            previous = nativeMOTD }
         if motdUpdate and motdUpdate.bucket == GD.bucket and normalizeMOTD(text) == motdUpdate.text then
             finishMOTD(motdUpdate, text)
         end
@@ -382,7 +371,7 @@ local function announcementForm(post)
 end
 
 function GD:GetHomeMOTD()
-    local native = readGuildMOTD()
+    local native = nativeMOTD
     if motdReadback and motdReadback.bucket == self.bucket then
         if native == motdReadback.previous then return motdReadback.text end
         motdReadback = nil
