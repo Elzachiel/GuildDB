@@ -2179,6 +2179,8 @@ function GD:RefreshUI()
     end
     for _, row in ipairs(frame.actionRows) do row:Hide() end
     for _, card in ipairs(frame.pollCards or {}) do card:Hide() end
+    for _, card in ipairs(frame.featCards or {}) do card:Hide() end
+    for _, header in ipairs(frame.featSectionHeaders or {}) do header:Hide() end
     if frame.featPreview then frame.featPreview:Hide() end
     if frame.pollEmpty then frame.pollEmpty:Hide() end
     if frame.actionEmpty then frame.actionEmpty:Hide() end
