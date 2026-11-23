@@ -1912,19 +1912,6 @@ function GD:RefreshUI()
         frame.detailPanel:SetPoint("TOPRIGHT", -14, -88)
         frame.detailPanel:SetPoint("BOTTOMRIGHT", -14, 16)
         frame.detailPanel:SetWidth(270)
-    elseif active == "Feats of Strength" then
-        frame.listPanel:Hide()
-        if self.RefreshRosterFilters then self:RefreshRosterFilters(false) end
-        frame.listHeader:Hide()
-        frame.listRule:Hide()
-        frame.rosterSearch:Hide()
-        frame.rosterOnlineCheck:Hide()
-        frame.rosterHeaderRule:Hide()
-        for _, header in ipairs(frame.rosterHeaders) do header:Hide() end
-        frame.rosterEmpty:Hide()
-        frame.detailPanel:ClearAllPoints()
-        frame.detailPanel:SetPoint("TOPLEFT", 208, -88)
-        frame.detailPanel:SetPoint("BOTTOMRIGHT", -14, 16)
     else
         frame.listPanel:Hide()
         if self.RefreshRosterFilters then self:RefreshRosterFilters(false) end
@@ -1990,13 +1977,6 @@ function GD:RefreshUI()
             row.meta:SetHeight(40)
             row.meta:SetJustifyV("BOTTOM")
             row.meta:SetWordWrap(true)
-            row.featAccent = row:CreateTexture(nil, "ARTWORK")
-            row.featAccent:SetPoint("TOPLEFT", 4, -7)
-            row.featAccent:SetPoint("BOTTOMLEFT", 4, 7)
-            row.featAccent:SetWidth(3)
-            row.featIcon = row:CreateTexture(nil, "ARTWORK")
-            row.featIcon:SetSize(34, 34)
-            row.featIcon:SetPoint("LEFT", 12, 0)
             row.columns = {}
             for columnIndex, spec in ipairs({ { 10, 128, "LEFT" }, { 145, 60, "LEFT" }, { 215, 82, "LEFT" }, { 300, 120, "LEFT" }, { 425, 58, "LEFT" }, { 490, 55, "LEFT" } }) do
                 local cell = row:CreateFontString(nil, "OVERLAY", columnIndex == 1 and "GameFontNormal" or "GameFontNormalSmall")
@@ -2019,10 +1999,7 @@ function GD:RefreshUI()
             frame.listRows[index] = row
         end
         row.sectionIndex = index
-        local isFeat = active == "Feats of Strength"
-        row.featAccent:SetShown(isFeat)
-        row.featIcon:SetShown(isFeat)
-        local rowHeight = active == "Roster" and 34 or isFeat and 66 or 72
+        local rowHeight = active == "Roster" and 34 or 72
         row:SetSize(math.max(180, frame.listChild:GetWidth() - 10), rowHeight)
         row:SetPoint("TOPLEFT", 4, -4 - (index - 1) * (rowHeight + (active == "Roster" and 1 or 0)))
         local title = section:match("([^\n]+)") or section
@@ -2050,28 +2027,7 @@ function GD:RefreshUI()
             row.meta:Show()
             row.label:ClearAllPoints()
             row.label:SetPoint("TOPLEFT", 10, -7)
-        elseif isFeat then
-            local entry = GDB and GDB.featsOfStrength and GDB.featsOfStrength[index]
-            local name = entry and entry.kind == "L" and "Level " .. tostring(entry.value) .. " reached"
-                or entry and (tostring(entry.profession or "Profession") .. " " .. tostring(entry.value) .. " skill reached") or title
-            row.label:ClearAllPoints()
-            row.label:SetPoint("TOPLEFT", 56, -10)
-            row.label:SetText(name)
-            row.meta:ClearAllPoints()
-            row.meta:SetPoint("TOPLEFT", 56, -34)
-            row.meta:SetHeight(25)
-            row.meta:SetText(entry and (tostring(entry.author or "Unknown") .. "\n" .. date("%b %d, %Y %I:%M %p", tonumber(entry.ts) or time())) or "")
-            row.meta:Show()
-            row.featAccent:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 1)
-            row.featAccent:Show()
-            local icon = entry and entry.kind == "L" and ("Interface/Icons/Achievement_Level_" .. tostring(entry.value))
-                or self.GetProfessionIcon and self:GetProfessionIcon(entry and entry.profession)
-                or "Interface/Icons/Trade_BlackSmithing"
-            row.featIcon:SetTexture(icon)
-            row.featIcon:Show()
         else
-            row.featAccent:Hide()
-            row.featIcon:Hide()
             for _, cell in ipairs(row.columns) do cell:Hide() end
             row.meta:Hide()
             row.label:ClearAllPoints()
@@ -2100,16 +2056,13 @@ function GD:RefreshUI()
                 row.bg:SetColorTexture(index % 2 == 1 and PANEL_ALT[1] or PANEL[1], index % 2 == 1 and PANEL_ALT[2] or PANEL[2], index % 2 == 1 and PANEL_ALT[3] or PANEL[3], 1)
             end
         end
-        row.label:SetWidth(math.max(100, row:GetWidth() - (isFeat and 66 or 20)))
-        row.meta:SetWidth(math.max(100, row:GetWidth() - (isFeat and 66 or 20)))
+        row.label:SetWidth(math.max(100, row:GetWidth() - 20))
+        row.meta:SetWidth(math.max(100, row:GetWidth() - 20))
         row.selectedMarker:SetShown(active == "Roster" and index == selected)
         if active ~= "Roster" then
             local selectedRow = index == (self.selectedSection or 1)
             local color = selectedRow and PANEL_ALT or PANEL
             row.bg:SetColorTexture(color[1], color[2], color[3], 1)
-            if active == "Feats of Strength" then
-                row.bg:SetColorTexture(selectedRow and 0.10 or 0.055, selectedRow and 0.13 or 0.07, selectedRow and 0.17 or 0.09, 1)
-            end
         end
         row:Show()
     end
@@ -2179,9 +2132,6 @@ function GD:RefreshUI()
     end
     for _, row in ipairs(frame.actionRows) do row:Hide() end
     for _, card in ipairs(frame.pollCards or {}) do card:Hide() end
-    for _, card in ipairs(frame.featCards or {}) do card:Hide() end
-    for _, header in ipairs(frame.featSectionHeaders or {}) do header:Hide() end
-    if frame.featPreview then frame.featPreview:Hide() end
     if frame.pollEmpty then frame.pollEmpty:Hide() end
     if frame.actionEmpty then frame.actionEmpty:Hide() end
     frame.detailChild:SetWidth(math.max(100, frame.detailScroll:GetWidth() - 4))
@@ -2808,86 +2758,6 @@ function GD:RefreshUI()
         frame.detailBody:Hide()
         frame.detailTitle:SetText("POLLS")
         self:RefreshPollCards(frame)
-    elseif active == "Feats of Strength" then
-        self:HideSettingsControls()
-        frame.detailBody:Hide()
-        frame.detailTitle:SetText("FEATS OF STRENGTH")
-        local entries = GDB and GDB.featsOfStrength or {}
-        local levels, professions = {}, {}
-        for _, entry in ipairs(entries) do
-            if entry.kind == "L" then levels[#levels + 1] = entry else professions[#professions + 1] = entry end
-        end
-        local cards = frame.featCards or {}
-        frame.featCards = cards
-        for _, card in ipairs(cards) do card:Hide() end
-        if not frame.featSectionHeaders then
-            frame.featSectionHeaders = {}
-            for index = 1, 2 do
-                local header = frame.detailChild:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-                header:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
-                frame.featSectionHeaders[index] = header
-            end
-        end
-        local y, cardIndex = 10, 0
-        local groups = { { "LEVEL MILESTONES", levels }, { "PROFESSION MILESTONES", professions } }
-        local cardWidth = math.max(220, (frame.detailChild:GetWidth() - 28) / 2)
-        for groupIndex, group in ipairs(groups) do
-            local header = frame.featSectionHeaders[groupIndex]
-            header:ClearAllPoints()
-            header:SetPoint("TOPLEFT", 12, -y)
-            header:SetText(group[1])
-            header:Show()
-            y = y + 28
-            for index, entry in ipairs(group[2]) do
-                cardIndex = cardIndex + 1
-                local card = cards[cardIndex]
-                if not card then
-                    card = CreateFrame("Frame", nil, frame.detailChild, "BackdropTemplate")
-                    card:SetHeight(72)
-                    card:SetBackdrop({ bgFile = "Interface/Tooltips/UI-Tooltip-Background", edgeFile = "Interface/Tooltips/UI-Tooltip-Border", tile = true, tileSize = 16, edgeSize = 12, insets = { left = 3, right = 3, top = 3, bottom = 3 } })
-                    card:SetBackdropColor(0.025, 0.032, 0.043, 0.99)
-                    card:SetBackdropBorderColor(0.20, 0.62, 0.98, 0.75)
-                    card.accent = card:CreateTexture(nil, "ARTWORK")
-                    card.accent:SetPoint("TOPLEFT", 5, -6)
-                    card.accent:SetPoint("BOTTOMLEFT", 5, 6)
-                    card.accent:SetWidth(3)
-                    card.accent:SetColorTexture(0.20, 0.62, 0.98, 1)
-                    card.icon = card:CreateTexture(nil, "ARTWORK")
-                    card.icon:SetSize(38, 38)
-                    card.icon:SetPoint("LEFT", 13, 0)
-                    card.title = card:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-                    card.title:SetPoint("TOPLEFT", 60, -11)
-                    card.title:SetJustifyH("LEFT")
-                    card.title:SetTextColor(0.92, 0.96, 1)
-                    card.subtitle = card:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-                    card.subtitle:SetPoint("TOPLEFT", card.title, "BOTTOMLEFT", 0, -5)
-                    card.subtitle:SetJustifyH("LEFT")
-                    card.subtitle:SetTextColor(0.78, 0.84, 0.9)
-                    cards[cardIndex] = card
-                end
-                card:ClearAllPoints()
-                local column = (index - 1) % 2
-                local row = math.floor((index - 1) / 2)
-                card:SetPoint("TOPLEFT", 8 + column * (cardWidth + 8), -(y + row * 80))
-                card:SetWidth(cardWidth)
-                local isLevel = entry.kind == "L"
-                card.title:SetText(isLevel and ("Level " .. tostring(entry.value) .. " reached!") or (tostring(entry.profession or "Profession") .. " " .. tostring(entry.value) .. "!") )
-                card.title:SetWidth(cardWidth - 72)
-                card.subtitle:SetText(tostring(entry.author or "Unknown") .. "  ·  " .. date("%b %d, %Y  %I:%M %p", tonumber(entry.ts) or time()))
-                card.subtitle:SetWidth(cardWidth - 72)
-                card.icon:SetTexture(isLevel and ("Interface/Icons/Achievement_Level_" .. tostring(entry.value)) or (self.GetProfessionIcon and self:GetProfessionIcon(entry.profession) or "Interface/Icons/Trade_BlackSmithing"))
-                card:Show()
-            end
-            y = y + math.ceil(#group[2] / 2) * 80 + 18
-        end
-        for index = cardIndex + 1, #cards do cards[index]:Hide() end
-        if #entries == 0 then
-            frame.featSectionHeaders[1]:SetText("No milestones recorded yet.")
-            frame.featSectionHeaders[1]:Show()
-            frame.featSectionHeaders[2]:Hide()
-            y = 52
-        end
-        frame.detailChild:SetHeight(math.max(frame.detailScroll:GetHeight(), y))
     elseif isActionList then
         self:HideSettingsControls()
         frame.detailBody:Hide()

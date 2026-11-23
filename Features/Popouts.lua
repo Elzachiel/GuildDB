@@ -197,38 +197,7 @@ local function iconForProfession(profession)
     end
     return "Interface/Icons/Trade_BlackSmithing"
 end
-GD.GetProfessionIcon = iconForProfession
-
-local function recordFeat(kind, value, author, profession)
-    GDB = type(GDB) == "table" and GDB or {}
-    GDB.featsOfStrength = type(GDB.featsOfStrength) == "table" and GDB.featsOfStrength or {}
-    local entry = {
-        ts = time(), kind = kind, value = tonumber(value), author = tostring(author or "Unknown"),
-        profession = profession and tostring(profession) or nil,
-    }
-    table.insert(GDB.featsOfStrength, 1, entry)
-    while #GDB.featsOfStrength > 50 do table.remove(GDB.featsOfStrength) end
-    if GD.activeTab == "Feats of Strength" and GD.RefreshUI then GD:RefreshUI() end
-end
-
-GD:RegisterTab("Feats of Strength", function()
-    local entries = GDB and GDB.featsOfStrength or {}
-    if #entries == 0 then return "No level or profession milestones have been recorded yet." end
-    local lines = {}
-    for _, entry in ipairs(entries) do
-        local feat
-        if entry.kind == "L" then
-            feat = "Level " .. tostring(entry.value) .. " reached"
-        else
-            feat = tostring(entry.profession or "Profession") .. " " .. tostring(entry.value) .. " skill reached"
-        end
-        lines[#lines + 1] = string.format("%s\n%s  ·  %s", feat, tostring(entry.author or "Unknown"), date("%b %d, %Y %I:%M %p", tonumber(entry.ts) or time()))
-    end
-    return table.concat(lines, "\n\n")
-end)
-
 local function milestoneToast(kind, value, author, profession, isTest)
-    if not isTest then recordFeat(kind, value, author, profession) end
     if kind == "L" then
         GD:ShowPopout(isTest and "Level milestone test" or "Level milestone", isTest and "Level " .. value .. " test" or "Level " .. value .. " reached!", isTest and ("GuildDB test popup for " .. author .. ".") or (author .. " reached level " .. value .. "."), "Interface/Icons/Achievement_Level_" .. value, nil, 8, true)
     elseif kind == "P" then
