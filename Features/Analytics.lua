@@ -128,6 +128,7 @@ function GD:RefreshAnalytics()
     local panel = frame.analytics or build(frame)
     for _, key in ipairs({ "detailScroll", "detailTitle", "detailMeta", "detailRule", "footer" }) do frame[key]:Hide() end
     panel:Show()
+    self:StyleScrollFrame(panel.scroll)
     local colors = self:GetAppearanceColors()
     local accent, muted = colors.accent, colors.muted
     self:StyleButton(panel.filter)

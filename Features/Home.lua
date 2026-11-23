@@ -422,6 +422,7 @@ function GD:RefreshHomeAppearance()
     local home = self.frame and self.frame.home
     if not home or not self.GetAppearanceColors then return end
     local colors = self:GetAppearanceColors()
+    self:StyleScrollFrame(home.scroll)
     for _, panel in ipairs({ home.motd, home.posts, home.joins }) do
         panel:SetBackdropColor(colors.alternate[1], colors.alternate[2], colors.alternate[3], colors.alternate[4] or 1)
         panel:SetBackdropBorderColor(colors.accent[1] * 0.5, colors.accent[2] * 0.5, colors.accent[3] * 0.5, 1)

@@ -99,6 +99,7 @@ function GD:GetAppearanceColors()
         accent = GOLD, text = CREAM, muted = MUTED_GOLD }
 end
 local themedSurfaces = setmetatable({}, { __mode = "k" })
+local themedScrollFrames = setmetatable({}, { __mode = "k" })
 function GD:StyleSurface(surface, kind)
     themedSurfaces[surface] = kind or "panel"
     local colors = self:GetAppearanceColors()
@@ -106,6 +107,66 @@ function GD:StyleSurface(surface, kind)
     surface:SetBackdropColor(background[1], background[2], background[3], background[4] or 1)
     surface:SetBackdropBorderColor(colors.accent[1], colors.accent[2], colors.accent[3], 0.9)
 end
+
+-- One compact scrollbar for every workspace, including native-template scroll frames.
+function GD:StyleScrollFrame(scroll)
+    if not scroll then return end
+    themedScrollFrames[scroll] = true
+    local bar = scroll.GuildDBScrollBar
+    if not bar then
+        bar = CreateFrame("Slider", nil, scroll)
+        scroll.GuildDBScrollBar = bar
+        bar:SetPoint("TOPLEFT", scroll, "TOPRIGHT", 4, -2)
+        bar:SetPoint("BOTTOMLEFT", scroll, "BOTTOMRIGHT", 4, 2)
+        bar:SetWidth(8)
+        bar:EnableMouse(true)
+        bar:SetOrientation("VERTICAL")
+        bar:SetValueStep(1)
+        bar:SetThumbTexture("Interface/Buttons/WHITE8X8")
+        bar.track = bar:CreateTexture(nil, "BACKGROUND")
+        bar.track:SetAllPoints()
+        local function sync()
+            if bar.syncing then return end
+            bar.syncing = true
+            local child = scroll:GetScrollChild()
+            local viewport = math.max(1, scroll:GetHeight())
+            local height = child and child:GetHeight() or viewport
+            local maximum = math.max(0, height - viewport)
+            local position = math.max(0, math.min(maximum, scroll:GetVerticalScroll()))
+            bar:SetMinMaxValues(0, math.max(1, maximum))
+            bar:SetValue(position)
+            local trackHeight = math.max(1, bar:GetHeight())
+            bar:GetThumbTexture():SetSize(8, math.min(trackHeight, math.max(24, trackHeight * viewport / math.max(viewport, height))))
+            bar:SetShown(maximum > 0)
+            if scroll.ScrollBar then scroll.ScrollBar:Hide() end
+            if position ~= scroll:GetVerticalScroll() then scroll:SetVerticalScroll(position) end
+            bar.syncing = false
+        end
+        bar:SetScript("OnValueChanged", function(_, value)
+            if not bar.syncing then scroll:SetVerticalScroll(value) end
+        end)
+        local function wheel(_, delta)
+            local child = scroll:GetScrollChild()
+            local maximum = math.max(0, (child and child:GetHeight() or 0) - scroll:GetHeight())
+            scroll:SetVerticalScroll(math.max(0, math.min(maximum, scroll:GetVerticalScroll() - delta * 40)))
+        end
+        scroll:EnableMouseWheel(true)
+        scroll:SetScript("OnMouseWheel", wheel)
+        bar:EnableMouseWheel(true)
+        bar:SetScript("OnMouseWheel", wheel)
+        for _, event in ipairs({ "OnScrollRangeChanged", "OnVerticalScroll", "OnSizeChanged", "OnShow" }) do scroll:HookScript(event, sync) end
+        if scroll.ScrollBar then
+            scroll.ScrollBar:Hide()
+            scroll.ScrollBar:HookScript("OnShow", function(native) native:Hide() end)
+        end
+        bar.sync = sync
+    end
+    local colors = self:GetAppearanceColors()
+    bar.track:SetColorTexture(colors.muted[1], colors.muted[2], colors.muted[3], 0.16)
+    bar:GetThumbTexture():SetVertexColor(colors.accent[1], colors.accent[2], colors.accent[3], 0.85)
+    bar.sync()
+end
+
 local function applyTheme(frame)
     if not frame then return end
     if frame.background then frame.background:SetColorTexture(FRAME_BG[1], FRAME_BG[2], FRAME_BG[3], FRAME_BG[4]) end
@@ -115,6 +176,8 @@ local function applyTheme(frame)
     if frame.detailPanel and frame.detailPanel.bg then frame.detailPanel.bg:SetColorTexture(PANEL[1], PANEL[2], PANEL[3], PANEL[4]) end
     if frame.rosterSearch then frame.rosterSearch:SetBackdropColor(PANEL_ALT[1], PANEL_ALT[2], PANEL_ALT[3], 1) end
     for surface, kind in pairs(themedSurfaces) do GD:StyleSurface(surface, kind) end
+    for scroll in pairs(themedScrollFrames) do GD:StyleScrollFrame(scroll) end
+    if frame.recruitment and GD.RefreshRecruitmentAppearance then GD:RefreshRecruitmentAppearance() end
     if frame.home and GD.RefreshHomeAppearance then GD:RefreshHomeAppearance() end
     if frame.guildInfo and GD.RefreshGuildInfoAppearance then GD:RefreshGuildInfoAppearance() end
     if frame.close then GD:StyleButton(frame.close) end
@@ -818,6 +881,7 @@ local function openProfileEditor()
 end
 
 local function enableWheel(scroll, child)
+    GD:StyleScrollFrame(scroll)
     local function move(_, delta)
         local maximum = scroll:GetVerticalScrollRange() or 0
         local position = scroll:GetVerticalScroll() - delta * 48
@@ -1246,6 +1310,7 @@ local function build()
     local seasonOptions = CreateFrame("Frame", nil, seasonMenu)
     seasonOptions:SetSize(280, 220)
     seasonMenu:SetScrollChild(seasonOptions)
+    GD:StyleScrollFrame(seasonMenu)
     seasonMenu.buttons = {}
     seasonMenu:Hide()
     frame:HookScript("OnHide", function() seasonMenu:Hide() end)
@@ -1695,6 +1760,9 @@ function GD:RefreshUI()
     applyAccent(frame)
     if self.RefreshDiscordInviteButton then self:RefreshDiscordInviteButton() end
     local active = self.activeTab or "Home"
+    if active == "Recruitment" and not self:CanManage() then
+        active, self.activeTab = "Home", "Home"
+    end
     if active == "Profiles" then
         self.selectedRosterName = self.profileTarget or self.selectedRosterName
         active, self.activeTab = "Roster", "Roster"
@@ -1854,7 +1922,8 @@ function GD:RefreshUI()
     for _, tab in ipairs(self.tabs) do
         if not frame.tabButtons[tab] then frame.tabButtons[tab] = makeTabButton(frame.sidebar, tab, 1) end
         local button = frame.tabButtons[tab]
-            local visible = tab ~= "Profiles" and (tab == "Settings" or not self.GetSetting or self:GetSetting("feature:" .. tab))
+        local visible = tab ~= "Profiles" and (tab ~= "Recruitment" or self:CanManage())
+            and (tab == "Settings" or not self.GetSetting or self:GetSetting("feature:" .. tab))
         button:SetShown(visible)
         if visible then
             navIndex = navIndex + 1
@@ -1996,6 +2065,7 @@ function GD:RefreshUI()
     if frame.home then frame.home:Hide() end
     if frame.guildInfo and active ~= "Guild Info" then frame.guildInfo:Hide() end
     if frame.analytics then frame.analytics:Hide() end
+    if frame.recruitment and active ~= "Recruitment" then frame.recruitment:Hide() end
     local isActionList = active == "Looking For" or active == "Crafting" or active == "Polls" or active == "Announcements"
     frame.detailRule:SetShown(not isPvP and not isEvents and not isActionList)
     frame.detailMeta:SetShown(not isPvP and not isActionList)
@@ -2807,6 +2877,7 @@ function GD:RefreshUI()
     if active == "Home" and self.RefreshHome then self:RefreshHome() end
     if active == "Guild Info" and self.RefreshGuildInfo then self:RefreshGuildInfo() end
     if active == "Analytics" and self.RefreshAnalytics then self:RefreshAnalytics() end
+    if active == "Recruitment" and self.RefreshRecruitment then self:RefreshRecruitment() end
 end
 
 local function rebuildRoster()

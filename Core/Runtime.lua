@@ -2,7 +2,7 @@
 local ADDON, GD = ...
 _G.GuildDB = GD
 
-GD.version = "0.2.45"
+GD.version = "0.2.46"
 -- New-member tracking begins with this release; keep this anchor on later bumps.
 GD.recentJoinsVersion = "0.1.88"
 GD.recentJoinsStart = 1795285809
@@ -535,7 +535,7 @@ local function slashCommand(message)
     end
     local handler = GD.commands[command]
     if handler then handler(rest or "") else
-        print("GuildDB commands: /gd version, /gd bankapi, /gd sync, /gd profile, /gd spec, /gd map, /gd guide, /gd looking, /gd craft, /gd poll, /gd pvp, /gd raid, /gd event, /gd rsvp, /gd post, /gd shout, /gd testpopout")
+        print("GuildDB commands: /gd version, /gd bankapi, /gd sync, /gd profile, /gd spec, /gd map, /gd guide, /gd looking, /gd craft, /gd poll, /gd pvp, /gd raid, /gd event, /gd rsvp, /gd post, /gd shout, /gd recruit, /gd testpopout")
     end
 end
 
@@ -546,7 +546,7 @@ SlashCmdList.GuildDB = slashCommand
 local frame = CreateFrame("Frame")
 GD.eventFrame = frame
 GD.eventRegistration = {}
-for _, event in ipairs({ "ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_GUILD_UPDATE", "PLAYER_REGEN_ENABLED", "GUILD_ROSTER_UPDATE", "GUILD_MOTD", "GUILD_EVENT_LOG_UPDATE", "CHAT_MSG_SYSTEM", "UI_INFO_MESSAGE", "CHAT_MSG_ADDON", "CHAT_MSG_COMBAT_HONOR_GAIN", "PLAYER_PVP_KILLS_CHANGED", "PARTY_KILL", "PLAYER_DEAD", "PLAYER_ALIVE", "PLAYER_UNGHOST", "UNIT_FLAGS", "UNIT_HEALTH", "NAME_PLATE_UNIT_REMOVED", "PLAYER_ENTERING_WORLD", "NAME_PLATE_UNIT_ADDED", "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT", "SKILL_LINES_CHANGED", "TRADE_SKILL_UPDATE", "PLAYER_LEVEL_UP", "WORLD_MAP_OPEN" }) do
+for _, event in ipairs({ "ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_GUILD_UPDATE", "PLAYER_REGEN_ENABLED", "GUILD_ROSTER_UPDATE", "GUILD_MOTD", "GUILD_EVENT_LOG_UPDATE", "CHAT_MSG_SYSTEM", "CHAT_MSG_WHISPER", "WHO_LIST_UPDATE", "UI_INFO_MESSAGE", "CHAT_MSG_ADDON", "CHAT_MSG_COMBAT_HONOR_GAIN", "PLAYER_PVP_KILLS_CHANGED", "PARTY_KILL", "PLAYER_DEAD", "PLAYER_ALIVE", "PLAYER_UNGHOST", "UNIT_FLAGS", "UNIT_HEALTH", "NAME_PLATE_UNIT_REMOVED", "PLAYER_ENTERING_WORLD", "NAME_PLATE_UNIT_ADDED", "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT", "SKILL_LINES_CHANGED", "TRADE_SKILL_UPDATE", "PLAYER_LEVEL_UP", "WORLD_MAP_OPEN" }) do
     -- Some Forever builds omit optional retail/classic events. One unavailable
     -- event must not abort runtime setup and prevent /gd from opening.
     local ok = pcall(frame.RegisterEvent, frame, event)

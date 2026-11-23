@@ -2,7 +2,7 @@
 ## Title: GuildDB
 ## Notes: A modular guild hub with member profiles, a raid calendar, PvP, crafting, polls, and more.
 ## Author: GuildDB Contributors
-## Version: 0.2.45
+## Version: 0.2.46
 ## SavedVariables: GDB
 
 Libs/LibStub/LibStub.lua
@@ -29,6 +29,7 @@ Features/Polls.lua
 Features/GuildInfo.lua
 Features/Discord.lua
 Features/Analytics.lua
+Features/Recruitment.lua
 Features/Settings.lua
 Features/Minimap.lua
 Features/Unread.lua

@@ -382,6 +382,7 @@ function GD:RefreshGuildInfoAppearance()
     local panel = self.frame and self.frame.guildInfo
     if not panel then return end
     local colors = self:GetAppearanceColors()
+    self:StyleScrollFrame(panel.scroll)
     panel:SetBackdropColor(unpack(colors.alternate))
     panel:SetBackdropBorderColor(colors.accent[1] * 0.5, colors.accent[2] * 0.5, colors.accent[3] * 0.5, 1)
     panel.title:SetTextColor(unpack(colors.accent))
