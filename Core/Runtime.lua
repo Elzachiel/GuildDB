@@ -2,7 +2,7 @@
 local ADDON, GD = ...
 _G.GuildDB = GD
 
-GD.version = "0.2.46"
+GD.version = "0.2.47"
 -- New-member tracking begins with this release; keep this anchor on later bumps.
 GD.recentJoinsVersion = "0.1.88"
 GD.recentJoinsStart = 1795285809
@@ -421,6 +421,7 @@ local function recordPresence(sender, version, character)
     GD:RememberAddonVersion(sender, version)
     GD.lastPresenceName = sender
     if not known and not samePlayer(sender, GD:PresenceName()) then
+        if GD.RequestFeatureSettings then GD:RequestFeatureSettings() end
         -- A new login/join needs to discover existing peers too. Coalesce
         -- replies and jitter them so guild members do not all send at once.
         GD.nextPresence = math.min(GD.nextPresence, now + 0.2 + math.random() * 2)
@@ -493,12 +494,14 @@ end
 
 function GD:RequestSync()
     if not self.bucket then return false, "Join a guild first." end
+    if self.RequestFeatureSettings then self:RequestFeatureSettings(true) end
     retrySync({ rounds = 0, done = false })
     return true, "Requested an automatic sync from an online GuildDB peer."
 end
 
 function GD:Open()
     self:RequestPresence()
+    if self.RequestFeatureSettings then self:RequestFeatureSettings(true) end
     if not self.frame and self.BuildUI then
         local ok, err = pcall(self.BuildUI)
         if not ok then

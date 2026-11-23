@@ -350,13 +350,14 @@ local function box(parent, title)
     panel:SetBackdropBorderColor(0.16, 0.25, 0.34, 1)
     panel.title = label(panel, title, "GameFontNormalLarge")
     panel.title:SetPoint("TOPLEFT", 14, -14)
-    panel.scroll = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
+    panel.scroll = CreateFrame("ScrollFrame", nil, panel)
     panel.scroll:SetPoint("TOPLEFT", 12, -48)
     panel.scroll:SetPoint("BOTTOMRIGHT", -30, 12)
     panel.content = CreateFrame("Frame", nil, panel.scroll)
     panel.content:SetSize(100, 100)
     panel.scroll:SetScrollChild(panel.content)
     panel.scroll:SetScript("OnSizeChanged", function(_, width) panel.content:SetWidth(math.max(80, width)) end)
+    GD:StyleScrollFrame(panel.scroll)
     return panel
 end
 
@@ -422,8 +423,8 @@ function GD:RefreshHomeAppearance()
     local home = self.frame and self.frame.home
     if not home or not self.GetAppearanceColors then return end
     local colors = self:GetAppearanceColors()
-    self:StyleScrollFrame(home.scroll)
     for _, panel in ipairs({ home.motd, home.posts, home.joins }) do
+        self:StyleScrollFrame(panel.scroll)
         panel:SetBackdropColor(colors.alternate[1], colors.alternate[2], colors.alternate[3], colors.alternate[4] or 1)
         panel:SetBackdropBorderColor(colors.accent[1] * 0.5, colors.accent[2] * 0.5, colors.accent[3] * 0.5, 1)
         panel.title:SetTextColor(colors.accent[1], colors.accent[2], colors.accent[3])

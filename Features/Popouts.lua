@@ -213,6 +213,7 @@ local function broadcastMilestone(kind, value, profession, isTest)
     local content = kind == "L" and (wireKind .. "\n" .. value) or (wireKind .. "\n" .. profession .. "\n" .. value)
     local id = (isTest and "milestone-test:" or "milestone:") .. tostring(time()) .. ":" .. tostring(math.random(100000, 999999))
     seenMilestones[id] = true
+    if not isTest and GD.RecordGuildActivity then GD:RecordGuildActivity(id, time(), author, kind, value, profession) end
     GD:SendRecord("MP", id, time(), author, content)
     milestoneToast(kind, value, author, profession, isTest)
 end
@@ -222,7 +223,18 @@ local function samePlayerName(left, right)
         name = tostring(name or ""):match("^([^-]+)") or tostring(name or "")
         return name:lower():gsub("[%s%-]", "")
     end
-    return key(left) ~= "" and key(left) == key(right)
+    if key(left) ~= "" and key(left) == key(right) then return true end
+    -- Forever may shorten the chat sender while the record keeps the full name.
+    if type(left) ~= "string" or left:find("[%s%-]") then return false end
+    local count, matched = 0, false
+    for _, member in ipairs(GD.roster or {}) do
+        local first = tostring(member.name or ""):match("^(%S+)")
+        if key(first) == key(left) then
+            count = count + 1
+            if key(member.name) == key(right) then matched = true end
+        end
+    end
+    return count == 1 and matched
 end
 
 GD:RegisterRecordHandler("MP", function(id, ts, author, content, sender)
@@ -234,6 +246,7 @@ GD:RegisterRecordHandler("MP", function(id, ts, author, content, sender)
         local level = tonumber(first)
         if level ~= 10 and level ~= 20 and level ~= 30 and level ~= 40 and level ~= 50 and level ~= 60 then return end
         seenMilestones[id] = true
+        if kind == "L" and GD.RecordGuildActivity then GD:RecordGuildActivity(id, ts, author, "L", level) end
         milestoneToast("L", level, author, nil, kind == "TL")
         return
     end
@@ -244,13 +257,18 @@ GD:RegisterRecordHandler("MP", function(id, ts, author, content, sender)
     local rank = tonumber(second)
     if rank ~= 150 and rank ~= 225 and rank ~= 300 then return end
     seenMilestones[id] = true
+    if kind == "P" and GD.RecordGuildActivity then GD:RecordGuildActivity(id, ts, author, "P", rank, first) end
     milestoneToast("P", rank, author, first, kind == "TP")
 end)
 
 local levelMilestones = { [10] = true, [20] = true, [30] = true, [40] = true, [50] = true, [60] = true }
 GD:RegisterEventHandler("PLAYER_LEVEL_UP", function(_, newLevel)
     local level = tonumber(newLevel) or (UnitLevel and tonumber(UnitLevel("player")))
-    if not level or not levelMilestones[level] then return end
+    if not level or level < 2 or level > 60 or level ~= math.floor(level) then return end
+    if not levelMilestones[level] then
+        if GD.PostGuildActivity then GD:PostGuildActivity("L", level) end
+        return
+    end
     broadcastMilestone("L", level)
     if GD:GetSetting("levelGuildChat") and IsInGuild and IsInGuild() and SendChatMessage then
         SendChatMessage("Ding! " .. (UnitName and UnitName("player") or "A guild member") .. " hit level " .. level .. "!", "GUILD")

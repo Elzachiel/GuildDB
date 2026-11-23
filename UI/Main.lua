@@ -100,6 +100,7 @@ function GD:GetAppearanceColors()
 end
 local themedSurfaces = setmetatable({}, { __mode = "k" })
 local themedScrollFrames = setmetatable({}, { __mode = "k" })
+local themedCloseButtons = setmetatable({}, { __mode = "k" })
 function GD:StyleSurface(surface, kind)
     themedSurfaces[surface] = kind or "panel"
     local colors = self:GetAppearanceColors()
@@ -177,10 +178,11 @@ local function applyTheme(frame)
     if frame.rosterSearch then frame.rosterSearch:SetBackdropColor(PANEL_ALT[1], PANEL_ALT[2], PANEL_ALT[3], 1) end
     for surface, kind in pairs(themedSurfaces) do GD:StyleSurface(surface, kind) end
     for scroll in pairs(themedScrollFrames) do GD:StyleScrollFrame(scroll) end
+    for button in pairs(themedCloseButtons) do GD:StyleCloseButton(button) end
     if frame.recruitment and GD.RefreshRecruitmentAppearance then GD:RefreshRecruitmentAppearance() end
     if frame.home and GD.RefreshHomeAppearance then GD:RefreshHomeAppearance() end
     if frame.guildInfo and GD.RefreshGuildInfoAppearance then GD:RefreshGuildInfoAppearance() end
-    if frame.close then GD:StyleButton(frame.close) end
+    if frame.close then GD:StyleCloseButton(frame.close) end
     if frame.rosterOnlineCheck then GD:StyleButton(frame.rosterOnlineCheck) end
 end
 
@@ -413,6 +415,23 @@ function GD:StyleButton(button, variant)
     if text then
         text:SetTextColor(primary and 0.92 or CREAM[1], primary and 0.97 or CREAM[2], primary and 1 or CREAM[3])
     end
+end
+
+function GD:StyleCloseButton(button)
+    if not button then return end
+    themedCloseButtons[button] = true
+    button:SetSize(30, 30)
+    if not button:GetFontString() then
+        button:SetFontString(button:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge"))
+    end
+    button:SetText("X")
+    self:StyleButton(button)
+    button:SetNormalFontObject("GameFontNormalLarge")
+    button:SetHighlightFontObject("GameFontNormalLarge")
+    local text = button:GetFontString()
+    text:SetFontObject("GameFontNormalLarge")
+    text:ClearAllPoints()
+    text:SetPoint("CENTER", button, "CENTER", 0, 0)
 end
 
 local function styleRaidButton(button, width, variant)
@@ -709,20 +728,19 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose, se
             local dropdownInput, dropdownPopup = input, popup
             local listScroll = CreateFrame("ScrollFrame", nil, popup)
             listScroll:SetPoint("TOPLEFT", 4, -4)
-            listScroll:SetPoint("BOTTOMRIGHT", -4, 4)
+            listScroll:SetPoint("BOTTOMRIGHT", -18, 4)
             local listContent = CreateFrame("Frame", nil, listScroll)
-            listContent:SetSize(356, #field.options * 24)
+            listContent:SetSize(342, #field.options * 24)
             listScroll:SetScrollChild(listContent)
-            listScroll:EnableMouseWheel(true)
+            GD:StyleScrollFrame(listScroll)
             local maxScroll = math.max(0, (#field.options - 8) * 24)
-            listScroll:SetScript("OnMouseWheel", function(self, delta)
-                self:SetVerticalScroll(math.max(0, math.min(maxScroll, self:GetVerticalScroll() - delta * 72)))
-            end)
             for optionIndex, option in ipairs(field.options) do
                 local chosenOption = option
                 local optionButton = CreateFrame("Button", nil, listContent)
-                styleRaidButton(optionButton, 356)
-                optionButton:SetSize(356, 22)
+                styleRaidButton(optionButton, 342)
+                optionButton:SetSize(342, 22)
+                optionButton:EnableMouseWheel(true)
+                optionButton:SetScript("OnMouseWheel", function(_, delta) listScroll:GetScript("OnMouseWheel")(listScroll, delta) end)
                 optionButton:SetPoint("TOPLEFT", 1, -(optionIndex - 1) * 24)
                 optionButton:SetText(chosenOption)
                 optionButton:SetScript("OnClick", function()
@@ -759,8 +777,9 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose, se
         offset = offset + (field.multiline and 116 or 56)
     end
     if not hideClose then
-        local close = CreateFrame("Button", nil, dialog, "UIPanelCloseButton")
-        close:SetPoint("TOPRIGHT", -2, -2)
+        local close = CreateFrame("Button", nil, dialog, "UIPanelButtonTemplate")
+        GD:StyleCloseButton(close)
+        close:SetPoint("TOPRIGHT", -12, -10)
         close:SetScript("OnClick", function() dialog:Hide() end)
     end
     local cancel = CreateFrame("Button", nil, dialog, "UIPanelButtonTemplate")
@@ -949,14 +968,8 @@ local function build()
     frame.headerStatus = frame.header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     frame.headerStatus:SetJustifyH("RIGHT")
     frame.close = CreateFrame("Button", nil, frame.header)
-    frame.close:SetSize(30, 30)
     frame.close:SetPoint("RIGHT", -12, 0)
-    frame.close:SetText("X")
-    GD:StyleButton(frame.close)
-    frame.close:GetFontString():SetFontObject("GameFontNormalLarge")
-    frame.close:GetFontString():SetTextColor(0.92, 0.96, 1)
-    frame.close:GetFontString():ClearAllPoints()
-    frame.close:GetFontString():SetPoint("CENTER", frame.close, "CENTER", 0, 0)
+    GD:StyleCloseButton(frame.close)
     frame.close:SetScript("OnClick", function() frame:Hide() end)
     frame.discordButton = CreateFrame("Button", nil, frame.header, "UIPanelButtonTemplate")
     frame.discordButton:SetSize(164, 30)
@@ -2065,6 +2078,7 @@ function GD:RefreshUI()
     if frame.home then frame.home:Hide() end
     if frame.guildInfo and active ~= "Guild Info" then frame.guildInfo:Hide() end
     if frame.analytics then frame.analytics:Hide() end
+    if frame.activity and active ~= "Activity" then frame.activity:Hide() end
     if frame.recruitment and active ~= "Recruitment" then frame.recruitment:Hide() end
     local isActionList = active == "Looking For" or active == "Crafting" or active == "Polls" or active == "Announcements"
     frame.detailRule:SetShown(not isPvP and not isEvents and not isActionList)
@@ -2877,6 +2891,7 @@ function GD:RefreshUI()
     if active == "Home" and self.RefreshHome then self:RefreshHome() end
     if active == "Guild Info" and self.RefreshGuildInfo then self:RefreshGuildInfo() end
     if active == "Analytics" and self.RefreshAnalytics then self:RefreshAnalytics() end
+    if active == "Activity" and self.RefreshActivity then self:RefreshActivity() end
     if active == "Recruitment" and self.RefreshRecruitment then self:RefreshRecruitment() end
 end
 

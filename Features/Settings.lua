@@ -13,6 +13,12 @@ local function settings()
     return GDB.settings
 end
 
+function GD:HasGuildFeatureSettings()
+    local config = self.bucket and self.bucket.guildSettings
+    return config ~= nil and type(config.features) == "table" and next(config.features) ~= nil
+        and type(config.ts) == "number" and config.ts > 0
+end
+
 function GD:GetSetting(key)
     local db = settings()
     if key:sub(1, 8) == "feature:" then
@@ -24,6 +30,11 @@ function GD:GetSetting(key)
         end
         if guildSettings and guildSettings.features and guildSettings.features[tab] ~= nil then
             return guildSettings.features[tab] ~= false
+        end
+        -- A new member must not briefly enable every optional workspace while
+        -- waiting for the guild's first snapshot. Officers can still configure it.
+        if self.guildName and not self:HasGuildFeatureSettings() and not self:CanManage() then
+            return tab == "Home" or tab == "Roster" or tab == "Settings"
         end
         return true
     end
@@ -91,41 +102,53 @@ local function normalizeName(name)
     return tostring(name or ""):lower():gsub("[%s%-]", "")
 end
 
-local function sameGuildName(left, right)
-    if normalizeName(left) == normalizeName(right) then return true end
-    local leftFirst = tostring(left or ""):match("^([^%s%-]+)")
-    local rightFirst = tostring(right or ""):match("^([^%s%-]+)")
-    return leftFirst and rightFirst and leftFirst:lower() == rightFirst:lower() or false
-end
-
 local function guildRank(name)
     if not name or not GetNumGuildMembers or not GetGuildRosterInfo then return nil end
-    for index = 1, GetNumGuildMembers() do
+    local wanted, short, fallback, matches = normalizeName(name), tostring(name):match("^([^%s%-]+)$"), nil, 0
+    for index = 1, GetNumGuildMembers(true) do
         local rosterName, _, rankIndex = GetGuildRosterInfo(index)
-        if rosterName and sameGuildName(rosterName, name) then
-            return tonumber(rankIndex)
+        if rosterName then
+            if normalizeName(rosterName) == wanted then return tonumber(rankIndex) end
+            -- Forever can shorten a chat sender to their first name. Only use
+            -- that fallback when exactly one roster member has that first name.
+            local first = rosterName:match("^([^%s%-]+)")
+            if short and first and first:lower() == short:lower() then
+                fallback, matches = tonumber(rankIndex), matches + 1
+            end
         end
     end
-    return nil
+    if matches == 1 then return fallback end
 end
 
 local pendingFeatures = {}
+local nextFeatureRoster = 0
+local function deferFeatures(id, ts, author, content, sender)
+    if #pendingFeatures >= 60 then return end
+    pendingFeatures[#pendingFeatures + 1] = {
+        id = id, ts = ts, author = author, content = content,
+        sender = sender, bucket = GD.bucket,
+    }
+    if time() >= nextFeatureRoster then
+        nextFeatureRoster = time() + 10
+        if C_GuildInfo and C_GuildInfo.GuildRoster then C_GuildInfo.GuildRoster()
+        elseif GuildRoster then GuildRoster() end
+    end
+end
 local function receiveFeatures(id, ts, author, content, sender)
-    if id ~= "features" or not GD.bucket or #content > 1000 then return end
+    if id ~= "features" or not GD.bucket or #content > 1000 or ts <= 0 or ts > time() + 60 then return end
     -- A fresh login can receive history before guild ranks are available.
-    if GetNumGuildMembers and GetNumGuildMembers() == 0 then
-        if #pendingFeatures < 60 then
-            pendingFeatures[#pendingFeatures + 1] = {
-                id = id, ts = ts, author = author, content = content,
-                sender = sender, bucket = GD.bucket,
-            }
-        end
+    if not GetNumGuildMembers or GetNumGuildMembers(true) == 0 then
+        deferFeatures(id, ts, author, content, sender)
         return
     end
     -- History may come from any guild peer, including when the officer is offline.
     -- Keep the original officer attribution when relaying the saved snapshot.
     local authorRank = guildRank(author)
-    if guildRank(sender) == nil or authorRank == nil or authorRank > 1 then return end
+    if authorRank and authorRank > 1 then return end
+    if guildRank(sender) == nil or authorRank == nil then
+        deferFeatures(id, ts, author, content, sender)
+        return
+    end
     local features, found = {}, false
     for line in (content .. "\n"):gmatch("(.-)\n") do
         local tab, enabled = line:match("^(.-)\t([01])$")
@@ -144,7 +167,7 @@ end
 GD:RegisterRecordHandler("F", receiveFeatures)
 
 GD:RegisterEventHandler("GUILD_ROSTER_UPDATE", function()
-    if not GetNumGuildMembers or GetNumGuildMembers() == 0 then return end
+    if not GetNumGuildMembers or GetNumGuildMembers(true) == 0 then return end
     local records = pendingFeatures
     pendingFeatures = {}
     for _, record in ipairs(records) do
@@ -152,18 +175,96 @@ GD:RegisterEventHandler("GUILD_ROSTER_UPDATE", function()
             receiveFeatures(record.id, record.ts, record.author, record.content, record.sender)
         end
     end
+    if not GD:HasGuildFeatureSettings() then GD:RequestFeatureSettings() end
 end)
 
-GD:RegisterHistoryProvider(function()
+local function sendFeatures()
     local config = GD.bucket and GD.bucket.guildSettings
-    if not config or not config.features or not config.ts or config.ts <= 0 then return end
+    if not GD:HasGuildFeatureSettings() then
+        local rank
+        if GetGuildInfo then local _, _, value = GetGuildInfo("player"); rank = value end
+        if not GD.bucket or rank ~= 0 then return end
+        config = config or {}
+        config.features = config.features or {}
+        for _, tab in ipairs(GD.tabs or {}) do
+            if tab ~= "Settings" then config.features[tab] = GD:GetSetting("feature:" .. tab) end
+        end
+        -- A GM with no saved selection can share defaults, but that snapshot
+        -- must never outrank an actual saved choice relayed by another peer.
+        config.ts, config.by = 1, GD:PlayerName()
+        GD.bucket.guildSettings = config
+    end
     local lines = {}
     -- Relay only saved values: newer/renamed tabs must retain their defaults.
     for tab, enabled in pairs(config.features) do
         lines[#lines + 1] = tab .. "\t" .. (enabled and "1" or "0")
     end
+    table.sort(lines)
     GD:SendRecord("F", "features", config.ts, config.by or "Guild officer", table.concat(lines, "\n"))
+end
+GD:RegisterHistoryProvider(sendFeatures)
+
+local featureRequestBucket, lastFeatureRequest, lastFeatureReply = nil, 0, 0
+local pendingFeatureReply
+local immediateFeatureRequest = false
+function GD:RequestFeatureSettings(immediate)
+    if not self.bucket then return false end
+    if featureRequestBucket ~= self.bucket then
+        featureRequestBucket, lastFeatureRequest, lastFeatureReply = self.bucket, 0, 0
+        immediateFeatureRequest = false
+    end
+    -- Opening the window/manual re-sync should retry promptly even when a
+    -- login request was just dropped, while repeated clicks stay throttled.
+    local firstImmediate = immediate and not immediateFeatureRequest
+    if not firstImmediate and time() - lastFeatureRequest < (immediate and 2 or 10) then return false end
+    if immediate then immediateFeatureRequest = true end
+    lastFeatureRequest = time()
+    self:SendRecord("FQ", "features", time(), self:PlayerName(), "")
+    return true
+end
+
+GD:RegisterRecordHandler("FQ", function(id, ts, author, content, sender)
+    if id ~= "features" or not GD.bucket or content ~= "" or guildRank(sender) == nil then return end
+    if normalizeName(author) == normalizeName(GD:PlayerName()) then return end
+    local remaining = lastFeatureReply + 5 - time()
+    if remaining > 0 then
+        if pendingFeatureReply or not C_Timer or not C_Timer.After then return end
+        local token, bucket = {}, GD.bucket
+        pendingFeatureReply = token
+        C_Timer.After(remaining, function()
+            if pendingFeatureReply ~= token then return end
+            pendingFeatureReply = nil
+            if GD.bucket ~= bucket then return end
+            lastFeatureReply = time()
+            sendFeatures()
+        end)
+        return
+    end
+    pendingFeatureReply = nil
+    lastFeatureReply = time()
+    -- Any peer with an officer-authored snapshot can answer, even if the GM is
+    -- offline. This uses the live queue instead of waiting behind full history.
+    sendFeatures()
 end)
+
+local featureSession
+local function startFeatureSync()
+    if not GD.bucket then featureSession = nil; return end
+    if featureSession == GD.bucket then return end
+    local bucket = GD.bucket
+    featureSession = bucket
+    GD:RequestFeatureSettings()
+    if C_Timer and C_Timer.After then
+        for _, delay in ipairs({ 3, 12, 30, 60 }) do
+            C_Timer.After(delay, function()
+                if GD.bucket == bucket and featureSession == bucket then GD:RequestFeatureSettings() end
+            end)
+        end
+    end
+end
+GD:RegisterEventHandler("PLAYER_LOGIN", startFeatureSync)
+GD:RegisterEventHandler("PLAYER_GUILD_UPDATE", startFeatureSync)
+GD:RegisterEventHandler("PLAYER_ENTERING_WORLD", startFeatureSync)
 
 local function label(parent, text, x, y, font, list)
     local item = parent:CreateFontString(nil, "OVERLAY", font or "GameFontNormal")
@@ -416,6 +517,11 @@ local function build(parent)
         end
     end
     label(personalPanel, ("Stored records: %d"):format(records), 12, -320, "GameFontDisableSmall", list)
+    local featureStatus = label(personalPanel, "", 12, -342, "GameFontDisableSmall", list)
+    featureStatus.update = function()
+        featureStatus:SetText(not GD.guildName and "Guild tabs: join a guild to sync." or
+            (GD:HasGuildFeatureSettings() and "Guild tabs: saved guild settings loaded." or "Guild tabs: waiting for guild settings..."))
+    end
 
     label(officerPanel, "Officer settings", 12, -10, "GameFontNormalLarge", list)
     label(officerPanel, "Feature switches (guild-wide; GM or rank 1)", 12, -38, "GameFontDisableSmall", list)

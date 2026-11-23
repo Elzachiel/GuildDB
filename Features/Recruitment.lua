@@ -63,24 +63,34 @@ local function matchesLevel(search, level)
     return level ~= nil and level >= search.minimum and level <= search.maximum
 end
 
+function GD:ShowRecruitSavedCandidates()
+    if not allowed() then return false end
+    self.recruitSearch = nil
+    self.recruitSavedView = { guild = self.guildKey, owner = key(self:PlayerName()) }
+    return true
+end
+
 function GD:GetRecruitCandidates(status, text, whoQuery)
     local db = database()
     if not db then return {}, 0, "Only the GM and rank 1 officers can recruit." end
     local search = currentSearch()
+    local saved = self.recruitSavedView
+    local showSaved = saved and saved.guild == self.guildKey and saved.owner == key(self:PlayerName())
     local draft = search and whoQuery ~= nil and clean(whoQuery, 150) ~= search.query
     local records, total = {}, 0
     text = tostring(text or ""):lower()
     for id, record in pairs(db.candidates) do
         total = total + 1
         local haystack = table.concat({ record.name, record.class or "", record.note or "" }, " "):lower()
-        local inSearch = not search or (not draft and search.state == "complete" and search.ids[id] and matchesLevel(search, record.level))
+        local inSearch = (not search and showSaved) or (search and not draft and search.state == "complete" and search.ids[id] and matchesLevel(search, record.level))
         if inSearch and (not status or status == "All" or record.status == status) and haystack:find(text, 1, true) then
             records[#records + 1] = { id = id, record = record }
         end
     end
     table.sort(records, function(a, b) return a.id < b.id end)
     local empty = "No matching candidates."
-    if draft then empty = "Click Search Who to run this filter."
+    if not search and not showSaved then empty = "Run Search Who or choose Saved list."
+    elseif draft then empty = "Click Search Who to run this filter."
     elseif search and search.state == "pending" then empty = "Waiting for Who results..."
     elseif search and search.state == "timeout" then empty = "No Who reply. Retry or import results."
     elseif search then empty = "No candidates match this search and status." end
@@ -201,6 +211,7 @@ function GD:SearchRecruits(query)
     end
     db.lastSearch = time()
     self.recruitSearch = search
+    self.recruitSavedView = nil
     local pending = { guild = self.guildKey, owner = key(self:PlayerName()), search = search }
     self.recruitWhoPending = pending
     if C_Timer and C_Timer.After then C_Timer.After(15, function()
@@ -246,6 +257,7 @@ function GD:ImportRecruitWho(search)
     end
     search.state = "complete"
     self.recruitSearch = search
+    self.recruitSavedView = nil
     refresh()
     return true, added .. " unguilded candidate(s) in this search. Contact history and exclusions are preserved."
 end
@@ -274,7 +286,8 @@ GD:RegisterEventHandler("WHO_LIST_UPDATE", function()
     GD.recruitWhoPending = nil
     local set = C_FriendList and C_FriendList.SetWhoToUi or SetWhoToUI
     if set then pcall(set, false) end
-    if pending.guild == GD.guildKey and pending.owner == key(GD:PlayerName()) and allowed() then
+    if pending.guild == GD.guildKey and pending.owner == key(GD:PlayerName()) and allowed()
+        and GD.recruitSearch == pending.search then
         local _, message = GD:ImportRecruitWho(pending.search)
         if GD.frame and GD.frame.recruitment then GD.frame.recruitment.status:SetText(message) end
     end
@@ -389,12 +402,12 @@ local function build(frame)
     panel.name = input(panel.findBox, 14, -96, 240, 100)
     panel.addName = button(panel, "Add name", 264, -96, 106, function()
         local ok, message, record = GD:AddRecruitCandidate(panel.name:GetText())
-        if ok then GD.recruitSearch = nil; panel.selected = key(record.name); panel.name:SetText(""); panel.filter = "All"; refresh() end
+        if ok then GD:ShowRecruitSavedCandidates(); panel.selected = key(record.name); panel.name:SetText(""); panel.filter = "All"; refresh() end
         return ok, message
     end, panel.findBox)
     button(panel, "Saved list", 380, -96, 116, function()
         if GD.recruitWhoPending then return false, "Wait for the current Who search to finish." end
-        GD.recruitSearch = nil
+        GD:ShowRecruitSavedCandidates()
         refresh()
         return true, "Showing saved candidates. Contact history and exclusions are retained."
     end, panel.findBox)
@@ -433,6 +446,11 @@ local function build(frame)
     end)
     local function closeFilter() panel.filterMenu:Hide() end
     panel:HookScript("OnHide", closeFilter)
+    panel:HookScript("OnHide", function()
+        -- Opening Recruitment is a fresh workspace; history is an explicit view.
+        GD.recruitSearch, GD.recruitSavedView = nil, nil
+        panel.selected = nil
+    end)
     panel.candidatesPage:HookScript("OnHide", closeFilter)
     panel.scroll:HookScript("OnVerticalScroll", closeFilter)
     panel.search = input(panel.listBox, 152, -64, 144, 100)
