@@ -6,6 +6,32 @@ local syncGameCalendarRSVP
 local EVENT_SETTINGS_MARKER = "\n\n[GuildDB calendar settings]\n"
 local CALENDAR_TYPES = { Raid = 0, Dungeon = 1, PvP = 2, Meeting = 3, Other = 4 }
 
+local function signupCharacterKey()
+    return (GetRealmName and GetRealmName() or "") .. "|" .. GD:PlayerName()
+end
+
+function GD:GetRaidSignupDefaults(current, profile)
+    current = type(current) == "table" and current or {}
+    profile = profile or {}
+    local saved = GDB and GDB.raidSignupChoices and GDB.raidSignupChoices[signupCharacterKey()] or {}
+    local role = current.role or saved.role or profile.role
+    if role ~= "Tank" and role ~= "Healer" and role ~= "DPS" then role = "DPS" end
+    return role, current.spec or saved.spec or profile.spec or ""
+end
+
+function GD:RememberRaidSignup(role, spec)
+    GDB = GDB or {}
+    GDB.raidSignupChoices = GDB.raidSignupChoices or {}
+    GDB.raidSignupChoices[signupCharacterKey()] = { role = role, spec = spec }
+end
+
+function GD:NeedsRaidSignup(event)
+    if not event or event.preview or not event.at or event.at <= time() then return false end
+    local response = (event.rsvps or {})[self:PlayerName()]
+    local status = type(response) == "table" and response.status or response
+    return status ~= "going" and status ~= "tentative" and status ~= "absent"
+end
+
 local function parseEventTime(value)
     local y, month, day, hour, minute = value:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)%s+(%d%d):(%d%d)$")
     y, month, day, hour, minute = tonumber(y), tonumber(month), tonumber(day), tonumber(hour), tonumber(minute)
@@ -698,6 +724,7 @@ function GD:SetRSVPForEvent(eventId, status, role, note, spec)
     ts = math.max(ts, type(previous) == "table" and (previous.ts or 0) + 1 or 0, deleted and deleted.ts + 1 or 0)
     spec = tostring(spec or (type(previous) == "table" and previous.spec) or ""):gsub("[\r\n]", " "):sub(1, 60)
     event.rsvps[player] = { status = status, ts = ts, role = role, spec = spec, note = note }
+    self:RememberRaidSignup(role, spec)
     sendRSVP(event.id, player, event.rsvps[player])
     local calendarSynced = syncGameCalendarRSVP and syncGameCalendarRSVP(event, status)
     if self.RefreshUI then self:RefreshUI() end

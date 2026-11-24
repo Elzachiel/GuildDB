@@ -497,8 +497,9 @@ function GD:RefreshHome()
             row.edit = button(row, "Edit", 52, function() announcementForm(row.post) end)
             row.edit:SetPoint("BOTTOMLEFT", 2, 4)
             row.delete = button(row, "Delete", 60, function()
-                local _, message = GD:DeleteAnnouncement(row.post.id)
-                print("GuildDB: " .. tostring(message))
+                local postId, postTitle = row.post.id, row.post.title or "Announcement"
+                GD:ConfirmAction("Delete announcement?", "Permanently delete this guild announcement: " .. GD:Display(postTitle),
+                    function() return GD:DeleteAnnouncement(postId) end, "Delete")
             end)
             row.delete:SetPoint("LEFT", row.edit, "RIGHT", 6, 0)
             home.rows[index] = row

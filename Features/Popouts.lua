@@ -190,7 +190,7 @@ local professionIconPatterns = {
     { "first aid", "Interface/Icons/Spell_Holy_SealOfSacrifice" },
 }
 
-local function iconForProfession(profession)
+function GD:GetProfessionIcon(profession)
     local name = tostring(profession or ""):lower()
     for _, entry in ipairs(professionIconPatterns) do
         if name:find(entry[1], 1, true) then return entry[2] end
@@ -201,7 +201,7 @@ local function milestoneToast(kind, value, author, profession, isTest)
     if kind == "L" then
         GD:ShowPopout(isTest and "Level milestone test" or "Level milestone", isTest and "Level " .. value .. " test" or "Level " .. value .. " reached!", isTest and ("GuildDB test popup for " .. author .. ".") or (author .. " reached level " .. value .. "."), "Interface/Icons/Achievement_Level_" .. value, nil, 8, true)
     elseif kind == "P" then
-        GD:ShowPopout(isTest and "Profession milestone test" or "Profession milestone", isTest and (profession .. " " .. value .. " test") or (profession .. " " .. value .. "!"), isTest and ("GuildDB test popup for " .. author .. ".") or (author .. " reached " .. value .. " in " .. profession .. "."), iconForProfession(profession), nil, 8, true)
+        GD:ShowPopout(isTest and "Profession milestone test" or "Profession milestone", isTest and (profession .. " " .. value .. " test") or (profession .. " " .. value .. "!"), isTest and ("GuildDB test popup for " .. author .. ".") or (author .. " reached " .. value .. " in " .. profession .. "."), GD:GetProfessionIcon(profession), nil, 8, true)
     end
 end
 
@@ -264,10 +264,7 @@ local levelMilestones = { [10] = true, [20] = true, [30] = true, [40] = true, [5
 GD:RegisterEventHandler("PLAYER_LEVEL_UP", function(_, newLevel)
     local level = tonumber(newLevel) or (UnitLevel and tonumber(UnitLevel("player")))
     if not level or level < 2 or level > 60 or level ~= math.floor(level) then return end
-    if not levelMilestones[level] then
-        if GD.PostGuildActivity then GD:PostGuildActivity("L", level) end
-        return
-    end
+    if not levelMilestones[level] then return end
     broadcastMilestone("L", level)
     if GD:GetSetting("levelGuildChat") and IsInGuild and IsInGuild() and SendChatMessage then
         SendChatMessage("Ding! " .. (UnitName and UnitName("player") or "A guild member") .. " hit level " .. level .. "!", "GUILD")

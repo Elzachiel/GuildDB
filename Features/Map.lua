@@ -5,8 +5,6 @@ local REPORT_TTL = 45
 local SEND_INTERVAL = 4
 local lastSent = 0
 local elapsedSincePrune = 0
-local lastLocalStatus = "Waiting for a map position"
-local lastLocalPosition
 GD.mapReports = GD.mapReports or {}
 
 local function normalizeMemberKey(name)
@@ -39,11 +37,6 @@ local function refreshMapPins()
     end
 end
 
-local function updateUI()
-    if GD.RefreshUI then GD:RefreshUI() end
-    refreshMapPins()
-end
-
 GD:RegisterRecordHandler("ML", function(id, timestamp, author, content, sender)
     local function reject(reason)
         GD.mapRejectReason = reason
@@ -66,18 +59,13 @@ GD:RegisterRecordHandler("ML", function(id, timestamp, author, content, sender)
         name = sender, author = author, mapID = mapID, x = x, y = y, zone = zone, class = class,
         seen = GetTime and GetTime() or 0,
     }
-    updateUI()
+    refreshMapPins()
 end)
 
 local function sendLocation()
     if not GD.bucket or not GD:GetSetting("shareMapLocation") then return end
     local mapID, x, y, zone = unitLocation()
-    if not mapID then
-        lastLocalStatus = IsInInstance and IsInInstance() and "Location sharing pauses in instances" or "The client did not return a map position"
-        return
-    end
-    lastLocalStatus = "Position available"
-    lastLocalPosition = { mapID = mapID, x = x, y = y, zone = zone }
+    if not mapID then return end
     local author = UnitName and UnitName("player") or ""
     if author == "" then return end
     local payload = table.concat({
@@ -86,7 +74,6 @@ local function sendLocation()
     }, "|")
     GD:Enqueue(payload)
     lastSent = GetTime and GetTime() or 0
-    if GD.activeTab == "Map" and GD.RefreshUI then GD:RefreshUI() end
 end
 
 function GD:MapUpdate(now, elapsed)
@@ -104,7 +91,7 @@ function GD:MapUpdate(now, elapsed)
             changed = true
         end
     end
-    if changed then updateUI() end
+    if changed then refreshMapPins() end
 end
 
 function GD:GetMapReports()
@@ -126,53 +113,6 @@ GD:RegisterCommand("map", function(rest)
         print("GuildDB: Guild member locations are shown as live map pins. Use /gd map clear to remove an old WoW waypoint.")
     end
 end)
-
-local function mapTabText()
-    if not GD.guildName then return "Join a guild to share and view member locations." end
-    local reports = GD:GetMapReports()
-    local sharing = GD:GetSetting("shareMapLocation") and "On" or "Off"
-    local positionText = lastLocalPosition
-        and ("%s (%.1f, %.1f)"):format(lastLocalPosition.zone, lastLocalPosition.x * 100, lastLocalPosition.y * 100)
-        or lastLocalStatus
-    local lastSend = GD.lastAddonSendByKind and GD.lastAddonSendByKind.ML
-    local sendText = "No outbound addon message recorded yet"
-    if lastSend then
-        local age = math.max(0, math.floor((GetTime and GetTime() or 0) - (lastSend.at or 0)))
-        sendText = ("Last %s message: %s, result %s, %ds ago"):format(
-            tostring(lastSend.kind), lastSend.succeeded and "accepted" or "failed",
-            tostring(lastSend.error or lastSend.result or "unknown"), age)
-    end
-    local inboundAge = GD.mapLastInboundAt and math.max(0, math.floor((GetTime and GetTime() or 0) - GD.mapLastInboundAt))
-    local inboundText = ("Location packets received: %d; valid reports: %d"):format(
-        GD.mapInboundPackets or 0, GD.mapValidReports or 0)
-    if inboundAge then
-        inboundText = inboundText .. ("; last from %s, %ds ago"):format(tostring(GD.mapLastInboundSender or "unknown"), inboundAge)
-    end
-    if GD.mapRejectReason then inboundText = inboundText .. "; last rejected: " .. GD.mapRejectReason end
-    if #reports == 0 then
-        return table.concat({
-            "Guild member map", "",
-            "No fresh reports from other GuildDB users.",
-            "Your sharing: " .. sharing .. "  ·  Your position: " .. positionText,
-            sendText,
-            inboundText,
-            "GuildDB pins update about every 4 seconds, expire after 45 seconds, and pause in instances.",
-        }, "\n\n")
-    end
-    local lines = { "Guild member locations (live pins; reports expire after 45 seconds):", "" }
-    for _, report in ipairs(reports) do
-        local age = math.max(0, math.floor((GetTime and GetTime() or 0) - report.seen))
-        lines[#lines + 1] = ("%s  ·  %s  ·  %.1f, %.1f  ·  %ds old"):format(
-            report.name, report.zone, report.x * 100, report.y * 100, age)
-    end
-    lines[#lines + 1] = ""
-    lines[#lines + 1] = "Your sharing: " .. sharing .. "  ·  Your position: " .. positionText
-    lines[#lines + 1] = sendText
-    lines[#lines + 1] = inboundText
-    lines[#lines + 1] = "Pins update about every 4 seconds and can appear on zone and continent maps."
-    return table.concat(lines, "\n")
-end
-GD:RegisterTab("Map", mapTabText)
 
 local mapMemberIcons = {}
 

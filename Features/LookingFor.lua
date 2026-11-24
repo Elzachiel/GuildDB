@@ -79,23 +79,8 @@ GD:RegisterCommand("looking", function(rest)
         print("GuildDB: " .. result)
         return
     end
-    if action == "list" then GD.activeTab = "Looking For"; GD:Open(); return end
+    if action == "list" then GD.activeTab = "Requests"; GD:Open(); return end
     local role, activity, details = rest:match("^(.-)%s*|%s*(.-)%s*|%s*(.*)$")
     local _, result = GD:PostLookingRequest(role, activity, details)
     print("GuildDB: " .. result)
-end)
-
-GD:RegisterTab("Looking For", function()
-    if not GD.bucket then return "Join a guild to see group requests." end
-    local requests = activeRequests()
-    if #requests == 0 then return "No active requests. Post one with /gd looking Role | Activity | Details." end
-    local lines = { "Looking For · posts expire after 3 hours", "Use /gd looking close # to close your post.", "" }
-    for index, request in ipairs(requests) do
-        local minutes = math.max(1, math.ceil((request.expires - time()) / 60))
-        lines[#lines + 1] = ("%d. %s looking for %s · %d min left"):format(index, GD:Display(request.role), GD:Display(request.activity), minutes)
-        if request.details ~= "" then lines[#lines + 1] = GD:Display(request.details) end
-        lines[#lines + 1] = "Posted by " .. GD:Display(request.by)
-        lines[#lines + 1] = ""
-    end
-    return table.concat(lines, "\n")
 end)

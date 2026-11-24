@@ -82,10 +82,18 @@ function GD:RefreshPollCards(frame)
         card.close:ClearAllPoints()
         card.close:SetPoint("TOPRIGHT", -88, -10)
         card.close:SetShown(canClose)
-        card.close:SetScript("OnClick", function(button) self:ClosePoll(button.pollId) end)
+        card.close:SetScript("OnClick", function(button)
+            local id = button.pollId
+            self:ConfirmAction("Close poll?", "Stop accepting votes for: " .. self:Display(poll.question) .. "\nExisting results will be kept.",
+                function() return self:ClosePoll(id) end, "Close poll")
+        end)
         self:StyleButton(card.delete)
         card.delete:SetShown(canDelete)
-        card.delete:SetScript("OnClick", function(button) self:DeletePoll(button.pollId) end)
+        card.delete:SetScript("OnClick", function(button)
+            local id = button.pollId
+            self:ConfirmAction("Delete poll?", "Permanently delete this poll and all its votes: " .. self:Display(poll.question),
+                function() return self:DeletePoll(id) end, "Delete")
+        end)
         local offset = titleHeight + 44
         local barWidth = width - 24
         local palette = {{0.05, 0.75, 1}, {1, 0.18, 0.38}, {0.2, 1, 0.45}, {0.8, 0.25, 1}}

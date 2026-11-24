@@ -132,20 +132,5 @@ GD:RegisterCommand("craft", function(rest)
         if needle == "" then print("GuildDB: Use /gd craft who Recipe or profession."); return end
         local matches = GD:FindGuildCrafters(needle)
         print(#matches > 0 and ("GuildDB crafters: " .. table.concat(matches, "; ")) or "GuildDB: No online member lists that profession or recipe in their profile.")
-    else GD.activeTab = "Crafting"; GD:Open() end
-end)
-
-GD:RegisterTab("Crafting", function()
-    if not GD.bucket then return "Join a guild to see crafting requests." end
-    local requests = activeRequests()
-    if #requests == 0 then return "No active crafting requests. Use /gd craft request Item | Details to post one." end
-    local lines = { "Crafting requests · posts expire after 7 days", "Use /gd craft claim # to claim; /gd craft done # to close; /gd craft who Recipe to search online profiles.", "" }
-    for index, entry in ipairs(requests) do
-        local days = math.max(1, math.ceil((entry.expires - time()) / (24 * 60 * 60)))
-        lines[#lines + 1] = ("%d. %s · %s · %d day(s) left"):format(index, GD:Display(entry.item), entry.status:upper(), days)
-        if entry.details ~= "" then lines[#lines + 1] = GD:Display(entry.details) end
-        lines[#lines + 1] = entry.status == "claimed" and ("Claimed by " .. GD:Display(entry.crafter)) or ("Requested by " .. GD:Display(entry.by))
-        lines[#lines + 1] = ""
-    end
-    return table.concat(lines, "\n")
+    else GD.activeTab = "Requests"; GD:Open() end
 end)

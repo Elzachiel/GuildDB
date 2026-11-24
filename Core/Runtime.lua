@@ -2,7 +2,7 @@
 local ADDON, GD = ...
 _G.GuildDB = GD
 
-GD.version = "0.2.47"
+GD.version = "0.2.51"
 -- New-member tracking begins with this release; keep this anchor on later bumps.
 GD.recentJoinsVersion = "0.1.88"
 GD.recentJoinsStart = 1795285809
@@ -280,7 +280,6 @@ local function sendRaw(message)
     }
     GD.lastAddonSendByKind = GD.lastAddonSendByKind or {}
     GD.lastAddonSendByKind[GD.lastAddonSend.kind] = GD.lastAddonSend
-    if GD.lastAddonSend.kind == "ML" and GD.activeTab == "Map" and GD.RefreshUI then GD:RefreshUI() end
     return ok and (result == nil or result == true or result == 0)
 end
 
@@ -469,7 +468,6 @@ local function receivePayload(payload, sender)
                 GD.mapLastInboundSender = sender
             end
             parseRecord(payload, sender)
-            if payload:match("^ML|") and GD.activeTab == "Map" and GD.RefreshUI then GD:RefreshUI() end
         end
     end
 end
@@ -538,7 +536,7 @@ local function slashCommand(message)
     end
     local handler = GD.commands[command]
     if handler then handler(rest or "") else
-        print("GuildDB commands: /gd version, /gd bankapi, /gd sync, /gd profile, /gd spec, /gd map, /gd guide, /gd looking, /gd craft, /gd poll, /gd pvp, /gd raid, /gd event, /gd rsvp, /gd post, /gd shout, /gd recruit, /gd testpopout")
+        print("GuildDB commands: /gd version, /gd bankapi, /gd sync, /gd profile, /gd spec, /gd map, /gd looking, /gd craft, /gd poll, /gd pvp, /gd raid, /gd event, /gd rsvp, /gd post, /gd shout, /gd recruit, /gd testpopout")
     end
 end
 
@@ -597,6 +595,7 @@ frame:SetScript("OnUpdate", function(_, elapsed)
         end
     end
     if GD.MapUpdate then GD:MapUpdate(now, elapsed) end
+    if GD.RaidReminderUpdate then GD:RaidReminderUpdate(now) end
 end)
 
 frame:SetScript("OnEvent", function(_, event, ...)

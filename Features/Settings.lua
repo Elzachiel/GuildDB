@@ -1,7 +1,13 @@
 -- Personal preferences plus per-guild, officer-managed feature visibility.
 local _, GD = ...
 
-local defaults = { onlineOnly = true, scale = 1, popups = true, levelGuildChat = false, shareMapLocation = false, accentColor = 1, uiTheme = 1, showMinimapButton = true, minimapAngle = 225 }
+local defaults = { onlineOnly = true, scale = 1, popups = true, raidReminders = true, levelGuildChat = false, shareMapLocation = false, accentColor = 1, uiTheme = 1, showMinimapButton = true, minimapAngle = 225 }
+
+function GD:ResetAppearance()
+    self:SetSetting("accentColor", defaults.accentColor)
+    self:SetSetting("uiTheme", defaults.uiTheme)
+    return true, "Appearance reset to class color and Midnight."
+end
 
 local function settings()
     if type(GDB) ~= "table" then GDB = {} end
@@ -24,6 +30,15 @@ function GD:GetSetting(key)
     if key:sub(1, 8) == "feature:" then
         local tab = key:sub(9)
         local guildSettings = self.bucket and self.bucket.guildSettings
+        if tab == "Guild Achievements" and guildSettings and guildSettings.features
+            and guildSettings.features["Guild Achievements"] == nil and guildSettings.features.Activity ~= nil then
+            return guildSettings.features.Activity ~= false
+        end
+        if tab == "Requests" and guildSettings and guildSettings.features
+            and guildSettings.features.Requests == nil
+            and (guildSettings.features["Looking For"] ~= nil or guildSettings.features.Crafting ~= nil) then
+            return guildSettings.features["Looking For"] ~= false or guildSettings.features.Crafting ~= false
+        end
         if tab == "Home" and guildSettings and guildSettings.features
             and guildSettings.features.Home == nil and guildSettings.features.Announcements ~= nil then
             return guildSettings.features.Announcements ~= false
@@ -420,16 +435,17 @@ local function build(parent)
     check(personalPanel, "Guild chat ding for level milestones", "levelGuildChat", 12, -102, list)
     check(personalPanel, "Share my location with GuildDB members", "shareMapLocation", 12, -132, list)
     check(personalPanel, "Show minimap button", "showMinimapButton", 12, -162, list)
-    label(personalPanel, "Window scale", 12, -208, "GameFontNormal", list)
-    local scaleText = label(personalPanel, "", 105, -208, "GameFontHighlight", list)
+    check(personalPanel, "15-minute raid/event reminders (Going or Maybe)", "raidReminders", 12, -192, list)
+    label(personalPanel, "Window scale", 12, -238, "GameFontNormal", list)
+    local scaleText = label(personalPanel, "", 105, -238, "GameFontHighlight", list)
     local function updateScale()
         scaleText:SetText(("%d%%"):format(math.floor((GD:GetSetting("scale") or 1) * 100 + 0.5)))
     end
-    local scaleDown = makeButton(personalPanel, "-", 32, 160, -200, function()
+    local scaleDown = makeButton(personalPanel, "-", 32, 160, -230, function()
         GD:SetSetting("scale", math.max(0.8, math.floor(((GD:GetSetting("scale") or 1) - 0.1) * 10 + 0.5) / 10))
         updateScale()
     end, list)
-    local scaleUp = makeButton(personalPanel, "+", 32, 200, -200, function()
+    local scaleUp = makeButton(personalPanel, "+", 32, 200, -230, function()
         GD:SetSetting("scale", math.min(1.2, math.floor(((GD:GetSetting("scale") or 1) + 0.1) * 10 + 0.5) / 10))
         updateScale()
     end, list)
@@ -437,12 +453,16 @@ local function build(parent)
     scaleUp:GetFontString():SetFontObject("GameFontNormalLarge")
     updateScale()
 
-    label(appearancePanel, "Accent color", 12, -18, "GameFontNormal", list)
+    local openAppearanceMenu
+    label(appearancePanel, "Accent color", 12, -14, "GameFontNormal", list)
     local choices = GD.GetAccentChoices and GD:GetAccentChoices() or {}
-    local accentText = label(appearancePanel, "", 112, -18, "GameFontHighlight", list)
+    local accentText
+    accentText = makeButton(appearancePanel, "", 200, 12, -38, function()
+        openAppearanceMenu(accentText, "accentColor")
+    end, list)
     local accentSwatch = appearancePanel:CreateTexture(nil, "ARTWORK")
     accentSwatch:SetSize(18, 18)
-    accentSwatch:SetPoint("TOPLEFT", 282, -14)
+    accentSwatch:SetPoint("LEFT", accentText, "RIGHT", 10, 0)
     list[#list + 1] = accentSwatch
     local function updateAccent()
         local index = GD:GetSetting("accentColor") or 1
@@ -450,20 +470,23 @@ local function build(parent)
         local names = { "Class color", "Blue", "Violet", "Teal", "Coral", "Amber", "Rose" }
         local className
         if UnitClass then local name = UnitClass("player"); className = name end
-        accentText:SetText(index == 1 and (className or "Class") or names[index] or names[1])
+        accentText:SetText((index == 1 and ("Class color (" .. (className or "Class") .. ")") or names[index] or names[1]) .. "  v")
         accentSwatch:SetColorTexture(color[1], color[2], color[3], 1)
     end
-    label(appearancePanel, "Theme", 12, -70, "GameFontNormal", list)
+    label(appearancePanel, "Theme", 280, -14, "GameFontNormal", list)
     local themeChoices = GD.GetThemeChoices and GD:GetThemeChoices() or {}
-    local themeText = label(appearancePanel, "", 112, -70, "GameFontHighlight", list)
+    local themeText
+    themeText = makeButton(appearancePanel, "", 200, 280, -38, function()
+        openAppearanceMenu(themeText, "uiTheme")
+    end, list)
     local themeSwatch = appearancePanel:CreateTexture(nil, "ARTWORK")
     themeSwatch:SetSize(30, 18)
-    themeSwatch:SetPoint("TOPLEFT", 282, -66)
+    themeSwatch:SetPoint("LEFT", themeText, "RIGHT", 10, 0)
     list[#list + 1] = themeSwatch
     local function updateTheme()
         local index = GD:GetSetting("uiTheme") or 1
         local theme = themeChoices[index] or themeChoices[1]
-        themeText:SetText(theme and theme.name or "Midnight")
+        themeText:SetText((theme and theme.name or "Midnight") .. "  v")
         if theme then themeSwatch:SetColorTexture(theme.panel[1], theme.panel[2], theme.panel[3], 1) end
     end
     GD.RefreshSettingsAppearance = function()
@@ -484,29 +507,66 @@ local function build(parent)
             end
         end
     end
-    local accentPrevious = makeButton(appearancePanel, "<", 28, 220, -10, function()
-        GD:SetSetting("accentColor", ((GD:GetSetting("accentColor") or 1) - 2) % #choices + 1)
-        updateAccent()
-    end, list)
-    local accentNext = makeButton(appearancePanel, ">", 28, 244, -10, function()
-        GD:SetSetting("accentColor", (GD:GetSetting("accentColor") or 1) % #choices + 1)
-        updateAccent()
-    end, list)
-    accentPrevious.GuildDBAccent, accentNext.GuildDBAccent = true, true
+    local menu = CreateFrame("Frame", "GuildDBAppearanceMenu", UIParent, "BackdropTemplate")
+    menu:SetFrameStrata("TOOLTIP")
+    menu:SetClampedToScreen(true)
+    menu:EnableMouse(true)
+    menu:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8", edgeFile = "Interface/Buttons/WHITE8X8", edgeSize = 1 })
+    menu.rows = {}
+    menu:Hide()
+    UISpecialFrames = UISpecialFrames or {}
+    table.insert(UISpecialFrames, "GuildDBAppearanceMenu")
+    appearancePanel:HookScript("OnHide", function() menu:Hide() end)
+    menu:SetScript("OnUpdate", function()
+        if IsMouseButtonDown and MouseIsOver and IsMouseButtonDown("LeftButton")
+            and not MouseIsOver(menu) and not MouseIsOver(menu.owner) then menu:Hide() end
+    end)
+    openAppearanceMenu = function(control, key)
+        if menu:IsShown() and menu.owner == control then menu:Hide(); return end
+        menu.owner = control
+        local accent = key == "accentColor"
+        local options = accent and choices or themeChoices
+        local names = { "Class color", "Blue", "Violet", "Teal", "Coral", "Amber", "Rose" }
+        menu:SetSize(control:GetWidth(), #options * 28 + 8)
+        menu:ClearAllPoints()
+        menu:SetPoint("TOPLEFT", control, "BOTTOMLEFT", 0, -3)
+        GD:StyleSurface(menu)
+        for index, option in ipairs(options) do
+            local row = menu.rows[index]
+            if not row then
+                row = CreateFrame("Button", nil, menu, "UIPanelButtonTemplate")
+                row.swatch = row:CreateTexture(nil, "OVERLAY")
+                row.swatch:SetSize(14, 14)
+                row.swatch:SetPoint("LEFT", 8, 0)
+                menu.rows[index] = row
+            end
+            local selectedIndex = index
+            row:SetSize(menu:GetWidth() - 8, 26)
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", 4, -4 - (index - 1) * 28)
+            row:SetText(accent and names[index] or option.name)
+            local color = accent and option or option.panel
+            row.swatch:SetColorTexture(color[1], color[2], color[3], 1)
+            GD:StyleButton(row, GD:GetSetting(key) == index and "primary" or nil)
+            row:SetScript("OnClick", function()
+                menu:Hide()
+                GD:SetSetting(key, selectedIndex)
+                updateAccent()
+                updateTheme()
+            end)
+            row:Show()
+        end
+        for index = #options + 1, #menu.rows do menu.rows[index]:Hide() end
+        menu:Show()
+    end
     updateAccent()
-    local themePrevious = makeButton(appearancePanel, "<", 28, 220, -62, function()
-        GD:SetSetting("uiTheme", ((GD:GetSetting("uiTheme") or 1) - 2) % #themeChoices + 1)
-        updateTheme()
-    end, list)
-    local themeNext = makeButton(appearancePanel, ">", 28, 244, -62, function()
-        GD:SetSetting("uiTheme", (GD:GetSetting("uiTheme") or 1) % #themeChoices + 1)
-        updateTheme()
-    end, list)
-    themePrevious.GuildDBAccent, themeNext.GuildDBAccent = true, true
     updateTheme()
-
-    label(personalPanel, "Data", 12, -250, "GameFontNormalLarge", list)
-    makeButton(personalPanel, "Re-sync now", 120, 12, -280, function()
+    makeButton(appearancePanel, "Reset Appearance", 156, 12, -92, function()
+        menu:Hide()
+        GD:ResetAppearance()
+    end, list)
+    label(personalPanel, "Data", 12, -280, "GameFontNormalLarge", list)
+    makeButton(personalPanel, "Re-sync now", 120, 12, -310, function()
         local _, message = GD:RequestSync()
         print("GuildDB: " .. tostring(message))
     end, list)
@@ -516,8 +576,8 @@ local function build(parent)
             for _ in pairs(bucket) do records = records + 1 end
         end
     end
-    label(personalPanel, ("Stored records: %d"):format(records), 12, -320, "GameFontDisableSmall", list)
-    local featureStatus = label(personalPanel, "", 12, -342, "GameFontDisableSmall", list)
+    label(personalPanel, ("Stored records: %d"):format(records), 12, -350, "GameFontDisableSmall", list)
+    local featureStatus = label(personalPanel, "", 12, -372, "GameFontDisableSmall", list)
     featureStatus.update = function()
         featureStatus:SetText(not GD.guildName and "Guild tabs: join a guild to sync." or
             (GD:HasGuildFeatureSettings() and "Guild tabs: saved guild settings loaded." or "Guild tabs: waiting for guild settings..."))
@@ -633,11 +693,15 @@ local function build(parent)
     end
     pvpPanel.update = updatePvpRanks
 
-    makeButton(personalPanel, "Reset personal settings", 172, 12, -360, function()
-        for key, value in pairs(defaults) do GD:SetSetting(key, value) end
-        updateScale()
-        updateAccent()
-        GD:RefreshUI()
+    makeButton(personalPanel, "Reset personal settings", 172, 12, -390, function()
+        GD:ConfirmAction("Reset personal settings?", "Restore all your personal preferences, including appearance, scale, popups, minimap and location sharing, to their defaults.", function()
+            for key, value in pairs(defaults) do GD:SetSetting(key, value) end
+            updateScale()
+            updateAccent()
+            updateTheme()
+            GD:RefreshUI()
+            return true, "Personal settings reset."
+        end, "Reset")
     end, list)
     for _, item in ipairs(list) do
         if item.update then item.update() end

@@ -3,7 +3,17 @@ local _, GD = ...
 GD:RegisterBucket("shoutouts", function() return {} end)
 
 local function clean(value)
-    return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    return tostring(value or ""):gsub("[%c|]", " "):gsub("^%s+", ""):gsub("%s+$", "")
+end
+
+function GD:GetGuildShoutouts()
+    local records = {}
+    for _, record in ipairs(self.bucket and self.bucket.shoutouts or {}) do records[#records + 1] = record end
+    table.sort(records, function(a, b)
+        if a.ts ~= b.ts then return a.ts > b.ts end
+        return a.id < b.id
+    end)
+    return records
 end
 
 function GD:PostShoutout(target, text)

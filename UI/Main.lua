@@ -51,11 +51,11 @@ local function applyAccent(frame)
         if row.selectedMarker then row.selectedMarker:SetColorTexture(r, g, b, 1) end
     end
     if frame.pvpTitleSeason then frame.pvpTitleSeason:SetTextColor(r, g, b) end
-    for _, key in ipairs({ "pvpMyButton", "pvpSeasonButton", "pvpDeleteButton", "pvpWipeButton", "pvpScopeButton", "contentActionButton", "profileEditButton", "rosterInviteButton", "rosterRankDropdown", "craftSearchButton", "eventCreateButton", "eventCreateTypeButton" }) do
+    for _, key in ipairs({ "pvpMyButton", "pvpSeasonButton", "pvpDeleteButton", "pvpWipeButton", "pvpScopeButton", "contentActionButton", "profileEditButton", "rosterInviteButton", "rosterRankDropdown", "eventCreateButton", "eventCreateTypeButton" }) do
         local button = frame[key]
         local combatRankControl = key == "rosterRankDropdown" and InCombatLockdown and InCombatLockdown()
         if not combatRankControl and button and button.GetObjectType and button:GetObjectType() == "Button" then
-            local primary = key == "pvpSeasonButton" or key == "contentActionButton" or key == "profileEditButton" or key == "craftSearchButton"
+            local primary = key == "pvpSeasonButton" or key == "contentActionButton" or key == "profileEditButton"
             GD:StyleButton(button, primary and "primary" or nil)
         end
     end
@@ -853,6 +853,21 @@ end
 
 GD.ShowInputForm = showInputForm
 
+function GD:ConfirmAction(title, message, onAccept, acceptLabel, requiredText)
+    local fields = {
+        { label = "Please confirm", value = message, multiline = true, readOnly = true },
+    }
+    if requiredText then
+        fields[#fields + 1] = { label = "Type " .. requiredText .. " to confirm", value = "", max = 20 }
+    end
+    return self.ShowInputForm(title, fields, function(values)
+        if requiredText and tostring(values[2] or ""):match("^%s*(.-)%s*$") ~= requiredText then
+            return false, "Type " .. requiredText .. " to confirm."
+        end
+        return onAccept()
+    end, acceptLabel or "Confirm")
+end
+
 local function calendarSettingsFromForm(values, offset)
     local inviteChoice = values[offset + 2]
     return {
@@ -1299,16 +1314,14 @@ local function build()
     frame.pvpWipeButton:SetText("Wipe All Stats")
     frame.pvpWipeButton:SetScript("OnClick", function()
         if not GD:CanManagePvPSeason() then return end
-        showInputForm("Wipe All PvP Stats?", {
-            { label = "Permanently erases PvP stats for the whole guild.", value = "All-time totals, kills, deaths, history and every season will be erased. You can then start a new Season 1.", multiline = true, readOnly = true },
-        }, function()
+        GD:ConfirmAction("Wipe All PvP Stats?", "Permanently erase PvP stats for the whole guild: all-time totals, kills, deaths, history, bounties, rivalries and every season. This cannot be undone.", function()
             local ok, result = GD:WipePvPStats()
             if ok then
                 frame.pvpSelectedStart, frame.pvpAllTime = nil, false
                 GD:RefreshUI()
             end
             return ok, result
-        end, "Wipe All", true)
+        end, "Wipe All", "WIPE")
     end)
     frame.pvpScopeButton = CreateFrame("Button", nil, frame.detailPanel, "UIPanelButtonTemplate")
     GD:StyleButton(frame.pvpScopeButton)
@@ -1430,23 +1443,6 @@ local function build()
                 { label = "Title", value = "", max = 120 },
                 { label = "Message", value = "", max = 600, multiline = true },
             }, function(values) return GD:PostAnnouncement(values[1], values[2]) end, "Post")
-        elseif tab == "Guide" then
-            local guide = GD.bucket and GD.bucket.guide or {}
-            showInputForm("Edit guild guide", {
-                { label = "Guild rules", value = guide.rules or "", max = 700, multiline = true },
-                { label = "Loot rules", value = guide.loot or "", max = 700, multiline = true },
-            }, function(values) return GD:SetGuide(values[1], values[2]) end)
-        elseif tab == "Looking For" then
-            showInputForm("Post a group request", {
-                { label = "Role", value = "DPS", max = 60 },
-                { label = "Activity", value = "", max = 100 },
-                { label = "Details", value = "", max = 250, multiline = true },
-            }, function(values) return GD:PostLookingRequest(values[1], values[2], values[3]) end)
-        elseif tab == "Crafting" then
-            showInputForm("Request a craft", {
-                { label = "Item or recipe", value = "", max = 100 },
-                { label = "Details", value = "", max = 300, multiline = true },
-            }, function(values) return GD:PostCraftingRequest(values[1], values[2]) end)
         elseif tab == "Polls" then
             showInputForm("Create a guild poll", {
                 { label = "Question", value = "", max = 120 },
@@ -1491,26 +1487,7 @@ local function build()
     frame.rosterInviteButton:RegisterForClicks("LeftButtonUp")
     frame.rosterInviteButton:SetText("Invite to group")
     frame.rosterInviteButton:SetScript("OnClick", function()
-        local name = GD.selectedRosterName
-        if not name then
-            print("GuildDB: Select a roster member first.")
-            return
-        end
-
-        -- WoW Forever exposes party invites through the C_PartyInfo namespace.
-        -- Keep legacy aliases for other Classic-compatible clients.
-        local invite = InviteByName or InviteUnit
-        local partyInfo = C_PartyInfo
-        if not invite and type(partyInfo) == "table" and type(partyInfo.InviteUnit) == "function" then
-            invite = partyInfo.InviteUnit
-        end
-        if not invite then
-            print("GuildDB: This client does not expose a group invite function.")
-            return
-        end
-
-        local ok, err = pcall(invite, name)
-        if not ok then print("GuildDB: Could not invite " .. GD:Display(name) .. ": " .. tostring(err)) end
+        GD:InviteRosterMember(GD.selectedRosterName)
     end)
     -- Secure descendants make every parent protected, which prevents /gd from
     -- showing the main window in combat. Keep rank actions in a separate root.
@@ -1616,20 +1593,6 @@ local function build()
     end)
     dropdown:HookScript("PostClick", function(self)
         if self.rankSubmitted then GD:TrackRosterRankChange(self.rankName, self.rankValue, self.rankFrom) end
-    end)
-    frame.craftSearchButton = CreateFrame("Button", nil, frame.detailPanel, "UIPanelButtonTemplate")
-    GD:StyleButton(frame.craftSearchButton, "primary")
-    frame.craftSearchButton:SetSize(112, 26)
-    frame.craftSearchButton:SetPoint("RIGHT", frame.contentActionButton, "LEFT", -8, 0)
-    frame.craftSearchButton:SetText("Find crafter")
-    frame.craftSearchButton:SetScript("OnClick", function()
-        showInputForm("Find an online crafter", {
-            { label = "Profession or recipe", value = "", max = 80 },
-        }, function(values)
-            local matches = GD:FindGuildCrafters(values[1])
-            print(#matches > 0 and ("GuildDB crafters: " .. table.concat(matches, "; ")) or "GuildDB: No online member lists that profession or recipe in their profile.")
-            return true
-        end)
     end)
     frame.eventRows = {}
     frame.actionRows = {}
@@ -1780,6 +1743,7 @@ function GD:RefreshUI()
         self.selectedRosterName = self.profileTarget or self.selectedRosterName
         active, self.activeTab = "Roster", "Roster"
     end
+    if active ~= "Roster" then self:HideRosterActions() end
     frame.activeTab = active
     if active ~= "Settings" and self.GetSetting and not self:GetSetting("feature:" .. active) then
         active = "Settings"
@@ -1987,10 +1951,14 @@ function GD:RefreshUI()
                 cell:SetNonSpaceWrap(false)
                 row.columns[columnIndex] = cell
             end
-            row:SetScript("OnClick", function(self)
+            row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+            row:SetScript("OnClick", function(self, mouseButton)
+                local memberName = self.rosterName
+                GD:HideRosterActions()
                 GD.selectedSection = self.sectionIndex
-                GD.selectedRosterName = self.rosterName
+                GD.selectedRosterName = memberName
                 GD:RefreshUI()
+                if mouseButton == "RightButton" and memberName then GD:ShowRosterActions(self, memberName) end
             end)
             row:EnableMouseWheel(true)
             row:SetScript("OnMouseWheel", function(_, delta)
@@ -2076,11 +2044,12 @@ function GD:RefreshUI()
     frame.detailTitle:Show()
     frame.footer:Show()
     if frame.home then frame.home:Hide() end
+    if frame.requests then frame.requests:Hide() end
     if frame.guildInfo and active ~= "Guild Info" then frame.guildInfo:Hide() end
     if frame.analytics then frame.analytics:Hide() end
-    if frame.activity and active ~= "Activity" then frame.activity:Hide() end
+    if frame.activity and active ~= "Guild Achievements" then frame.activity:Hide() end
     if frame.recruitment and active ~= "Recruitment" then frame.recruitment:Hide() end
-    local isActionList = active == "Looking For" or active == "Crafting" or active == "Polls" or active == "Announcements"
+    local isActionList = active == "Polls" or active == "Announcements"
     frame.detailRule:SetShown(not isPvP and not isEvents and not isActionList)
     frame.detailMeta:SetShown(not isPvP and not isActionList)
     frame.detailScroll:ClearAllPoints()
@@ -2098,7 +2067,7 @@ function GD:RefreshUI()
     frame.pvpRivalSort:SetShown(isPvP and frame.pvpView == "Nemesis")
     frame.eventCreateButton:SetShown(isEvents and self:CanManage())
     frame.eventCreateTypeButton:Hide()
-    local actionVisible = active == "Profiles" or active == "Looking For" or active == "Crafting" or (active == "Polls" and self:CanManage()) or ((active == "Announcements" or active == "Guide") and self:CanManage())
+    local actionVisible = active == "Profiles" or (active == "Polls" and self:CanManage()) or (active == "Announcements" and self:CanManage())
     frame.contentActionButton:SetShown(actionVisible)
     frame.contentActionButton:EnableMouse(true)
     frame.contentActionButton:ClearAllPoints()
@@ -2107,17 +2076,10 @@ function GD:RefreshUI()
     frame.profileEditButton:SetShown(active == "Roster")
     frame.rosterInviteButton:SetShown(active == "Roster" and self.selectedRosterName ~= nil)
     if active ~= "Roster" then self:RefreshRosterRankControls(nil) end
-    frame.craftSearchButton:SetShown(active == "Crafting")
     if active == "Announcements" then
         frame.contentActionButton:SetText("New post")
     elseif active == "Profiles" then
         frame.contentActionButton:SetText("Edit my profile")
-    elseif active == "Guide" then
-        frame.contentActionButton:SetText("Edit guide")
-    elseif active == "Looking For" then
-        frame.contentActionButton:SetText("New request")
-    elseif active == "Crafting" then
-        frame.contentActionButton:SetText("Request a craft")
     elseif active == "Polls" then
         frame.contentActionButton:SetText("New poll")
     end
@@ -2506,14 +2468,15 @@ function GD:RefreshUI()
                         for _, candidate in ipairs(GD.bucket and GD.bucket.events or {}) do
                             if candidate.id == eventId then current = candidate.rsvps and candidate.rsvps[player]; break end
                         end
-                        current = type(current) == "table" and current or {}
+                        current = type(current) == "table" and current or { status = current }
+                        local defaultRole, defaultSpec = GD:GetRaidSignupDefaults(current, profile)
                         local className = GD:GetRaidPlayerClass(player)
                         local attendance = current.status == "tentative" and "Maybe" or current.status == "absent" and "Absent" or "Going"
                         showInputForm("Your raid signup", {
                             { label = "Attendance", value = attendance, options = { "Going", "Maybe", "Absent" } },
                             { label = "Class (detected automatically)", value = className, readOnly = true },
-                            { label = "Spec (e.g. Holy, Protection, Fury)", value = current.spec or (profile and profile.spec) or "", max = 60 },
-                            { label = "Role", value = current.role or "DPS", options = { "Tank", "Healer", "DPS" } },
+                            { label = "Spec (e.g. Holy, Protection, Fury)", value = defaultSpec, max = 60 },
+                            { label = "Role", value = defaultRole, options = { "Tank", "Healer", "DPS" } },
                             { label = "Note (availability, late arrival, etc.)", value = current.note or "", max = 100 },
                         }, function(values)
                             local attendanceStatus = values[1] == "Going" and "going" or values[1] == "Maybe" and "tentative" or "absent"
@@ -2579,8 +2542,13 @@ function GD:RefreshUI()
                 stat.value:SetTextColor(unpack(statColors[index]))
             end
             local statusLabel = myStatus == "going" and "Going" or myStatus == "tentative" and "Maybe" or myStatus == "absent" and "Absent" or "Not signed up"
+            local needsSignup = self:NeedsRaidSignup(event)
             row.personalStatus:SetWidth(math.max(180, frame.detailChild:GetWidth() - 48))
-            row.personalStatus:SetText("Your signup: " .. statusLabel .. (counts.unassigned > 0 and ("  |  " .. counts.unassigned .. " attending without a role") or ""))
+            local signupText = needsSignup and (calendarSettings.locked and "SIGNUP MISSING - signups are locked; contact an officer" or "SIGNUP NEEDED - choose Going, Maybe, or Absent")
+                or ("Your signup: " .. statusLabel)
+            row.personalStatus:SetText(signupText .. (counts.unassigned > 0 and ("  |  " .. counts.unassigned .. " attending without a role") or ""))
+            if needsSignup then row.personalStatus:SetTextColor(1, 0.78, 0.35)
+            else row.personalStatus:SetTextColor(CREAM[1], CREAM[2], CREAM[3]) end
             row.withdrawButton.eventId = event.id
             row.withdrawButton:SetShown(not event.preview and mine ~= nil)
             local widths = { 0.24, 0.18, 0.25, 0.14, 0.19 }
@@ -2758,6 +2726,14 @@ function GD:RefreshUI()
         frame.detailBody:Hide()
         frame.detailTitle:SetText("POLLS")
         self:RefreshPollCards(frame)
+    elseif active == "Requests" then
+        self:HideSettingsControls()
+        frame.detailBody:Hide()
+        frame.detailScroll:Hide()
+        frame.detailTitle:SetText("REQUESTS")
+        frame.detailMeta:Hide()
+        frame.detailRule:Hide()
+        self:RefreshRequests(frame, showInputForm)
     elseif isActionList then
         self:HideSettingsControls()
         frame.detailBody:Hide()
@@ -2843,32 +2819,13 @@ function GD:RefreshUI()
                         }, function(values) return self:EditAnnouncement(postId, values[1], values[2]) end)
                     end }
                     actions[#actions + 1] = { label = "Delete", click = function()
-                        local _, message = self:DeleteAnnouncement(postId)
-                        print("GuildDB: " .. tostring(message))
+                        self:ConfirmAction("Delete announcement?", "Permanently delete this guild announcement: " .. self:Display(postTitle),
+                            function() return self:DeleteAnnouncement(postId) end, "Delete")
                     end }
                 end
                 local title = postTitle ~= "" and postTitle or "Announcement"
                 local meta = "By " .. self:Display(post.by or "Guild member") .. "  ·  " .. date("%b %d, %I:%M %p", post.ts or time())
                 addActionRow(self:Display(title), meta, actions, self:Display(postText))
-            end
-        elseif active == "Looking For" then
-            entries = self.GetActiveLookingRequests and self:GetActiveLookingRequests() or {}
-            for _, entry in ipairs(entries) do
-                local requestId = entry.id
-                local canClose = self:CanManage() or entry.by:lower() == ((UnitName and UnitName("player")) or ""):lower()
-                local actions = {}
-                if canClose then actions[1] = { label = "Close", click = function() self:CloseLookingRequest(requestId) end } end
-                addActionRow(self:Display(entry.role) .. "  -  " .. self:Display(entry.activity), "By " .. self:Display(entry.by) .. "  -  " .. tostring(math.max(1, math.ceil((entry.expires - time()) / 60))) .. " min left  -  " .. self:Display(entry.details), actions)
-            end
-        elseif active == "Crafting" then
-            entries = self.GetActiveCraftingRequests and self:GetActiveCraftingRequests() or {}
-            local player = UnitName and UnitName("player") or ""
-            for _, entry in ipairs(entries) do
-                local requestId = entry.id
-                local actions = {}
-                if entry.status == "pending" then actions[#actions + 1] = { label = "Claim", click = function() self:ChangeCraftingRequest(requestId, false) end } end
-                if entry.status == "claimed" and (entry.crafter:lower() == player:lower() or entry.by:lower() == player:lower() or self:CanManage()) then actions[#actions + 1] = { label = "Complete", click = function() self:ChangeCraftingRequest(requestId, true) end } end
-                addActionRow(self:Display(entry.item) .. "  -  " .. entry.status:upper(), "By " .. self:Display(entry.by) .. (entry.crafter ~= "" and ("  -  Claimed by " .. self:Display(entry.crafter)) or "") .. "  -  " .. self:Display(entry.details), actions)
             end
         end
         if #entries == 0 then
@@ -2891,7 +2848,7 @@ function GD:RefreshUI()
     if active == "Home" and self.RefreshHome then self:RefreshHome() end
     if active == "Guild Info" and self.RefreshGuildInfo then self:RefreshGuildInfo() end
     if active == "Analytics" and self.RefreshAnalytics then self:RefreshAnalytics() end
-    if active == "Activity" and self.RefreshActivity then self:RefreshActivity() end
+    if active == "Guild Achievements" and self.RefreshActivity then self:RefreshActivity() end
     if active == "Recruitment" and self.RefreshRecruitment then self:RefreshRecruitment() end
 end
 
