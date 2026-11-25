@@ -209,7 +209,7 @@ function GD:GetDKPSyncReport()
         local status
         if member.fingerprint then status = member.fingerprint == check.fingerprint and "Confirmed" or "Different data"
         elseif not member.online then status = "Offline"
-        elseif time() - check.ts > 15 then status = "No response"
+        elseif GD:GetDKPTime() - check.ts > 15 then status = "No response"
         else status = "Waiting for reply" end
         lines[#lines + 1] = self:Display(member.name) .. " - " .. status
     end
@@ -236,6 +236,18 @@ function GD:ShowDKPSyncStatus()
     w.report:SetText(lines); w.report:SetTextColor(unpack(colors.text))
     w.content:SetHeight(math.max(350, (w.report:GetStringHeight() or 350) + 16))
     self:StyleButton(w.check); w:Show()
+end
+
+function GD:ShowDKPMasterLootSettings()
+    if not self:CanConfigureDKP() then return end
+    self.ShowInputForm("DKP Master Loot", {
+        { label = "Auto-give boss loot to auction winners", checkbox = true, value = self:GetSetting("dkpAutoMasterLoot") },
+        { label = "How it works", value = "Personal setting for the GM/officer acting as Master Looter.\nOpen boss loot before starting bidding and keep it open.\nOnly the original unique loot slot is used. The winner must be an eligible Master Loot recipient.\nGame confirmations may still require a click. Bags, ambiguous drops, combat or unavailable loot stay Pending for manual delivery.", readOnly = true, multiline = true, max = 700 },
+    }, ownedBucket(function(values)
+        if not self:CanConfigureDKP() then return false, "Only officers can change Master Loot preferences." end
+        self:SetSetting("dkpAutoMasterLoot", values[1] == true)
+        return true, values[1] and "Automatic Master Loot enabled for your character. Open boss loot before starting the auction." or "Automatic Master Loot disabled. Distribute items manually."
+    end), "Save")
 end
 
 function GD:ShowDKPAlertSettings()
@@ -583,7 +595,7 @@ end
 local function updateTimer(bar, record)
     if not record then return end
     local a, colors = record.data, GD:GetAppearanceColors()
-    local remaining = math.max(0, a.ends - time())
+    local remaining = math.max(0, a.ends - GD:GetDKPTime())
     local status = GD:GetDKPAuctionStatus(record)
     local clock = GetTime and GetTime()
     if clock and remaining > 0 then
@@ -738,7 +750,7 @@ local function buildPopup()
     frame.officerControls:Hide()
     frame.officerTitle = label(frame.officerControls, "GameFontNormalSmall", 10, -8)
     frame.officerTitle:SetText("OFFICER CONTROLS")
-    frame.stop = button(frame.officerControls, "Close bidding", 140, function() report(GD:CloseDKPAuction(frame.auctionID)) end)
+    frame.stop = button(frame.officerControls, "End auction", 140, function() report(GD:FinishDKPAuction(frame.auctionID)) end)
     frame.stop:SetPoint("BOTTOMLEFT", 10, 10)
     frame.award = button(frame.officerControls, "Confirm winner", 140, function()
         local r = GD:GetDKPAuction(frame.auctionID); local leader = GD:GetDKPAuctionLeader(r)
@@ -773,7 +785,7 @@ function GD:ShowDKPAuctionPopup(auctionID)
     if not self:IsDKPEnabled() or not self:GetDKPAuction(auctionID) then return end
     if popupBucket ~= self:GetDKPBucket() then popupBucket, dismissed = self:GetDKPBucket(), savedDismissals() end
     popup = popup or buildPopup()
-    popup.manual = true; popup.auctionID = auctionID; popup.initializedID = nil
+    popup.manual = true; popup.auctionID = auctionID; popup.initializedID = nil; popup.wasLive = false
     savedPopupState("dkpAuctionPresented")[auctionID] = true
     self:RefreshDKPAuctionPopup()
 end
@@ -791,7 +803,7 @@ function GD:RefreshDKPAuctionPopup()
     local inAuctionGroup = active and auctionGroupPresent(active)
         and (self:CanBidDKPAuction(active, self:PlayerName()) or isHost(active))
     if active and not dismissed[active.id] and not presented[active.id] and self:GetDKPBucket().dkpAuctionPopups ~= false
-        and self:GetDKPAuctionStatus(active) == "OPEN" and time() < active.data.ends and inAuctionGroup then
+        and self:GetDKPAuctionStatus(active) == "OPEN" and GD:GetDKPTime() < active.data.ends and inAuctionGroup then
         popup = popup or buildPopup()
         if not popup.manual then popup.auctionID = active.id; presented[active.id] = true end
     end
@@ -815,7 +827,7 @@ function GD:RefreshDKPAuctionPopup()
     popup.title:SetText(self:IsDKPSoloTesting() and "SOLO TEST - DKP Auction" or "DKP Auction")
     local itemInfo = self:GetDKPItemAppearance(a.item, a.label)
     popup.item:SetText(itemInfo.name); popup.icon:SetTexture(itemInfo.icon)
-    local remaining = math.max(0, a.ends - time())
+    local remaining = math.max(0, a.ends - GD:GetDKPTime())
     local status = self:GetDKPAuctionStatus(r)
     popup.status:SetText("Minimum " .. a.minimum .. " | Increase " .. a.increment .. " | Host: " .. self:Display(a.owner))
     updateTimer(popup.timer, r)
@@ -897,7 +909,10 @@ function GD:RefreshDKPAuctionPopup()
     for _, text in ipairs({ popup.status, popup.available, popup.feedback, popup.bidderColumns, popup.specHeader, popup.amountHeader }) do text:SetTextColor(unpack(colors.text)) end
     popup.leader:SetTextColor(unpack(colors.accent)); popup.bidderHeader:SetTextColor(unpack(colors.accent))
     popup.amount:SetBackdropColor(unpack(colors.panel)); popup.amount:SetTextColor(unpack(colors.text)); popup.amount:SetGuildDBFocusState(popup.amount:HasFocus())
-    popup:Show()
+    if not live and (popup.wasLive or not popup.manual) then
+        popup.wasLive = false; popup.manual = false; popup:Hide(); return
+    end
+    popup.wasLive = live; popup:Show()
 end
 
 local function buildWorkspace(panel)
@@ -995,7 +1010,7 @@ function GD:RefreshDKPWorkspace(panel)
                 confirm("Stop Stale Auction", "Stop this auction if its host disconnected?\nAvailable 60 seconds after the bidding deadline.\nNo DKP is charged for a cancelled auction.", ownedBucket(function() return self:StopStaleDKPRecording(active.id, "auction") end), "Stop")
             end }
         end
-        area.description:SetText("MS bids take priority over OS. Equal bids use acceptance order. Last-second bids extend the timer by 10 seconds. The host confirms the winner.")
+        area.description:SetText("MS bids take priority over OS. Equal bids use acceptance order. Last-second bids extend the shared deadline. At timeout, the host automatically awards the valid winner or cancels without a charge.")
         for _, r in ipairs(self:GetDKPSystemRecords("DKU")) do
             local a, current = r.data, r
             local leader = self:GetDKPAuctionLeader(r)
@@ -1057,7 +1072,8 @@ function GD:RefreshDKPWorkspace(panel)
         end
     elseif section == "Officer" then
         actions = { { "Starting DKP", function() self:ShowDKPStartingGrantForm() end },
-            { "Backup", function() self:ShowDKPBackup() end }, { "Restore", function() self:ShowDKPRestore() end } }
+            { "Backup", function() self:ShowDKPBackup() end }, { "Restore", function() self:ShowDKPRestore() end },
+            { "Master Loot", function() self:ShowDKPMasterLootSettings() end } }
         area.description:SetText("GM and rank-1 officer tools. Select a history entry to reverse it with a reason. Every character, including alts, has its own DKP and starting grant.")
         for _, r in ipairs(self:GetDKPAwardHistory(query)) do
             local entry = r

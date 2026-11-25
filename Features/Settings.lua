@@ -1,7 +1,7 @@
 -- Personal preferences plus per-guild, officer-managed feature visibility.
 local _, GD = ...
 
-local defaults = { onlineOnly = true, scale = 1, popups = true, raidReminders = true, levelGuildChat = false, shareMapLocation = false, accentColor = 1, uiTheme = 1, showMinimapButton = true, minimapAngle = 225, dkpAuctionWidth = 520, dkpAuctionHeight = 610, dkpOutbidSound = false, dkpOutbidFlash = false }
+local defaults = { onlineOnly = true, scale = 1, popups = true, raidReminders = true, levelGuildChat = false, shareMapLocation = false, accentColor = 1, uiTheme = 1, showMinimapButton = true, minimapAngle = 225, dkpAuctionWidth = 520, dkpAuctionHeight = 610, dkpOutbidSound = false, dkpOutbidFlash = false, dkpAutoMasterLoot = false }
 
 function GD:ResetAppearance()
     self:SetSetting("accentColor", defaults.accentColor)

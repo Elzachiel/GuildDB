@@ -1,5 +1,10 @@
 -- Officer-managed DKP activation, awards, deductions, standings and history.
 local _, GD = ...
+function GD:GetDKPTime()
+    local stamp = GetServerTime and GetServerTime()
+    if type(stamp) == "number" and stamp == stamp and stamp > 0 then return math.floor(stamp) end
+    return time()
+end
 function GD:GetDKPItemInfo(value)
     local query = C_Item and C_Item.GetItemInfo or GetItemInfo
     if query then return query(value) end
@@ -140,7 +145,7 @@ function GD:SetDKPEnabled(enabled)
     if not self:CanConfigureDKP() then return false, "Only the GM or rank 1 officers can enable or disable DKP during testing." end
     if type(enabled) ~= "boolean" then return false, "Choose whether DKP is enabled or disabled." end
     local previous = self:GetDKPBucket().dkpConfig or {}
-    local record = { enabled = enabled, ts = math.max(time(), (tonumber(previous.ts) or 0) + 1), by = self:PlayerName() }
+    local record = { enabled = enabled, ts = math.max(GD:GetDKPTime(), (tonumber(previous.ts) or 0) + 1), by = self:PlayerName() }
     self:GetDKPBucket().dkpConfig = record
     self:SendDKPRecord("DKE", "enabled", record.ts, record.by, enabled and "1" or "0")
     if enabled and self.RequestDKPAwards then self:RequestDKPAwards() end
@@ -153,7 +158,7 @@ end
 local pending = {}
 local function receive(id, ts, author, content, sender)
     if not GD:GetDKPBucket() or id ~= "enabled" or (content ~= "0" and content ~= "1")
-        or type(ts) ~= "number" or ts ~= ts or ts <= 0 or ts ~= math.floor(ts) or ts > time() + 60 then return end
+        or type(ts) ~= "number" or ts ~= ts or ts <= 0 or ts ~= math.floor(ts) or ts > GD:GetDKPTime() + 60 then return end
     local authorName, authorRank = rosterMember(author)
     local senderName, senderRank = rosterMember(sender)
     if (authorRank and authorRank > 1) or (senderRank and senderRank > 1) then return end
@@ -188,11 +193,11 @@ local requestBucket, lastRequest, replyBucket, lastReply
 function GD:RequestDKPSettings(immediate)
     if not self.guildName or not self:GetDKPBucket() then return false end
     if requestBucket ~= self:GetDKPBucket() then requestBucket, lastRequest = self:GetDKPBucket(), nil end
-    if lastRequest and time() - lastRequest < (immediate and 2 or 10) then return false end
-    lastRequest = time()
+    if lastRequest and GD:GetDKPTime() - lastRequest < (immediate and 2 or 10) then return false end
+    lastRequest = GD:GetDKPTime()
     if self:IsDKPEnabled() and self.RequestDKPAwards then self:RequestDKPAwards() end
     if self:CanConfigureDKP() and self:GetDKPBucket().dkpConfig and self:GetDKPBucket().dkpConfig.ts then sendConfig()
-    else self:SendDKPRecord("DKQ", "enabled", time(), self:PlayerName(), "") end
+    else self:SendDKPRecord("DKQ", "enabled", GD:GetDKPTime(), self:PlayerName(), "") end
     return true
 end
 GD:RegisterDKPRecordHandler("DKQ", function(id, ts, author, content, sender)
@@ -200,8 +205,8 @@ GD:RegisterDKPRecordHandler("DKQ", function(id, ts, author, content, sender)
     local member = rosterMember(sender)
     if not member then return end
     if replyBucket ~= GD:GetDKPBucket() then replyBucket, lastReply = GD:GetDKPBucket(), nil end
-    if lastReply and time() - lastReply < 2 then return end
-    lastReply = time()
+    if lastReply and GD:GetDKPTime() - lastReply < 2 then return end
+    lastReply = GD:GetDKPTime()
     sendConfig()
 end, 1)
 
@@ -312,9 +317,9 @@ local function adjustDKP(self, member, amount, reason, deduction)
     if not ok then return false, canonical end
     local author = rosterMember(self:PlayerName()) or self:PlayerName()
     local sequence = (tonumber(self:GetDKPBucket().dkpAwardSequence) or 0) + 1
-    local id = "dkp:" .. nameKey(author):gsub("[^%w]", ""):sub(1, 40) .. ":" .. time() .. ":" .. sequence .. ":" .. math.random(100000, 999999)
+    local id = "dkp:" .. nameKey(author):gsub("[^%w]", ""):sub(1, 40) .. ":" .. GD:GetDKPTime() .. ":" .. sequence .. ":" .. math.random(100000, 999999)
     if (self:GetDKPBucket().dkpAwards or {})[id] then return false, "Award ID already exists. Try again." end
-    local record = { id = id, ts = time(), by = author, member = canonical, amount = points, reason = note }
+    local record = { id = id, ts = GD:GetDKPTime(), by = author, member = canonical, amount = points, reason = note }
     if not applyAward(record) then return false, "The award could not be applied." end
     self:GetDKPBucket().dkpAwardSequence = sequence
     self:SendDKPRecord(deduction and "DKD" or "DKA", id, record.ts, author, awardContent(record))
@@ -347,7 +352,7 @@ function GD:GrantDKPStartingBalance(members)
     if not self:IsDKPEnabled() or not self:CanConfigureDKP() then return false, "Only the GM or rank 1 officers can grant starting DKP while DKP is enabled." end
     if type(members) ~= "table" or #members == 0 then return false, "Select at least one guild member." end
     local records, seen, skipped = {}, {}, 0
-    local author, ts = rosterMember(self:PlayerName()) or self:PlayerName(), time()
+    local author, ts = rosterMember(self:PlayerName()) or self:PlayerName(), GD:GetDKPTime()
     for _, member in ipairs(members) do
         local ok, canonical = self:ValidateDKPAward(member, STARTING_DKP, STARTING_REASON)
         if not ok then return false, canonical end
@@ -485,7 +490,7 @@ function GD:SetDKPStartingBid(item, amount)
     local bids = self:GetDKPBucket().dkpStartingBids
     local previous = bids[id]
     if previous and label == "Item " .. id then label = previous.label end
-    local record = { amount = amount, label = label, ts = math.max(time(), previous and previous.ts + 1 or 0), by = self:PlayerName() }
+    local record = { amount = amount, label = label, ts = math.max(GD:GetDKPTime(), previous and previous.ts + 1 or 0), by = self:PlayerName() }
     bids[id] = record
     self:SendDKPRecord("DKB", id, record.ts, record.by, amount .. "\n" .. label)
     return true, label .. " starting bid saved: " .. amount .. " DKP."
@@ -535,7 +540,7 @@ local pendingBids = {}
 local function receiveBid(id, ts, author, content, sender)
     if not GD:GetDKPBucket() or type(id) ~= "string" or not id:match("^%d+$") or #id > 10
         or not tonumber(id) or tonumber(id) < 1 or tonumber(id) > 2147483647 or tostring(tonumber(id)) ~= id
-        or type(ts) ~= "number" or ts <= 0 or ts ~= math.floor(ts) or ts > time() + 60
+        or type(ts) ~= "number" or ts <= 0 or ts ~= math.floor(ts) or ts > GD:GetDKPTime() + 60
         or type(author) ~= "string" or author == "" or #author > 100 or author:find("%c")
         or type(content) ~= "string" or #content > 120 then return end
     local amount, label = content:match("^(%d+)\n([^\n]+)$")
@@ -569,8 +574,8 @@ function GD:GetDKPRaidMembers(allowParty)
     end
     if not self:IsDKPEnabled() then return members end
     if not IsInRaid or not IsInRaid() then
-        -- Temporary party support for recording tests; ordinary raid awards and
-        -- auction eligibility still use the raid-only path by default.
+        -- Recording and auction tests opt into party support; ordinary manual
+        -- raid awards still use the raid-only path by default.
         if not allowParty or not IsInGroup or not IsInGroup() then return members end
         local count = math.min(4, GetNumSubgroupMembers and GetNumSubgroupMembers()
             or math.max(0, (GetNumGroupMembers and GetNumGroupMembers() or 1) - 1))
@@ -630,7 +635,7 @@ function GD:AwardRaidDKP(members, amount, reason)
     -- collision cannot leave only part of the selected raid awarded.
     local records, ids = {}, {}
     local author = rosterMember(self:PlayerName()) or self:PlayerName()
-    local sequence, ts = tonumber(self:GetDKPBucket().dkpAwardSequence) or 0, time()
+    local sequence, ts = tonumber(self:GetDKPBucket().dkpAwardSequence) or 0, GD:GetDKPTime()
     for _, member in ipairs(selected) do
         sequence = sequence + 1
         local id = "dkp:" .. nameKey(author):gsub("[^%w]", ""):sub(1, 40) .. ":" .. ts .. ":" .. sequence .. ":" .. math.random(100000, 999999)
@@ -703,7 +708,7 @@ end
 local pendingAwards = {}
 local function receiveAward(id, ts, author, content, sender, deduction)
     if not GD:GetDKPBucket() or type(id) ~= "string" or id == "" or #id > 100 or id:find("%c")
-        or type(ts) ~= "number" or ts <= 0 or ts ~= math.floor(ts) or ts > time() + 60
+        or type(ts) ~= "number" or ts <= 0 or ts ~= math.floor(ts) or ts > GD:GetDKPTime() + 60
         or type(author) ~= "string" or author == "" or #author > 100 or author:find("%c")
         or type(content) ~= "string" or #content > 300 then return end
     local member, amount, reason = content:match("^([^\n]+)\n(%d+)\n([^\n]+)$")
@@ -749,16 +754,16 @@ local awardRequestBucket, lastAwardRequest, awardReplyBucket, lastAwardReply
 function GD:RequestDKPAwards()
     if not self:GetDKPBucket() then return false end
     if awardRequestBucket ~= self:GetDKPBucket() then awardRequestBucket, lastAwardRequest = self:GetDKPBucket(), nil end
-    if lastAwardRequest and time() - lastAwardRequest < 10 then return false end
-    lastAwardRequest = time()
-    self:SendDKPRecord("DKAQ", "awards", time(), self:PlayerName(), "")
+    if lastAwardRequest and GD:GetDKPTime() - lastAwardRequest < 10 then return false end
+    lastAwardRequest = GD:GetDKPTime()
+    self:SendDKPRecord("DKAQ", "awards", GD:GetDKPTime(), self:PlayerName(), "")
     return true
 end
 GD:RegisterDKPRecordHandler("DKAQ", function(id, ts, author, content, sender)
     if id ~= "awards" or content ~= "" or not GD:CanConfigureDKP() or not rosterMember(sender) then return end
     if awardReplyBucket ~= GD:GetDKPBucket() then awardReplyBucket, lastAwardReply = GD:GetDKPBucket(), nil end
-    if lastAwardReply and time() - lastAwardReply < 5 then return end
-    lastAwardReply = time()
+    if lastAwardReply and GD:GetDKPTime() - lastAwardReply < 5 then return end
+    lastAwardReply = GD:GetDKPTime()
     sendAwards()
     if GD.SendDKPSystemsHistory then GD:SendDKPSystemsHistory() end
 end, 1)

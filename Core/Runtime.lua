@@ -2,7 +2,7 @@
 local ADDON, GD = ...
 _G.GuildDB = GD
 
-GD.version = "0.2.64"
+GD.version = "0.2.65"
 -- New-member tracking begins with this release; keep this anchor on later bumps.
 GD.recentJoinsVersion = "0.1.88"
 GD.recentJoinsStart = 1795285809
@@ -548,7 +548,7 @@ SlashCmdList.GuildDB = slashCommand
 local frame = CreateFrame("Frame")
 GD.eventFrame = frame
 GD.eventRegistration = {}
-for _, event in ipairs({ "ENCOUNTER_END", "BOSS_KILL" }) do
+for _, event in ipairs({ "ENCOUNTER_END", "BOSS_KILL", "LOOT_OPENED", "LOOT_CLOSED", "CHAT_MSG_LOOT" }) do
     local ok = pcall(frame.RegisterEvent, frame, event)
     GD.eventRegistration[event] = ok and "registered" or "unavailable"
 end

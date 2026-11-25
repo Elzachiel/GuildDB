@@ -1,5 +1,5 @@
 -- Guild DKP operations. Saved records are replayable; live bids belong to the
--- officer hosting the auction. Item distribution remains the loot master's job.
+-- officer hosting the auction. Optional Master Loot delivery is handled separately.
 local _, GD = ...
 GD:RegisterBucket("dkpSystems", function() return {} end)
 GD:RegisterBucket("dkpAccounts", function() return {} end)
@@ -39,7 +39,7 @@ local function notify()
 end
 local function id(prefix)
     GD:GetDKPBucket().dkpSystemSequence = (tonumber(GD:GetDKPBucket().dkpSystemSequence) or 0) + 1
-    return prefix .. ":" .. key(own()):gsub("[^%w]", ""):sub(1, 12) .. ":" .. time() .. ":" .. GD:GetDKPBucket().dkpSystemSequence .. ":" .. math.random(10000, 99999)
+    return prefix .. ":" .. key(own()):gsub("[^%w]", ""):sub(1, 12) .. ":" .. GD:GetDKPTime() .. ":" .. GD:GetDKPBucket().dkpSystemSequence .. ":" .. math.random(10000, 99999)
 end
 local function records(kind)
     local result = {}
@@ -247,7 +247,7 @@ function GD:OnDKPLedgerChanged() rebuild() end
 
 local pending = {}
 local function validate(kind, recordID, ts, author, content)
-    if not schemas[kind] or not clean(recordID, 100) or recordID == "" or not integer(ts, 1, time() + 120)
+    if not schemas[kind] or not clean(recordID, 100) or recordID == "" or not integer(ts, 1, GD:GetDKPTime() + 120)
         or not clean(author, 100) or author == "" or type(content) ~= "string" or #content > 6500 then return end
     local data = schemas[kind](split(content))
     if not data then return end
@@ -283,6 +283,10 @@ local function receive(kind, recordID, ts, author, content, sender)
     GD:GetDKPBucket().dkpSystems[storageKey] = r
     if kind == "DKM" then GD:GetDKPBucket().dkpAccounts[recordID] = { main = r.data.main, ts = ts, by = author } end
     rebuild()
+    if kind == "DKU" and GD.ObserveDKPMasterLoot then
+        local ok = pcall(GD.ObserveDKPMasterLoot, GD, r)
+        if not ok then print("GuildDB: Automatic Master Loot is unavailable for this item. DKP is recorded; distribute it manually and mark delivery in Loot.") end
+    end
     notify()
 end
 for kind in pairs(schemas) do
@@ -291,7 +295,7 @@ for kind in pairs(schemas) do
 end
 local function publish(kind, recordID, fields)
     local previous = get(kind, recordID)
-    local ts = math.max(time(), previous and previous.ts + 1 or 0)
+    local ts = math.max(GD:GetDKPTime(), previous and previous.ts + 1 or 0)
     local content, author = pack(fields), own()
     if not validate(kind, recordID, ts, author, content) then return false, "The DKP record is invalid or too large." end
     receive(kind, recordID, ts, author, content, author)
@@ -369,25 +373,23 @@ end
 
 function GD:StartDKPAuction(item, minimum, increment, duration)
     if not allowed() then return false, "Only the GM or rank 1 officers can start auctions." end
+    self:ResolveExpiredDKPAuctions()
     if self:GetDKPActiveAuction() then return false, "Finish or cancel the current guild auction first." end
     local itemID, label = self:GetDKPItemIdentity(item)
     if not itemID then return false, "Enter an item link or numeric item ID." end
     minimum = integer(minimum, 1, 1000000); increment = integer(increment, 1, 1000000); duration = integer(duration, 10, 300)
     if not minimum or not increment or not duration then return false, "Use whole numbers: minimum/increment 1-1,000,000; duration 10-300 seconds." end
-    local participants = {}
-    for _, member in ipairs(self:GetDKPParticipants(true)) do
-        if self:IsDKPEligible(member) or key(member) == key(own()) then participants[#participants + 1] = member end
-    end
+    local participants = self:GetDKPParticipants(true)
     if #participants == 0 then return false, "Join a raid or party with eligible guild members before starting an auction." end
     local auctionID = id("auction")
-    local success, message = publish("DKU", auctionID, { 1, own(), itemID, label, minimum, increment, time() + duration, "OPEN", "", "", 0, "", pack(participants), time() })
+    local success, message = publish("DKU", auctionID, { 1, own(), itemID, label, minimum, increment, GD:GetDKPTime() + duration, "OPEN", "", "", 0, "", pack(participants), GD:GetDKPTime() })
     return success, message or "Auction opened. Players in this raid can bid.", auctionID
 end
 function GD:CanBidDKPAuction(r, name)
     if not self:IsDKPEnabled() or not r or get("DKZ", r.id) then return false, "This auction is unavailable." end
     local canonical, rank = self:GetDKPGuildMember(name)
-    local host = canonical and key(canonical) == key(r.data.owner) and rank and rank <= 1
-    if not self:IsDKPEligible(name) and not host then return false, "Bidding requires level 60; the hosting officer can bid at any level during testing." end
+    if not canonical then return false, "Only current guild members can bid." end
+    local host = key(canonical) == key(r.data.owner) and rank and rank <= 1
     local inRaid = false
     for _, member in ipairs(self:GetDKPRaidMembers(true)) do
         if key(member) == key(canonical) then inRaid = true end
@@ -401,7 +403,7 @@ function GD:AcceptDKPBid(auctionID, member, amount, spec, withdraw)
     local r = self:GetDKPAuction(auctionID)
     if not r then return false, "Auction not found." end
     if self:GetDKPActiveAuction() ~= r then return false, "Another auction is being resolved first." end
-    if r.data.status ~= "OPEN" or time() >= r.data.ends then return false, "Bidding has closed." end
+    if r.data.status ~= "OPEN" or GD:GetDKPTime() >= r.data.ends then return false, "Bidding has closed." end
     local eligible, eligibilityReason = self:CanBidDKPAuction(r, member)
     if not eligible then return false, eligibilityReason end
     local canonical, account = self:GetDKPGuildMember(member), key(self:GetDKPAccount(member))
@@ -416,7 +418,7 @@ function GD:AcceptDKPBid(auctionID, member, amount, spec, withdraw)
     local order = 0
     for _, bid in ipairs(r.data.bids) do order = math.max(order, bid.order) end
     local ends = r.data.ends
-    if not withdraw and ends - time() < 10 then ends = time() + 10 end
+    if not withdraw and ends - GD:GetDKPTime() < 10 then ends = GD:GetDKPTime() + 10 end
     local revision = r.data.revision + 1
     local success, message = publish("DKJ", auctionID .. ":" .. revision, { auctionID, revision, canonical, withdraw and 0 or amount, spec or "MS", order + 1, ends, withdraw and "1" or "0" })
     return success, message or (withdraw and "Bid withdrawn." or "Bid accepted.")
@@ -426,28 +428,28 @@ function GD:SubmitDKPBid(auctionID, amount, spec, withdraw)
     local eligible, eligibilityReason = self:CanBidDKPAuction(r, own())
     if not eligible then return false, eligibilityReason end
     if key(r.data.owner) == key(own()) then return self:AcceptDKPBid(auctionID, own(), amount, spec, withdraw) end
-    if r.data.status ~= "OPEN" or time() >= r.data.ends then return false, "Bidding has closed." end
+    if r.data.status ~= "OPEN" or GD:GetDKPTime() >= r.data.ends then return false, "Bidding has closed." end
     if not withdraw and (not integer(amount, r.data.minimum, 1000000) or tonumber(amount) > self:GetDKPAvailable(own(), auctionID)) then return false, "Enter a bid within your available DKP and the item's minimum." end
-    local now = GetTime and GetTime() or time()
+    local now = GetTime and GetTime() or GD:GetDKPTime()
     if self.dkpLastBidRequest and now - self.dkpLastBidRequest < 0.5 then return false, "Wait a moment before sending another bid." end
     self.dkpLastBidRequest = now
     self.dkpBidStatus = nil
-    self:SendDKPRecord("DKR", auctionID, time(), own(), pack({ withdraw and "withdraw" or "bid", tostring(amount or 0), spec or "MS" }), true)
+    self:SendDKPRecord("DKR", auctionID, GD:GetDKPTime(), own(), pack({ withdraw and "withdraw" or "bid", tostring(amount or 0), spec or "MS" }), true)
     return true, "Bid sent. Waiting for the hosting officer to accept it."
 end
 local bidThrottle = {}
 GD:RegisterDKPRecordHandler("DKR", function(auctionID, ts, author, content, sender)
-    if not allowed() or not clean(content, 120) or not integer(ts, time() - 60, time() + 60) then return end
+    if not allowed() or not clean(content, 120) or not integer(ts, GD:GetDKPTime() - 60, GD:GetDKPTime() + 60) then return end
     local r, canonical = GD:GetDKPAuction(auctionID), GD:GetDKPGuildMember(sender)
     if not r or key(r.data.owner) ~= key(own()) or not canonical or key(canonical) ~= key(author) then return end
     local f = split(content)
     if #f ~= 3 or (f[1] ~= "bid" and f[1] ~= "withdraw") then return end
     local bucketKey = tostring(GD:GetDKPBucket()) .. ":" .. key(canonical)
-    local now = GetTime and GetTime() or time()
+    local now = GetTime and GetTime() or GD:GetDKPTime()
     if bidThrottle[bucketKey] and now - bidThrottle[bucketKey] < 0.2 then return end
     bidThrottle[bucketKey] = now
     local ok, message = GD:AcceptDKPBid(auctionID, canonical, f[2], f[3], f[1] == "withdraw")
-    GD:SendDKPRecord("DKN", auctionID, time(), own(), pack({ canonical, ok and "1" or "0", message or "Bid processed." }), true)
+    GD:SendDKPRecord("DKN", auctionID, GD:GetDKPTime(), own(), pack({ canonical, ok and "1" or "0", message or "Bid processed." }), true)
 end, 120)
 GD:RegisterDKPRecordHandler("DKN", function(auctionID, ts, author, content, sender)
     local r = GD:GetDKPAuction(auctionID)
@@ -482,7 +484,7 @@ function GD:AwardDKPAuction(auctionID, expectedMember, expectedCost)
     local leader = self:GetDKPAuctionLeader(r)
     if not leader then return false, "No bids. Cancel this auction or record a manual purchase." end
     if key(leader.member) ~= key(expectedMember) or leader.amount ~= tonumber(expectedCost) then return false, "The leading bid changed. Review the winner again." end
-    if not self:CanBidDKPAuction(r, leader.member) or leader.amount > self:GetDKPAvailable(leader.member, auctionID) then return false, "The winner is no longer eligible or cannot afford this bid. Remove their bid and review again." end
+    if not self:CanBidDKPAuction(r, leader.member) or leader.amount > self:GetDKPAvailable(leader.member, auctionID) then return false, "The winner is no longer eligible or cannot afford this bid." end
     local raid = self:GetDKPActiveRaid()
     local ok, message = changeAuction(r, function(a) a.status = "AWARDED"; a.winner = leader.member; a.cost = leader.amount; a.spec = leader.spec; return true end)
     if ok and raid then publish("DKT", "loot:" .. auctionID, { raid.id, "loot:" .. auctionID }) end
@@ -537,13 +539,13 @@ function GD:GetDKPSyncFingerprint()
 end
 function GD:CheckDKPSync()
     if not allowed() or self:IsDKPSoloTesting() then return false, "Exit Solo Test and use an officer character to check guild DKP sync." end
-    if self.dkpSyncCheck and self.dkpSyncCheck.bucket == self:GetDKPBucket() and time() - self.dkpSyncCheck.ts < 5 then return false, "Wait five seconds before checking again." end
-    local check = { bucket = self:GetDKPBucket(), id = id("sync"), ts = time(), fingerprint = self:GetDKPSyncFingerprint(), members = {} }
+    if self.dkpSyncCheck and self.dkpSyncCheck.bucket == self:GetDKPBucket() and GD:GetDKPTime() - self.dkpSyncCheck.ts < 5 then return false, "Wait five seconds before checking again." end
+    local check = { bucket = self:GetDKPBucket(), id = id("sync"), ts = GD:GetDKPTime(), fingerprint = self:GetDKPSyncFingerprint(), members = {} }
     for index = 1, GetNumGuildMembers(true) do
         local name, _, _, _, _, _, _, _, online = GetGuildRosterInfo(index)
         if name then check.members[key(name)] = { name = name, online = online == true or online == 1 } end
     end
-    check.members[key(own())] = { name = own(), online = true, fingerprint = check.fingerprint, received = time() }
+    check.members[key(own())] = { name = own(), online = true, fingerprint = check.fingerprint, received = GD:GetDKPTime() }
     self.dkpSyncCheck = check
     self:SendDKPRecord("DKSC", check.id, check.ts, own(), check.fingerprint, true)
     return true, "DKP sync check sent. Updated guild clients will acknowledge their snapshot."
@@ -551,19 +553,19 @@ end
 GD:RegisterDKPRecordHandler("DKSC", function(recordID, ts, author, content, sender)
     local canonical, rank = GD:GetDKPGuildMember(sender)
     if not GD:IsDKPEnabled() or not canonical or rank == nil or rank > 1 or key(canonical) ~= key(author)
-        or not clean(recordID, 100) or not integer(ts, time() - 60, time() + 60) or not clean(content, 100) or not content:match("^%d+:%d+:%d+$") then return end
-    local now = GetTime and GetTime() or time()
+        or not clean(recordID, 100) or not integer(ts, GD:GetDKPTime() - 60, GD:GetDKPTime() + 60) or not clean(content, 100) or not content:match("^%d+:%d+:%d+$") then return end
+    local now = GetTime and GetTime() or GD:GetDKPTime()
     local throttle = GD.dkpSyncReply
     if throttle and throttle.bucket == GD:GetDKPBucket() and now - throttle.at < 2 then return end
     GD.dkpSyncReply = { bucket = GD:GetDKPBucket(), at = now }
-    GD:SendDKPRecord("DKSA", recordID, time(), own(), GD:GetDKPSyncFingerprint(), true)
+    GD:SendDKPRecord("DKSA", recordID, GD:GetDKPTime(), own(), GD:GetDKPSyncFingerprint(), true)
 end, 100)
 GD:RegisterDKPRecordHandler("DKSA", function(recordID, ts, author, content, sender)
     local check, canonical = GD.dkpSyncCheck, GD:GetDKPGuildMember(sender)
     if not check or check.bucket ~= GD:GetDKPBucket() or check.id ~= recordID or not canonical or key(canonical) ~= key(author)
-        or not integer(ts, check.ts, time() + 60) or time() - check.ts > 60 or not clean(content, 100) or not content:match("^%d+:%d+:%d+$") then return end
+        or not integer(ts, check.ts, GD:GetDKPTime() + 60) or GD:GetDKPTime() - check.ts > 60 or not clean(content, 100) or not content:match("^%d+:%d+:%d+$") then return end
     local member = check.members[key(canonical)]
-    if member then member.fingerprint, member.received = content, time() end
+    if member then member.fingerprint, member.received = content, GD:GetDKPTime() end
 end, 100)
 
 -- Each officer keeps a guild-specific local queue; only starting an item broadcasts it.
@@ -665,7 +667,7 @@ function GD:StopStaleDKPRecording(recordID, scope)
     if not r or get("DKZ", recordID) then return false, "This recording has already stopped or is missing." end
     if scope == "auction" then
         if self:GetDKPAuctionStatus(r) == "AWARDED" or r.data.status == "CANCELLED" then return false, "The auction has already finished." end
-        if time() < r.data.ends + 60 then return false, "Wait until 60 seconds after the bidding deadline before stopping another host's auction." end
+        if GD:GetDKPTime() < r.data.ends + 60 then return false, "Wait until 60 seconds after the bidding deadline before stopping another host's auction." end
     elseif r.data.ended > 0 then return false, "This raid recording has finished." end
     return publish("DKZ", recordID, { scope, "Stopped by " .. own() })
 end
@@ -689,7 +691,7 @@ function GD:StartDKPRaid(label)
     if #participants == 0 then return false, "Join a raid or party with connected guild members first." end
     local raidID = id("raid")
     local zone = (GetRealZoneText and GetRealZoneText() or label):sub(1, 100)
-    local ok, message = publish("DKS", raidID, { 1, own(), label, time(), 0, zone, pack(participants) })
+    local ok, message = publish("DKS", raidID, { 1, own(), label, GD:GetDKPTime(), 0, zone, pack(participants) })
     if ok then raidEvent(get("DKS", raidID), "ontime", "On time: " .. label, "") end
     return ok, message or "Raid recording started; 10 on-time DKP awarded to the current guild raiders.", raidID
 end
@@ -719,7 +721,7 @@ function GD:EndDKPRaid()
         local ok, message = raidEvent(raid, "finish", "Raid end: " .. raid.data.label, "")
         if not ok then return false, message end
     end
-    local a = copy(raid.data); a.revision = a.revision + 1; a.ended = time()
+    local a = copy(raid.data); a.revision = a.revision + 1; a.ended = GD:GetDKPTime()
     local ok, message = publish("DKS", raid.id, raidFields(a))
     if ok and #participants == 0 then return true, "Raid recording ended. No end bonus was awarded because no connected guild participants remain in your group." end
     return ok, message
@@ -736,20 +738,45 @@ function GD:CheckDKPRaidRecordingSafety()
     if (IsInRaid and IsInRaid()) or (IsInGroup and IsInGroup()) then
         state.ungroupedSince, state.notified = nil, false; return
     end
-    state.ungroupedSince = state.ungroupedSince or time()
+    state.ungroupedSince = state.ungroupedSince or GD:GetDKPTime()
     -- Allow roster transitions and login to settle; defer the dialog during combat.
-    if time() - state.ungroupedSince < 5 or state.notified or (InCombatLockdown and InCombatLockdown()) then return end
+    if GD:GetDKPTime() - state.ungroupedSince < 5 or state.notified or (InCombatLockdown and InCombatLockdown()) then return end
     if self.ShowDKPRaidEndReminder then
         state.notified = true
         self:ShowDKPRaidEndReminder(raid)
     end
 end
+function GD:FinishDKPAuction(auctionID)
+    local r = self:GetDKPAuction(auctionID)
+    if not r or not allowed() or key(r.data.owner) ~= key(own()) then return false, "Only the auction host can finish it." end
+    local status = self:GetDKPAuctionStatus(r)
+    if status == "OPEN" then
+        local ok, message = self:CloseDKPAuction(r.id)
+        if not ok then return false, message end
+    elseif status ~= "REVIEW" then return false, "This auction has already finished." end
+    local leader = self:GetDKPAuctionLeader(self:GetDKPAuction(r.id))
+    local awarded, reason
+    if leader then awarded, reason = self:AwardDKPAuction(r.id, leader.member, leader.amount) end
+    if awarded then return true, "Auction ended: " .. self:Display(leader.member) .. " won " .. r.data.label .. " for " .. leader.amount .. " DKP." end
+    local cancelled, message = self:CancelDKPAuction(r.id)
+    return cancelled, cancelled and ("Auction ended without an award. " .. (reason or "No bids were placed.")) or message
+end
+function GD:ResolveExpiredDKPAuctions()
+    if not allowed() or self.dkpResolvingAuctions then return end
+    self.dkpResolvingAuctions = true
+    for _, r in ipairs(records("DKU")) do
+        local status = self:GetDKPAuctionStatus(r)
+        if (status == "OPEN" or status == "REVIEW") and GD:GetDKPTime() >= r.data.ends and key(r.data.owner) == key(own()) then
+            local ok, message = self:FinishDKPAuction(r.id)
+            if ok and message then print("GuildDB: " .. message) end
+        end
+    end
+    self.dkpResolvingAuctions = nil
+end
 function GD:TickDKPSystems()
     if not self:GetDKPBucket() then return end
     self:CheckDKPRaidRecordingSafety()
-    for _, r in ipairs(records("DKU")) do
-        if self:GetDKPAuctionStatus(r) == "OPEN" and time() >= r.data.ends and allowed() and key(r.data.owner) == key(own()) then self:CloseDKPAuction(r.id) end
-    end
+    self:ResolveExpiredDKPAuctions()
     if self.RefreshDKPAuctionPopup then self:RefreshDKPAuctionPopup() end
 end
 function GD:SendDKPSystemsHistory()
@@ -799,7 +826,7 @@ function GD:ImportDKPBackup(value)
     local entries = {}
     for line in rest:gmatch("[^\n]+") do
         local f = split(line)
-        if #f ~= 5 or not clean(f[2], 100) or f[2] == "" or not integer(f[3], 1, time() + 120) or not clean(f[4], 100) or f[4] == "" then return false, "Malformed backup record; nothing was imported." end
+        if #f ~= 5 or not clean(f[2], 100) or f[2] == "" or not integer(f[3], 1, GD:GetDKPTime() + 120) or not clean(f[4], 100) or f[4] == "" then return false, "Malformed backup record; nothing was imported." end
         if schemas[f[1]] then
             if not validate(f[1], f[2], tonumber(f[3]), f[4], f[5]) then return false, "Invalid DKP system record; nothing was imported." end
         elseif f[1] == "DKA" or f[1] == "DKD" then
