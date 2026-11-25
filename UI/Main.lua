@@ -1,6 +1,16 @@
 -- Dark guild workspace with a compact navigation rail and single content pane. - TEST
 local _, GD = ...
 
+function GD:CloseWindowsOnEscape()
+    for index = #(UISpecialFrames or {}), 1, -1 do
+        local name = UISpecialFrames[index]
+        if type(name) == "string" and name:sub(1, 7) == "GuildDB" then
+            local window = _G[name]
+            if window and window:IsShown() then window:Hide() end
+        end
+    end
+end
+
 local GOLD = { 0.20, 0.62, 0.98 }
 local ACCENTS = {
     { 0.20, 0.62, 0.98 }, -- blue
@@ -802,6 +812,7 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose, se
             input:SetSize(370, height)
             input:SetPoint("TOPLEFT", 20, -offset - 16)
             GD:StyleEditBox(input, field.multiline)
+            input:SetScript("OnEscapePressed", function(self) self:ClearFocus(); dialog:Hide() end)
         end
         if not field.options and not field.calendar and not field.weekdays and not field.checkbox and not field.checklist then
             input:SetAutoFocus(false)

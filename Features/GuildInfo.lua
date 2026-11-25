@@ -312,7 +312,7 @@ local function build(frame)
             panel.scroll:SetVerticalScroll(math.max(0, bottom - panel.scroll:GetHeight()))
         end
     end)
-    panel.input:SetScript("OnEscapePressed", function(input) input:ClearFocus() end)
+    panel.input:SetScript("OnEscapePressed", function(input) input:ClearFocus(); GD:CloseWindowsOnEscape() end)
     panel.input:SetScript("OnHide", function(input) input:ClearFocus(); panel.dragAnchor = nil; panel.caret:Hide() end)
     panel.note = label(panel, "GameFontHighlightSmall")
     panel.note:SetPoint("BOTTOMLEFT", 14, 14)

@@ -18,6 +18,7 @@ end
 local function nextToast()
     if not toast then
         toast = CreateFrame("Frame", "GuildDBAnnouncementPopout", UIParent, "BackdropTemplate")
+        UISpecialFrames = UISpecialFrames or {}; table.insert(UISpecialFrames, "GuildDBAnnouncementPopout")
         toast:SetSize(WIDTH, HEIGHT)
         toast:SetFrameStrata("FULLSCREEN_DIALOG")
         toast:SetClampedToScreen(true)
@@ -120,6 +121,7 @@ function GD:ShowPvPPopup(points, victim, level, totalPoints)
     if points <= 0 then return end
     if not pvpPopup then
         pvpPopup = CreateFrame("Frame", "GuildDBPvPPointsPopout", UIParent, "BackdropTemplate")
+        UISpecialFrames = UISpecialFrames or {}; table.insert(UISpecialFrames, "GuildDBPvPPointsPopout")
         pvpPopup:SetSize(350, 78)
         pvpPopup:SetFrameStrata("FULLSCREEN_DIALOG")
         pvpPopup:SetClampedToScreen(true)

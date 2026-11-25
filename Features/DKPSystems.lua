@@ -71,19 +71,9 @@ local function identity(name)
 end
 
 function GD:GetDKPAccount(name)
-    local current, path, seen = key(identity(name)), {}, {}
-    local mappings = self:GetDKPBucket() and self:GetDKPBucket().dkpAccounts or {}
-    while mappings[current] and key(mappings[current].main) ~= current do
-        if seen[current] then
-            -- Even conflicting/offline mapping edits have one deterministic root.
-            local smallest = current
-            for i = seen[current], #path do if path[i] < smallest then smallest = path[i] end end
-            current = smallest; break
-        end
-        path[#path + 1] = current; seen[current] = #path
-        current = key(mappings[current].main)
-    end
-    return identity(current)
+    -- Legacy DKM records remain available for backup/history compatibility,
+    -- but never merge character funds, eligibility or starting grants.
+    return identity(name)
 end
 
 function GD:IsDKPEligible(name)
@@ -305,7 +295,7 @@ local function publish(kind, recordID, fields)
     local content, author = pack(fields), own()
     if not validate(kind, recordID, ts, author, content) then return false, "The DKP record is invalid or too large." end
     receive(kind, recordID, ts, author, content, author)
-    GD:SendDKPRecord(kind, recordID, ts, author, content, kind == "DKJ")
+    GD:SendDKPRecord(kind, recordID, ts, author, content, kind == "DKJ" or kind == "DKU")
     return true
 end
 
@@ -384,27 +374,36 @@ function GD:StartDKPAuction(item, minimum, increment, duration)
     if not itemID then return false, "Enter an item link or numeric item ID." end
     minimum = integer(minimum, 1, 1000000); increment = integer(increment, 1, 1000000); duration = integer(duration, 10, 300)
     if not minimum or not increment or not duration then return false, "Use whole numbers: minimum/increment 1-1,000,000; duration 10-300 seconds." end
-    local participants = self:GetDKPParticipants()
-    if #participants == 0 then return false, "Join a raid with level-60 guild members before starting an auction." end
+    local participants = {}
+    for _, member in ipairs(self:GetDKPParticipants(true)) do
+        if self:IsDKPEligible(member) or key(member) == key(own()) then participants[#participants + 1] = member end
+    end
+    if #participants == 0 then return false, "Join a raid or party with eligible guild members before starting an auction." end
     local auctionID = id("auction")
     local success, message = publish("DKU", auctionID, { 1, own(), itemID, label, minimum, increment, time() + duration, "OPEN", "", "", 0, "", pack(participants), time() })
     return success, message or "Auction opened. Players in this raid can bid.", auctionID
 end
 function GD:CanBidDKPAuction(r, name)
-    if not self:IsDKPEnabled() or not r or get("DKZ", r.id) or not self:IsDKPEligible(name) then return false end
-    local canonical = self:GetDKPGuildMember(name)
+    if not self:IsDKPEnabled() or not r or get("DKZ", r.id) then return false, "This auction is unavailable." end
+    local canonical, rank = self:GetDKPGuildMember(name)
+    local host = canonical and key(canonical) == key(r.data.owner) and rank and rank <= 1
+    if not self:IsDKPEligible(name) and not host then return false, "Bidding requires level 60; the hosting officer can bid at any level during testing." end
     local inRaid = false
-    for _, member in ipairs(self:GetDKPRaidMembers()) do if key(member) == key(canonical) then inRaid = true; break end end
-    if not inRaid then return false end
+    for _, member in ipairs(self:GetDKPRaidMembers(true)) do
+        if key(member) == key(canonical) then inRaid = true end
+    end
+    if not inRaid then return false, "Join the auction's raid or party to bid." end
+    if host then return true end
     for _, member in ipairs(r.data.participants) do if key(member) == key(canonical) then return true end end
-    return false
+    return false, "You were not in the group when this auction started. Ask the host to restart it."
 end
 function GD:AcceptDKPBid(auctionID, member, amount, spec, withdraw)
     local r = self:GetDKPAuction(auctionID)
     if not r then return false, "Auction not found." end
     if self:GetDKPActiveAuction() ~= r then return false, "Another auction is being resolved first." end
     if r.data.status ~= "OPEN" or time() >= r.data.ends then return false, "Bidding has closed." end
-    if not self:CanBidDKPAuction(r, member) then return false, "Only eligible level-60 raid members can bid." end
+    local eligible, eligibilityReason = self:CanBidDKPAuction(r, member)
+    if not eligible then return false, eligibilityReason end
     local canonical, account = self:GetDKPGuildMember(member), key(self:GetDKPAccount(member))
     if not withdraw then
         amount = integer(amount, r.data.minimum, 1000000)
@@ -424,7 +423,8 @@ function GD:AcceptDKPBid(auctionID, member, amount, spec, withdraw)
 end
 function GD:SubmitDKPBid(auctionID, amount, spec, withdraw)
     local r = self:GetDKPAuction(auctionID)
-    if not r or not self:CanBidDKPAuction(r, own()) then return false, "You are not eligible for this auction." end
+    local eligible, eligibilityReason = self:CanBidDKPAuction(r, own())
+    if not eligible then return false, eligibilityReason end
     if key(r.data.owner) == key(own()) then return self:AcceptDKPBid(auctionID, own(), amount, spec, withdraw) end
     if r.data.status ~= "OPEN" or time() >= r.data.ends then return false, "Bidding has closed." end
     if not withdraw and (not integer(amount, r.data.minimum, 1000000) or tonumber(amount) > self:GetDKPAvailable(own(), auctionID)) then return false, "Enter a bid within your available DKP and the item's minimum." end
@@ -653,23 +653,7 @@ function GD:ReverseDKPRecord(recordID, reason)
     return publish("DKX", recordID, { recordID, reason })
 end
 function GD:LinkDKPAlt(alt, main)
-    if not allowed() then return false, "Only the GM or rank 1 officers can link DKP accounts." end
-    local altName, mainName = self:GetDKPGuildMember(alt), self:GetDKPGuildMember(main)
-    if not altName or not mainName then return false, "Choose two current guild characters." end
-    mainName = self:GetDKPAccount(mainName)
-    if key(altName) == key(mainName) then return false, "Choose a different main character." end
-    if key(self:GetDKPAccount(altName)) == key(mainName) then return false, "These characters already share a balance." end
-    local grants = 0
-    for recordID, r in pairs(self:GetDKPBucket().dkpAwards) do
-        local account = key(self:GetDKPAccount(r.member))
-        if recordID:sub(1, 10) == "dkp:start:" and not get("DKX", recordID) and (account == key(self:GetDKPAccount(altName)) or account == key(mainName)) then grants = grants + 1 end
-    end
-    if grants > 1 then return false, "Both accounts received starting DKP. Reverse the duplicate starting grant in History before linking." end
-    for _, auction in ipairs(records("DKU")) do
-        local status = self:GetDKPAuctionStatus(auction)
-        if status == "OPEN" or status == "REVIEW" then return false, "Finish active auctions before linking accounts." end
-    end
-    return publish("DKM", key(altName), { mainName })
+    return false, "DKP belongs to each character separately. Main/alt DKP linking is disabled."
 end
 
 function GD:GetDKPActiveRaid()

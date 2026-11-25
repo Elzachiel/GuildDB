@@ -404,7 +404,7 @@ local function input(parent, x, y, width, limit)
     widget:SetAutoFocus(false)
     widget:SetMaxLetters(limit)
     GD:StyleEditBox(widget)
-    widget:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    widget:SetScript("OnEscapePressed", function(self) self:ClearFocus(); GD:CloseWindowsOnEscape() end)
     return widget
 end
 local function button(panel, text, x, y, width, callback, parent)

@@ -79,10 +79,10 @@ local gearSlots = {
     INVTYPE_2HWEAPON = 5, INVTYPE_RANGED = 5, INVTYPE_RANGEDRIGHT = 5, INVTYPE_TRINKET = 6,
 }
 local raidRewards = {
-    { label = "Boss kill - 20 DKP", amount = 20, reason = "Boss kill" },
-    { label = "Guild-first boss kill - 30 DKP total", amount = 30, reason = "Guild-first boss kill (20 + 10 bonus)" },
-    { label = "On time and ready - 10 DKP", amount = 10, reason = "On time and ready" },
-    { label = "Stayed until raid end - 10 DKP", amount = 10, reason = "Stayed until scheduled raid end" },
+    { label = "Boss kill - 20 DKP", amount = 20, reason = "Boss kill", event = "boss" },
+    { label = "Guild-first boss kill - 30 DKP total", amount = 30, reason = "Guild-first boss kill (20 + 10 bonus)", event = "boss" },
+    { label = "On time and ready - 10 DKP", amount = 10, reason = "On time and ready", event = "ontime" },
+    { label = "Stayed until raid end - 10 DKP", amount = 10, reason = "Stayed until scheduled raid end", event = "finish" },
 }
 
 function GD:GetDKPRewardValues()
@@ -241,12 +241,7 @@ local function rawBalance(name)
 end
 
 local function balanceFor(name)
-    if not GD.GetDKPAccount then return rawBalance(name) end
-    local account, total = nameKey(GD:GetDKPAccount(name)), 0
-    for member in pairs(GD:GetDKPBucket() and GD:GetDKPBucket().dkpBalances or {}) do
-        if nameKey(GD:GetDKPAccount(member)) == account then total = total + rawBalance(member) end
-    end
-    return total
+    return rawBalance(GD:GetDKPGuildMember(name) or name)
 end
 
 local function awardContent(record)
@@ -667,7 +662,7 @@ function GD:ShowDKPRaidRewardPicker()
         if values[1] == "Starting balance - 1,000 DKP once" then self:ShowDKPStartingGrantForm()
         else
             if presets[values[1]] and self.GetDKPActiveRaid and self:GetDKPActiveRaid() then
-                return false, "A raid recording is already handling boss and attendance awards. Use the Raids view, or choose a custom adjustment."
+                return self:ShowDKPRecordedReward(presets[values[1]])
             end
             self:ShowDKPRaidAwardForm(presets[values[1]])
         end
@@ -905,7 +900,7 @@ local function buildStandings(frame)
     panel.clearSearch = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     panel.clearSearch:SetSize(28, 26); panel.clearSearch:SetPoint("TOPRIGHT", -16, -93); panel.clearSearch:SetText("X")
     panel.clearSearch:SetScript("OnClick", function() panel.search:SetText(""); panel.search:ClearFocus(); GD:RefreshDKP() end)
-    panel.search:SetScript("OnEscapePressed", function(input) input:ClearFocus() end)
+    panel.search:SetScript("OnEscapePressed", function(input) input:ClearFocus(); frame:Hide(); if GD.CloseWindowsOnEscape then GD:CloseWindowsOnEscape() end end)
     panel.search:SetScript("OnTextChanged", function()
         panel.scroll:SetVerticalScroll(0)
         if panel.workspace then panel.workspace.scroll:SetVerticalScroll(0) end

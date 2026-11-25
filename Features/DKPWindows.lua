@@ -1,5 +1,14 @@
 -- The DKP workspace and movable player auction popup share GuildDB's theme.
 local _, GD = ...
+local escapeSequence = 0
+local function escapeWindow(frame, name)
+    escapeSequence = escapeSequence + 1
+    name = name or "GuildDBDKPWindow" .. escapeSequence
+    _G[name] = frame
+    UISpecialFrames = UISpecialFrames or {}
+    for _, existing in ipairs(UISpecialFrames) do if existing == name then return end end
+    table.insert(UISpecialFrames, name)
+end
 local function key(value) return tostring(value or ""):lower() end
 local function isHost(r) return r and GD:CanConfigureDKP() and key(GD:GetDKPGuildMember(GD:PlayerName())) == key(r.data.owner) end
 local function label(parent, font, x, y)
@@ -119,6 +128,7 @@ end
 
 local function listWindow(title)
     local w = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+    escapeWindow(w)
     w:SetSize(620, 520); w:SetPoint("CENTER"); w:SetFrameStrata("FULLSCREEN_DIALOG"); w:SetFrameLevel(100)
     w:SetClampedToScreen(true); w:SetMovable(true); w:EnableMouse(true); w:RegisterForDrag("LeftButton")
     w:SetScript("OnDragStart", function(s) s:StartMoving() end)
@@ -279,6 +289,7 @@ function GD:ShowDKPRaidSummary(raidID)
     local window = self.dkpRaidSummaryWindow
     if not window then
         window = CreateFrame("Frame", nil, UIParent, "BackdropTemplate"); window:SetSize(560, 580); window:SetPoint("CENTER")
+        escapeWindow(window, "GuildDBDKPRaidSummary")
         window:SetFrameStrata("FULLSCREEN_DIALOG"); window:SetFrameLevel(100); window:SetClampedToScreen(true)
         window:SetMovable(true); window:EnableMouse(true); window:RegisterForDrag("LeftButton")
         window:SetScript("OnDragStart", function(self) self:StartMoving() end); window:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
@@ -466,17 +477,7 @@ function GD:ShowDKPEntry(record)
 end
 
 function GD:ShowDKPLinkAlt()
-    if not self:CanConfigureDKP() then return end
-    local choices = guildNames(true)
-    self.ShowInputForm("Link Main and Alt DKP", {
-        { label = "Alt character", options = choices, value = choices[1] },
-        { label = "Main character", options = choices, value = choices[1] },
-    }, ownedBucket(function(values)
-        local alt, main = values[1], values[2]
-        confirm("Confirm Shared DKP Account", "Alt: " .. alt .. "\nMain: " .. main .. "\nTheir saved balances and future spending will be shared.\nIf both received starting grants, reverse the duplicate first.",
-            ownedBucket(function() return self:LinkDKPAlt(alt, main) end), "Link")
-        return true
-    end), "Review")
+    return report(false, "Each character has its own DKP. Main/alt DKP linking is disabled.")
 end
 
 function GD:ShowDKPBackup()
@@ -496,6 +497,39 @@ function GD:ShowDKPRestore()
             ownedBucket(function() return self:ImportDKPBackup(backup) end), "Restore")
         return true
     end), "Review")
+end
+
+function GD:ShowDKPRecordedReward(preset)
+    local raid = self:GetDKPActiveRaid()
+    if not isHost(raid) then return false, "Only the recording host can record boss kills or attendance. Ask the host, or use a custom correction." end
+    local function currentRecording(callback)
+        return ownedBucket(function(...)
+            local current = self:GetDKPActiveRaid()
+            if not current or current.id ~= raid.id then return false, "The recording changed. Reopen Award Raid." end
+            if not isHost(current) then return false, "Only the recording host can award this event." end
+            return callback(...)
+        end)
+    end
+    if preset.event == "boss" then
+        self.ShowInputForm("Record Boss Kill", {
+            { label = "Boss name (use the exact encounter name)", value = "", max = 60 },
+            { label = "Recording", value = raid.data.label .. "\n20 DKP per connected guild participant, plus 10 if guild history confirms a first kill.\nAlready-recorded kills cannot be awarded again, including automatic kills.", readOnly = true, multiline = true, max = 500 },
+        }, currentRecording(function(values)
+            local boss = tostring(values[1] or ""):match("^%s*(.-)%s*$")
+            if boss == "" or #boss > 60 or boss:find("%c") then return false, "Enter the boss's encounter name (up to 60 characters)." end
+            local members = self:GetDKPParticipants(true)
+            if #members == 0 then return false, "No connected guild participants remain in your group." end
+            confirm("Confirm Recorded Boss Kill", boss .. "\nRecord this kill for connected guild participants in the current group at confirmation?\n20 DKP each, plus the guild-first bonus when applicable.\nUse the exact boss name to match automatic kill detection.", currentRecording(function() return self:RecordDKPBoss(boss) end), "Record Kill")
+            return true
+        end), "Review")
+    elseif preset.event == "finish" then
+        confirm("End DKP Raid", "End " .. raid.data.label .. "?\nConnected guild participants currently grouped receive 10 DKP.\nIf you left the group, recording ends without an end bonus.", currentRecording(function() return self:EndDKPRaid() end), "End Raid")
+    else
+        self.ShowInputForm("Recorded Attendance", {
+            { label = "On-time attendance", value = "The recording grants on-time DKP when it starts.\nCheck Raids > Summary > Checkpoints for the original recipients.\nUse Custom raid award for a reviewed attendance correction.", readOnly = true, multiline = true, max = 500 },
+        }, currentRecording(function() return true end), "OK")
+    end
+    return true
 end
 
 function GD:ShowDKPRaidEndReminder(raid)
@@ -533,7 +567,7 @@ function GD:ShowDKPRaidAttendance(raid)
         if not event then return false, "Choose a recorded attendance checkpoint." end
         self.ShowInputForm("Attendance Checkpoint", {
             { label = "Event", value = event.data.label, readOnly = true, max = 200 },
-            { label = "Attending guild characters (one award per linked account)", checklist = event.data.participants, value = event.data.participants, readOnly = true },
+            { label = "Attending guild characters (one award per character)", checklist = event.data.participants, value = event.data.participants, readOnly = true },
         }, function() return true end, "Close")
         return true
     end), "View")
@@ -576,15 +610,23 @@ local function bidderColors()
     return result
 end
 local popup, dismissed, popupBucket = nil, {}, nil
-local function savedDismissals()
+local function savedPopupState(field)
     local bucket = GD:GetDKPBucket()
-    bucket.dkpAuctionDismissals = bucket.dkpAuctionDismissals or {}
+    bucket[field] = bucket[field] or {}
     local character = key(GD:GetDKPGuildMember(GD:PlayerName()) or GD:PlayerName())
-    bucket.dkpAuctionDismissals[character] = bucket.dkpAuctionDismissals[character] or {}
-    return bucket.dkpAuctionDismissals[character]
+    bucket[field][character] = bucket[field][character] or {}
+    return bucket[field][character]
+end
+local function savedDismissals() return savedPopupState("dkpAuctionDismissals") end
+local function auctionGroupPresent(auction)
+    for _, member in ipairs(GD:GetDKPParticipants(true)) do
+        if key(member) == key(auction.data.owner) then return true end
+    end
+    return false
 end
 local function buildPopup()
     local frame = CreateFrame("Frame", "GuildDBDKPAuctionPopup", UIParent, "BackdropTemplate")
+    escapeWindow(frame, "GuildDBDKPAuctionPopup")
     frame:SetSize(math.max(500, math.min(800, tonumber(GD:GetSetting("dkpAuctionWidth")) or 520)),
         math.max(540, math.min(900, tonumber(GD:GetSetting("dkpAuctionHeight")) or 610)))
     frame:SetPoint("CENTER"); frame:SetFrameStrata("FULLSCREEN_DIALOG"); frame:SetFrameLevel(20)
@@ -612,6 +654,12 @@ local function buildPopup()
         frame.manual = false; frame:Hide()
     end)
     frame.close:SetPoint("TOPRIGHT", -12, -10)
+    frame:SetScript("OnHide", function()
+        if frame.auctionID and frame.dkpBucket == GD:GetDKPBucket() then savedDismissals()[frame.auctionID] = true end
+        frame.manual = false
+        if frame.amount then frame.amount:ClearFocus() end
+        if GameTooltip then GameTooltip:Hide() end
+    end)
     frame.icon = frame:CreateTexture(nil, "ARTWORK")
     frame.icon:SetSize(32, 32); frame.icon:SetPoint("TOPLEFT", 16, -48)
     frame.iconHover = CreateFrame("Button", nil, frame); frame.iconHover:SetAllPoints(frame.icon)
@@ -654,7 +702,7 @@ local function buildPopup()
     frame.amount:SetScript("OnEnterPressed", function(self)
         if frame.canBid then submit(self:GetText()); self:ClearFocus() end
     end)
-    frame.amount:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    frame.amount:SetScript("OnEscapePressed", function(self) self:ClearFocus(); frame:Hide() end)
     frame.specValue = "MS"
     frame.spec = button(frame, "Main spec", 104, function()
         frame.specValue = frame.specValue == "MS" and "OS" or "MS"
@@ -726,6 +774,7 @@ function GD:ShowDKPAuctionPopup(auctionID)
     if popupBucket ~= self:GetDKPBucket() then popupBucket, dismissed = self:GetDKPBucket(), savedDismissals() end
     popup = popup or buildPopup()
     popup.manual = true; popup.auctionID = auctionID; popup.initializedID = nil
+    savedPopupState("dkpAuctionPresented")[auctionID] = true
     self:RefreshDKPAuctionPopup()
 end
 function GD:RefreshDKPAuctionPopup()
@@ -735,16 +784,24 @@ function GD:RefreshDKPAuctionPopup()
         popupBucket, dismissed = self:GetDKPBucket(), savedDismissals()
         if popup then popup:Hide(); popup.manual = false; popup.auctionID = nil end
     end
+    dismissed = savedDismissals()
     if self:GetDKPBucket().dkpAuctionPopups == false and popup and not popup.manual then popup:Hide(); return end
     local active = self:GetDKPActiveAuction()
-    if active and not dismissed[active.id] and self:GetDKPBucket().dkpAuctionPopups ~= false
-        and (self:CanBidDKPAuction(active, self:PlayerName()) or self:CanConfigureDKP()) then
+    local presented = savedPopupState("dkpAuctionPresented")
+    local inAuctionGroup = active and auctionGroupPresent(active)
+        and (self:CanBidDKPAuction(active, self:PlayerName()) or isHost(active))
+    if active and not dismissed[active.id] and not presented[active.id] and self:GetDKPBucket().dkpAuctionPopups ~= false
+        and self:GetDKPAuctionStatus(active) == "OPEN" and time() < active.data.ends and inAuctionGroup then
         popup = popup or buildPopup()
-        if not popup.manual then popup.auctionID = active.id end
+        if not popup.manual then popup.auctionID = active.id; presented[active.id] = true end
+    end
+    if popup and not popup.manual and active and popup.auctionID == active.id and not inAuctionGroup then
+        popup:Hide(); popup.auctionID = nil; return
     end
     if not popup or not popup.auctionID or (dismissed[popup.auctionID] and not popup.manual) then return end
     local r = self:GetDKPAuction(popup.auctionID)
     if not r then popup:Hide(); return end
+    popup.dkpBucket = self:GetDKPBucket()
     local a, colors = r.data, self:GetAppearanceColors()
     local leading, bids = self:GetDKPAuctionLeader(r)
     if popup.initializedID ~= r.id then
@@ -810,7 +867,9 @@ function GD:RefreshDKPAuctionPopup()
     popup.emptyBids:SetShown(#bids == 0); popup.emptyBids:SetTextColor(unpack(colors.muted))
     self:StyleScrollFrame(popup.bidScroll)
     if self.dkpBidStatus then popup.feedback:SetText(self.dkpBidStatus) end
-    local bidding = status == "OPEN" and remaining > 0 and self:CanBidDKPAuction(r, self:PlayerName())
+    local eligible, eligibilityReason = self:CanBidDKPAuction(r, self:PlayerName())
+    local bidding = status == "OPEN" and remaining > 0 and eligible
+    if status == "OPEN" and remaining > 0 and not eligible then popup.feedback:SetText(eligibilityReason or "You cannot bid in this auction.") end
     popup.canBid = bidding
     popup.bid:SetEnabled(bidding); popup.withdraw:SetEnabled(bidding and yourBid ~= nil); popup.amount:SetEnabled(bidding); popup.spec:SetEnabled(bidding)
     popup.quick:SetEnabled(bidding and popup.quickAmount <= maximum)
@@ -997,9 +1056,9 @@ function GD:RefreshDKPWorkspace(panel)
             end
         end
     elseif section == "Officer" then
-        actions = { { "Starting DKP", function() self:ShowDKPStartingGrantForm() end }, { "Link Alt", function() self:ShowDKPLinkAlt() end },
+        actions = { { "Starting DKP", function() self:ShowDKPStartingGrantForm() end },
             { "Backup", function() self:ShowDKPBackup() end }, { "Restore", function() self:ShowDKPRestore() end } }
-        area.description:SetText("GM and rank-1 officer tools. Select a history entry to reverse it with a reason. Link alts to a main for one shared DKP balance and starting grant.")
+        area.description:SetText("GM and rank-1 officer tools. Select a history entry to reverse it with a reason. Every character, including alts, has its own DKP and starting grant.")
         for _, r in ipairs(self:GetDKPAwardHistory(query)) do
             local entry = r
             rows[#rows + 1] = { title = self:Display(r.member) .. " " .. (r.amount > 0 and "+" or "") .. r.amount .. " DKP", detail = date("%b %d, %I:%M %p", r.ts) .. " | " .. self:Display(r.by) .. "\n" .. self:Display(r.reason),
@@ -1064,6 +1123,6 @@ function GD:RefreshDKPWorkspace(panel)
     area.empty:SetShown(#rows == 0)
     self:StyleScrollFrame(area.scroll)
     panel.footer:SetText(self:IsDKPSoloTesting() and "SOLO TEST: temporary data, no guild sync. /gd dkptest exits."
-        or section == "Officer" and "Every correction is recorded in history. Keep a backup before raids." or "Your main/alt account balance is shared. Items are distributed by the loot master.")
+        or section == "Officer" and "Every correction is recorded in history. Keep a backup before raids." or "Every character has its own DKP balance. Items are distributed by the loot master.")
     return true
 end

@@ -3,7 +3,7 @@ const fs=require('fs'), path=require('path');
 process.chdir(path.resolve(__dirname,'..'));
 const dependency=name=>require(process.env.GUILDDB_TEST_ROOT ? path.join(process.env.GUILDDB_TEST_ROOT,'node_modules',name) : name);
 const parse=dependency('luaparse');
-const files=['Features/DKP.lua','Features/DKPSystems.lua','Features/DKPWindows.lua','Features/Settings.lua','UI/Main.lua','Core/Runtime.lua'];
+const files=['Features/DKP.lua','Features/DKPSystems.lua','Features/DKPWindows.lua','Features/Popouts.lua','Features/Settings.lua','Features/Recruitment.lua','Features/GuildInfo.lua','Features/RosterFilters.lua','UI/Main.lua','Core/Runtime.lua'];
 const sources=Object.fromEntries(files.map(name=>{const s=fs.readFileSync(name,'utf8');parse.parse(s,{luaVersion:'5.1'});return [name,s]}));
 const {lua,lauxlib,lualib,to_luastring,to_jsstring}=dependency('fengari');
 const L=lauxlib.luaL_newstate();lualib.luaL_openlibs(L);
@@ -514,11 +514,12 @@ local reversePacket=host.sent[#host.sent];local purchasePacket
 for _,r in ipairs(host.sent) do if r[1]=='DKL' then purchasePacket=r end end
 local reverseClient=systemClient(2,'Member One');deliver(reverseClient,reversePacket,'Officer One');assert(reverseClient:GetDKPBalance('Member One')==0)
 deliver(reverseClient,purchasePacket,'Officer One');assert(reverseClient:GetDKPBalance('Member One')==0)
-active=host;assert(host:LinkDKPAlt('Alt One','Member One'))
-assert(host:GetDKPBalance('Alt One')==200 and host:GetDKPAccount('Alt One')=='Member One-Realm')
-assert(not host:GrantDKPStartingBalance({'Alt One'}))
-assert(host:AwardDKP('Alt One',10,'Alt activity'));assert(host:GetDKPBalance('Alt One')==210 and host:GetDKPBalance('Member One')==210)
-assert(not host:LinkDKPAlt('Leader One','Officer One')) -- two starting grants
+active=host;assert(not host:LinkDKPAlt('Alt One','Member One'))
+deliver(host,{'DKM','alt one-realm',now,'Officer One-Realm',host:Encode('Member One-Realm')},'Officer One')
+assert(host:GetDKPBalance('Alt One')==0 and host:GetDKPAccount('Alt One')=='Alt One-Realm')
+assert(host:GrantDKPStartingBalance({'Alt One'}))
+assert(host:AwardDKP('Alt One',10,'Alt activity'));assert(host:GetDKPBalance('Alt One')==1010 and host:GetDKPBalance('Member One')==200)
+assert(not host:LinkDKPAlt('Leader One','Officer One'))
 -- Recorded raids award accounts once, automatic boss notifications deduplicate.
 local startBalance=host:GetDKPBalance('Member One');local _,_,raidID=host:StartDKPRaid('Molten Core');assert(raidID)
 assert(host:GetDKPBalance('Member One')==startBalance+10)
@@ -591,7 +592,7 @@ for _,section in ipairs({'Auctions','Loot','Raids','Officer','Standings'}) do
   assert(panel.nameHeader.shown and panel.pointsHeader.shown)
  else assert(panel.section==section and panel.workspace.shown and not panel.scroll.shown) end
 end
-panel.navigation.Officer.scripts.OnClick();assert(panel.workspace.actions[3]:GetText()=='Backup' and panel.workspace.actions[4]:GetText()=='Restore')
+panel.navigation.Officer.scripts.OnClick();assert(panel.workspace.actions[2]:GetText()=='Backup' and panel.workspace.actions[3]:GetText()=='Restore' and not panel.workspace.actions[4].shown)
 panel.navigation.Standings.scripts.OnClick();assert(not panel.workspace.shown and panel.scroll.shown)
 panel.section='Standings';host:RefreshDKP();assert(panel.section==nil and not panel.workspace.shown)
 panel.navigation.Officer.scripts.OnClick();host.rank=2;host:RefreshDKP()
@@ -605,7 +606,7 @@ panel.navigation.Standings.scripts.OnClick();assert(panel.raidAward.shown and pa
 local _,_,nextAuction=host:StartDKPAuction('19019',250,10,30);assert(nextAuction);host:ShowDKPAuctionPopup(nextAuction)
 local function auctionPopup(id)
  for i=#created,1,-1 do local f=created[i];if f.frameName=='GuildDBDKPAuctionPopup' and f.auctionID==id then return f end end
- error('Missing auction popup')
+ error('Missing auction popup: '..tostring(id)..'\n'..debug.traceback())
 end
 local bidWindow=auctionPopup(nextAuction)
 assert(bidWindow.timer.value==30 and bidWindow.timer.maximum==30 and bidWindow.quickAmount==250)
@@ -1009,7 +1010,7 @@ do
  c:ShowDKPStartRaid();assert(c.form.fields[2].value:find('raid or party',1,true))
  assert(c.form.callback({'Party test'}));local recording=c:GetDKPActiveRaid();assert(recording)
  assert(c:GetDKPBalance('Officer One')==10 and c:GetDKPBalance('Novice One')==10 and c:GetDKPBalance('Member One')==0)
- assert(not c:StartDKPAuction('19019',10,10,30))
+ local _,_,partyAuction=c:StartDKPAuction('19019',10,10,30);assert(partyAuction);assert(c:CancelDKPAuction(partyAuction))
  event(c,'ENCOUNTER_END');assert(c:HandleDKPBossKill('Party Boss'))
  assert(c:GetDKPBalance('Officer One')==40 and c:GetDKPBalance('Novice One')==40)
  assert(not c:HandleDKPBossKill('Party Boss'))
@@ -1034,6 +1035,7 @@ do
  local peer=systemClient(2,'Member One');broadcast(c,0,{peer},'Officer One');assert(not peer:GetDKPActiveRaid())
  local reload=systemClient(1,'Officer One',c.bucket);assert(not reload:GetDKPActiveRaid())
  raid=oldRaid;IsInRaid=oldInRaid;IsInGroup=oldInGroup
+ local auctionRaid=raid;raid={'Officer One','Member One'}
  local auctions=systemClient(1,'Officer One');active=auctions
  local _,_,auction=auctions:StartDKPAuction('19019',10,10,30);assert(auction)
  auctions:ShowDKPAuctionPopup(auction);local window=auctionPopup(auction)
@@ -1046,9 +1048,10 @@ do
  reloaded:ShowDKPAuctionPopup(auction);local reopened=auctionPopup(auction);assert(reopened.shown)
  reopened.close.scripts.OnClick();reloaded:RefreshDKPAuctionPopup();assert(not reopened.shown)
  local otherCharacter=systemClient(0,'Leader One',auctions.bucket);active=otherCharacter
- otherCharacter:RefreshDKPAuctionPopup();assert(auctionPopup(auction).shown)
+ otherCharacter:RefreshDKPAuctionPopup();otherCharacter:ShowDKPAuctionPopup(auction);assert(auctionPopup(auction).shown)
  active=reloaded;assert(reloaded:CancelDKPAuction(auction))
  local _,_,nextID=reloaded:StartDKPAuction('19020',10,10,30);assert(nextID and auctionPopup(nextID).shown)
+ raid=auctionRaid
 end
 do
  local oldRaid,oldInRaid,oldInGroup,oldCombat=raid,IsInRaid,IsInGroup,InCombatLockdown
@@ -1081,6 +1084,62 @@ do
  assert(reload:ToggleDKPSoloTest());assert(reload:StartDKPRaid('Solo safety'));reload:TickDKPSystems();now=now+6;reload:TickDKPSystems();assert(not reload.dkpRecordingSafety)
  raid,IsInRaid,IsInGroup,InCombatLockdown=oldRaid,oldInRaid,oldInGroup,oldCombat
 end
+do
+ local priorRaid=raid;raid={'Officer One','Member One'}
+ local c=systemClient(1,'Officer One');active=c
+ assert(c:AwardDKP('Officer One',100,'Auction test'));assert(c:AwardDKP('Member One',100,'Auction test'))
+ local _,_,auction=c:StartDKPAuction('19019',10,10,30);assert(auction)
+ local start=c.sent[#c.sent];assert(start[1]=='DKU' and start[6]==true)
+ local peer=systemClient(2,'Member One');broadcast(c,0,{peer},'Officer One');local win=auctionPopup(auction);assert(win.shown)
+ -- Seeing it once is sufficient to suppress reload popups, even without clicking X.
+ local reloaded=systemClient(2,'Member One',peer.bucket);active=reloaded;local frames=#created
+ reloaded:RefreshDKPAuctionPopup();assert(#created==frames)
+ broadcast(c,0,{reloaded},'Officer One');assert(#created==frames)
+ active=peer;raid={'Member One'};peer:RefreshDKPAuctionPopup();assert(not win.shown)
+ local outsider=systemClient(0,'Leader One',peer.bucket);active=outsider;frames=#created;outsider:RefreshDKPAuctionPopup();assert(#created==frames)
+ raid={'Officer One','Member One'};now=now+31
+ local expired=systemClient(2,'Member One');broadcast(c,0,{expired},'Officer One');frames=#created;expired:RefreshDKPAuctionPopup();assert(#created==frames)
+ expired:ShowDKPAuctionPopup(auction);assert(auctionPopup(auction).shown)
+ -- Escape uses the same persistent dismissal as X.
+ active=peer;peer:ShowDKPAuctionPopup(auction)
+ local registered=false;for _,name in ipairs(UISpecialFrames) do if name=='GuildDBDKPAuctionPopup' then registered=true end end;assert(registered)
+ win.amount.scripts.OnEscapePressed(win.amount);win.scripts.OnHide();assert(not win.shown)
+ assert(peer.bucket.dkpAuctionDismissals['member one-realm'][auction])
+ peer:ShowDKPAuctionQueue();assert(not peer.dkpQueueWindow)
+ active=c;c:ShowDKPAuctionQueue();c:ShowDKPSyncStatus()
+ local foundQueue,foundSync=false,false
+ for _,name in ipairs(UISpecialFrames) do if _G[name]==c.dkpQueueWindow then foundQueue=true end;if _G[name]==c.dkpSyncWindow then foundSync=true end end
+ assert(foundQueue and foundSync)
+ assert(c:CancelDKPAuction(auction));assert(c:StartDKPRaid('Manual recorded awards'))
+ c:ShowDKPRaidRewardPicker();assert(c.form.callback({'Boss kill - 20 DKP'}));assert(c.form.title=='Record Boss Kill')
+ assert(c.form.callback({'Manual Boss'}));local review=c.form;assert(review.callback());assert(not review.callback())
+ local after=c:GetDKPBalance('Member One');assert(after==140 and not c:HandleDKPBossKill('Manual Boss'))
+ c:ShowDKPRaidRewardPicker();assert(c.form.callback({'Boss kill - 20 DKP'}));assert(c.form.callback({'Manual Boss'}));assert(not c.form.callback())
+ assert(c:GetDKPBalance('Member One')==after)
+ c:ShowDKPRaidRewardPicker();assert(c.form.callback({'On time and ready - 10 DKP'}));assert(c.form.title=='Recorded Attendance' and c:GetDKPBalance('Member One')==after)
+ c:ShowDKPRaidSummary(c:GetDKPActiveRaid().id);assert(_G.GuildDBDKPRaidSummary==c.dkpRaidSummaryWindow)
+ local other=systemClient(0,'Leader One',c.bucket);active=other;other:ShowDKPRaidRewardPicker();assert(not other.form.callback({'Boss kill - 20 DKP'}))
+ active=c;c:ShowDKPRaidRewardPicker();assert(c.form.callback({'Stayed until raid end - 10 DKP'}));assert(c.form.callback() and not c:GetDKPActiveRaid())
+ assert(c:GetDKPBalance('Member One')==after+10)
+ assert(load(MAIN_FORM_SOURCE))('GuildDB',c);c.ShowInputForm('Escape test',{{label='Input',value=''}},function() return true end);local form=latestDialog();form.inputs[1].scripts.OnEscapePressed(form.inputs[1]);assert(not form.shown)
+ raid=priorRaid
+end
+do
+ local priorRaid,priorInRaid,priorGroup,priorSubgroup,priorName,priorRoster=raid,IsInRaid,IsInGroup,GetNumSubgroupMembers,GetUnitName,GetGuildRosterInfo
+ IsInRaid=function() return false end;IsInGroup=function() return true end;GetNumSubgroupMembers=function() return 1 end
+ GetUnitName=function(unit) return unit=='party1' and 'Member One-Realm' or 'Officer One-Realm' end
+ GetGuildRosterInfo=function(i) local name,rank,rankIndex,level,class,zone,note,officer,online,status,classFile=priorRoster(i);return name,rank,rankIndex,name=='Officer One-Realm' and 25 or level,class,zone,note,officer,online,status,classFile end
+ local c=systemClient(1,'Officer One');active=c;assert(c:AwardDKP('Officer One',100,'Host funds'));assert(c:AwardDKP('Member One',100,'Player funds'))
+ local _,_,auction=c:StartDKPAuction('19019',10,10,30);assert(auction and c:CanBidDKPAuction(c:GetDKPAuction(auction),'Officer One'))
+ assert(c:AcceptDKPBid(auction,'Member One',10,'MS'));c:ShowDKPAuctionPopup(auction);local w=auctionPopup(auction)
+ assert(w.quick.enabled and w.quickAmount==20);w.quick.scripts.OnClick();assert(c:GetDKPAuctionLeader(c:GetDKPAuction(auction)).member=='Officer One-Realm')
+ assert(c:CloseDKPAuction(auction));assert(c:AwardDKPAuction(auction,'Officer One-Realm',20));assert(c:GetDKPBalance('Officer One')==80 and c:GetDKPBalance('Member One')==100)
+ assert(#c:GetDKPStandings('Officer One')==0)
+ local _,_,nextID=c:StartDKPAuction('19020',10,10,30);assert(nextID);c:ShowDKPAuctionPopup(nextID)
+ IsInGroup=function() return false end;c:RefreshDKPAuctionPopup();assert(not auctionPopup(nextID).quick.enabled and auctionPopup(nextID).feedback:GetText():find('raid or party',1,true))
+ raid,IsInRaid,IsInGroup,GetNumSubgroupMembers,GetUnitName,GetGuildRosterInfo=priorRaid,priorInRaid,priorGroup,priorSubgroup,priorName,priorRoster
+end
+print('Passed auction auto-open once/group/expiry/urgent delivery, Escape persistence/forms/windows, recorded boss fallback/deduplication/attendance/end routes, party host bidding below 60 and reason display')
 print('Passed recording safety: group departure/reload reminder, grace period/combat deferral, cancel without spam, rejoin/permissions/guild/replacement checks, preserved DKP and solo exclusion')
 print('Passed recording cleanup after group departure: no phantom bonus, host permissions, sync/reload; auction dismissal survives reload/replay/expiry, explicit reopen, per-character isolation and new-auction popups')
 print('Passed party raid testing: recording form/start, any-level guild attendance, connected current party checkpoints, automatic boss awards/deduplication, end bonuses, sync and permission/ungrouped checks')

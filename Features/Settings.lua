@@ -624,7 +624,7 @@ local function build(parent)
     GD:StyleEditBox(inviteInput)
     local inviteDirty, loadingInvite, inviteBucket = false, false, GD.bucket
     inviteInput:SetScript("OnTextChanged", function() if not loadingInvite then inviteDirty = true end end)
-    inviteInput:SetScript("OnEscapePressed", function(input) input:ClearFocus() end)
+    inviteInput:SetScript("OnEscapePressed", function(input) input:ClearFocus(); GD:CloseWindowsOnEscape() end)
     list[#list + 1] = inviteInput
     local inviteStatus = label(gmPanel, "Only the guild master can change this link. Leave blank and save to remove it.", 12, -172, "GameFontDisableSmall", list)
     inviteStatus:SetWidth(400)
