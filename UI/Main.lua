@@ -1832,9 +1832,7 @@ function GD:RefreshUI()
     end
     local addonSummary = "    " .. usingAddon .. " known addon users"
     frame.headerStatus:SetText((self.guildName and "|cff55cf9bGUILD CONNECTED|r    " or "|cffff6666NO GUILD|r    ") .. online .. " online" .. addonSummary)
-    local faction = UnitFactionGroup and UnitFactionGroup("player") or nil
-    local emblem = faction == "Horde" and "HordeEmblem.png" or "AllianceEmblem.png"
-    frame.logoMark:SetTexture("Interface\\AddOns\\GuildDB\\Assets\\" .. emblem)
+    self:RefreshGuildEmblem()
     frame.logoText:SetText("GuildDB")
     frame.logoAbbreviation:SetText(guildAbbreviation(self.guildName or "Guild"))
     frame.listHeader:SetText(active:upper())

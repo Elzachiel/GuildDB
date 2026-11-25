@@ -220,7 +220,7 @@ function GD:RefreshActivity()
         or isAchievements and (#records .. " awards | Level milestones, professions and recorded raid clears")
         or (#records .. " reports | Every 10 levels and profession milestones | Newest first"))
     panel.note:SetText(isShoutouts and "Give a shoutout to thank a guildmate. GM and rank 1 officers can delete posts."
-        or isAchievements and "Awards: latest 500, no expiry. Tracking starts with reported events."
+        or isAchievements and "React with Cheers, Thanks, or Epic. Click your selected reaction again to remove it."
         or "Activity: latest 200 reports, up to 30 days. Popup preferences do not disable tracking.")
     panel.achievementHeading:SetText(panel.view)
     panel.empty:SetText(isShoutouts and "No shoutouts yet. Thank a guildmate using Give a shoutout."
@@ -322,7 +322,10 @@ function GD:RefreshActivity()
         local height = 72
         row.detail:SetWordWrap(item.shoutout == true)
         if item.shoutout then height = math.max(72, 34 + row.detail:GetStringHeight() + 12) end
+        if item.award then height = 104 end
         row:SetHeight(height)
+        if item.award then self:RefreshKudosButtons(row, "A", record)
+        else for _, button in ipairs(row.kudosButtons or {}) do button:Hide() end end
         row:Show()
         y = y + height + 10
     end
