@@ -8,6 +8,8 @@ GuildDB is a World of Warcraft guild addon for a shared roster, member profiles,
 
 ## Features
 
+- DKP is a guild-wide opt-in feature under Settings > Officer > DKP (testing). Its single tab contains level-60 Standings, History, Auctions, Loot, Raids and Officer tools. It includes themed auction popups, MS/OS bids, loot charges, shared main/alt balances, starting grants, recorded raid awards, audited reversals and backup/restore. During testing, write access belongs to the GM and rank-1 officers; regular members can bid, inspect prices/history and control their own auction popups. See the DKP workflow below.
+
 - Guild Achievements replaces Activity, preserving its guild-wide visibility setting. Achievement cards use gold accents for raid clears, member class colors for level milestones (theme accent when class data is unavailable), matching level icons, and profession-specific icons shared with milestone popups. Both Achievements and Recent Activity cards have matching tinted backgrounds, colored titles, and colored sidebars/borders. Achievement cards celebrate levels 10/20/30/40/50/60 and profession skill milestones at 150/225/300, with filters for levels, professions, and raid clears. Officers (GM or rank 1) can use Record raid clear to add a named clear and details; clears are labeled as officer-recorded, without claiming an automatic guild first. Retained activity seeds awards on upgrade; discarded history and unreported accomplishments cannot be reconstructed. Awards retain the latest 500 without a time expiry; history sync shares the latest 100. Only the guild master (rank 0) can Delete an individual award or Clear category (including all listed raid clears), with confirmation. Incoming and relayed deletions must also be authored by the guild master; rank 1 can still record raid clears. Deletions sync and suppress old or re-imported milestone records so cleared awards stay removed; recent activity remains separate. Achievements, Recent Activity, and Shoutouts are separate views, with Achievements selected initially. Each view keeps its own category filter while switching; switching views resets the scroll position. Raid-clear recording and GM-only award deletion appear in Achievements; GM/rank 1 shoutout deletion appears in Shoutouts. Recent Activity shows all retained reports, with All activity, Levels and Professions filters, showing level 10/20/30/40/50/60 and profession milestones only, backed by the existing 200-entry/30-day feed and 50-entry activity sync. Popup previews and tests are excluded, and popup preferences do not disable tracking. Real milestones broadcast durable activity records independently of popup sender-name matching. After login or a guild change, each character re-shares their retained personal milestone awards once so missed achievements can catch up; no awards are invented from current levels.
 - Recruitment is visible only to the GM and rank 1 officers, matching GuildDB's officer permissions. Open it with `/gd recruit`. Search Who or import the game's current Who results to save unguilded candidates, or add a full character name manually. Search saved candidates and choose a status from the themed dropdown to review contacts, replies, skipped candidates, and Do Not Contact entries. Whisper and Guild invite each require a click; invites also require the game's guild-invite permission. Contact statuses indicate submitted actions, not confirmed delivery or membership.
 - Recruitment includes private notes and saved whisper/ad templates with `{name}` and `{guild}` placeholders. Save templates before sending. Post ad uses the joined channel number you enter and has a five-minute cooldown. Candidate data, latest replies from previously contacted players, templates, and cooldowns are saved locally per recruiter and guild; they are not sent through guild sync. Other officers maintain their own lists. Recruitment ads, whispers and guild invites can be submitted in combat. Contacts have a two-second shared cooldown.
@@ -112,3 +114,73 @@ Date and time in event commands use the local time shown by the game client. Boa
 - `GuildDB.toc` lists the files in WoW load order.
 
 Appearance settings include Reset Appearance, which restores class color and Midnight without changing other preferences. Deleting announcements or polls, closing polls, and resetting all personal settings require confirmation. Wipe All PvP Stats requires typing WIPE; raid removal and season deletion retain their confirmation dialogs.
+
+## DKP workflow
+
+All participating clients need the updated addon and `/reload`. Enable DKP in Settings > Officer. Saved data is separated by guild; disabling DKP preserves it. Use one auction host at a time, and let that host confirm item awards.
+
+### Prices and starting points
+
+Prices / Rules displays the guild's starting prices and lets members look up equipment by link or numeric ID. Officers can save individual item overrides; a saved override takes priority over its slot price. Unknown or uncached equipment is left unpriced until item data loads or an officer enters a price.
+
+| Gear | Starting DKP price |
+| --- | ---: |
+| Neck / rings | 100 |
+| Cloak / wrists / waist / feet / wand / thrown | 150 |
+| Head / chest / shoulders / legs / hands | 200 |
+| One-hand weapons / shields / off-hands | 250 |
+| Two-hand / ranged weapons | 350 |
+| Trinkets | 300 |
+
+Officer > Starting DKP opens an unchecked roster of eligible level-60 characters. Select the raiders, review, then grant 1,000 DKP once per linked account. Existing points are preserved. Stable grant IDs prevent repeated grants through retries, reloads and history sync. Link alts to mains before granting points. If both characters already received starting grants, reverse the extra grant before linking.
+
+Standings includes offline level-60 characters, class colors, search and DKP sorting. Hover a member to see the shared main/alt account. Award and Take DKP require whole numbers and a reason; these manual adjustments can create negative balances. Auctions and normal loot purchases require sufficient available funds.
+
+### Auction and loot windows
+
+1. Join a raid, then open DKP > Auctions > Start Auction.
+2. Shift-click/paste an item link or enter its item ID. Alternatively, with DKP enabled, the GM or a rank-1 officer can Alt + right-click a bag item, a loot-window item or an item link in chat to open its auction setup directly. Review the prefilled slot/item price, minimum increase and duration, then press Start to publish the auction to eligible level-60 guild raiders. If an auction is already active, the shortcut reopens it instead of creating another.
+3. Players receive a movable, resizable, themed popup with an item tooltip, countdown bar (red for the final ten seconds), highlighted leader and available shared DKP. Quick Bid uses the next valid bid for the selected MS/OS pool; minus/plus adjust it by the auction's increment. Custom Bid submits the typed amount, while All In submits the available shared balance when it meets the next bid and maximum bid limit. The scrollable table shows every bidder, their spec and amount, class-colored names, and your own bid. Accepted bids synchronize through the hosting officer. A player can withdraw while bidding is open. Players can disable automatic popups and reopen an auction through Bid Window in the Auctions tab, which also shows the live countdown and bidder list.
+4. Main-spec bids have priority over off-spec bids. Each spec's new bid must exceed that spec's leading bid by the configured increase. Acceptance order breaks equal-price ties. Bids accepted in the final 10 seconds extend the deadline to allow a response.
+5. The host closes bidding or lets the timer close it. Confirm winner checks current raid eligibility and funds again, records the item/spec/cost and deducts DKP exactly once. An unaffordable or ineligible winner's bid can be removed before reviewing again.
+6. The loot master distributes the actual game item. The addon records points and history; it does not call protected loot-distribution actions.
+
+Loot > Record Loot supports a reviewed purchase without an auction. Loot history shows the recipient, price, spec, officer and time. Cancelled auctions spend no DKP. If another host disconnects, officers can use Stop Stale 60 seconds after the bidding deadline; finished purchases are corrected through a reversal.
+
+### Raid and attendance recording
+
+Auction comfort controls: the popup remembers its resized width/height in personal settings, shows your own leading/outbid status beside available DKP, and disables Withdraw until you have a bid. Enter submits the custom amount while bidding is open; Escape releases the amount field's focus. The countdown bar interpolates between seconds while the auction host's deadline remains authoritative.
+
+Auctions > Queue lets officers add up to 40 drops with reviewed minimum bids, increments and durations, reorder them or remove an item. Each character's queue is saved locally for that guild and survives reloads; it is not included in ledger backups or shared with other officers. Start Next opens the first queued item only after the current auction finishes. Failed starts preserve the queued item. Repeated copies of the same item are allowed.
+
+The queue opens a themed, movable list with item icons, rarity-colored names, hover tooltips, starting bids, increments and timers. Up / Down changes the order; Remove drops an entry. Add item and Start next remain at the bottom while the list scrolls.
+
+Loot awards begin as Pending. In Loot, officers can Mark delivered after distributing the item, or Mark pending to undo that confirmation. Players can see the status; only the GM and rank-1 officers can change it. Delivery changes synchronize, persist through reloads and backups, and appear in raid summaries without charging DKP again. Refunded awards show Refunded and cannot be marked delivered. Delivery is a manual confirmation, not automatic trade detection.
+
+Officer > Sync Status checks the current DKP snapshot against replies from updated guild clients. The report shows Confirmed, Different data, Waiting for reply, No response, or Offline. Confirmation applies to the snapshot at the check time; later local changes prompt another check. Check Again sends a new request, with a five-second cooldown. Offline members and clients that do not reply are never assumed synchronized. Sync reports are temporary and are not included in backups. Exit Solo Test before checking guild sync.
+
+History has an All / Earned / Spent / Loot / Corrections filter that combines with its text search. Earned and Spent show positive and negative original entries; Loot includes purchases and their refunds; Corrections includes manual deductions and reversals. Original entries remain visible in their category after reversal, with their compensating entries preserved in the audit trail.
+
+Auctions > Alerts contains personal popup, outbid sound and screen-border flash preferences. Sound and flash default off. An alert fires once when another bidder takes your lead, including while your popup is dismissed. Opening history, joining an auction already in progress, withdrawing your bid, or closing bidding does not produce an outbid alert.
+
+Raids > Summary opens a scrollable report with attendance checkpoints per character, bosses killed, total and individual DKP earned, and loot awards with refund markers. Checkpoints opens the original attendee lists; Refresh updates a running raid's summary. New auction awards and manual purchases are linked to the raid active when the purchase is recorded, and these links synchronize and survive backup/restore. Earlier purchases without a saved raid link are not guessed into a summary. All participating clients should update to display these new links.
+
+For solo testing, use `/gd dkptest` or DKP > Raids > Solo Test as the GM or a rank-1 officer. This opens a temporary local DKP session with 1,000 points, your character as the participant, and no raid or level requirement. You can record raids, award bosses, auction items, bid, confirm winners and inspect loot by yourself. SOLO TEST appears in the DKP headings. Test data is never broadcast or saved into guild DKP; live DKP messages are held until you exit. Use `/gd dkptest` again or Exit Test to discard the session and return to guild data. Reloading also discards the test session. Backups and restores require exiting Solo Test first.
+
+Raids > Start Raid begins a recording inside the instance and awards 10 on-time DKP to connected guild raiders currently present, once per linked account. During testing, raid recording and its attendance/boss rewards accept guild members of any level; the standings and auction eligibility still require level 60. The recording host handles supported ENCOUNTER_END/BOSS_KILL notifications. Repeated notifications for the same boss in the same recording are ignored. A boss kill grants 20 DKP; the guild's first recorded kill in that zone also grants 10 bonus DKP. Replayed or out-of-order kill history reconciles that first bonus to one recorded kill.
+
+Boss kills award DKP automatically during a recorded raid. Use Award Raid for reviewed custom adjustments when needed. End Raid awards 10 DKP to eligible connected guild raiders currently present and finishes recording. Stop Recording preserves earned points and stops without an attendance bonus, including after the host disconnects or the group disbands. Attendance opens each checkpoint's actual recipient list. Ordinary boss/attendance presets are blocked during an active recording to avoid accidentally awarding the same event through both paths; custom adjustments remain available.
+
+While a raid recording is active, the Raids view shows that automatic boss awards are running and identifies the recording host. A successful encounter or boss-kill notification records the award automatically and prints the boss, DKP amount and recipient count for that host. Wipes and repeated notifications do not create awards; offline, departed and non-guild players are excluded from the current kill's recipient list. The auction popup uses a layer above the main addon window, with review and confirmation forms above the popup.
+
+### Officer corrections and recovery
+
+Officer contains the searchable audit ledger, main/alt linking, starting grants and backup controls. Linking shares saved balances and future spending without rewriting historical authors or recipients. Links cannot change during active auctions. Select an original ledger entry, enter a reason and confirm a reversal; the original stays visible and one opposite adjustment is added. A duplicate reversal is ignored. Loot refunds and starting-grant corrections use the same audit trail.
+
+Backup exports copyable text. Save it outside the game. Restore validates the current guild header and all records, merges into staged data, and commits only when replay succeeds. It preserves existing entries and applies duplicate records once; invalid input or a replay error leaves original data intact. Successful restores synchronize the merged records through authorized officers. No Lua from a backup is executed.
+
+### Verification
+
+The Node.js simulation in `Tests/DKP.test.js` uses `fengari` and `luaparse` as development-only dependencies; nothing in Tests is loaded by the game. Run `node Tests/DKP.test.js` when those packages are available to Node. Alternatively, install them in an external development folder and set `GUILDDB_TEST_ROOT` to that folder before running the test. It checks Lua 5.1 syntax, multi-client bids, permissions, out-of-order history, forty bidders and message size, timers, charges, reversals, shared balances, grants, raid events, backup merges/rollback, and mocked UI forms/popup rendering.
+
+In-game acceptance test: update and reload on an officer and a member, form a raid, grant/select test DKP, run an auction, bid from the member, close and confirm it, then check both balances and Loot history. Test a reversal and a reload. Verify an actual boss-kill notification in your client before relying on automatic raid awards; the manual fallback remains available.

@@ -640,15 +640,16 @@ local function createRaidDatePicker(dialog, field, offset)
 end
 
 local dialogCounter = 0
+local itemLinkInputs, itemLinkHooked = setmetatable({}, { __mode = "k" }), false
 local function showInputForm(title, fields, onAccept, acceptLabel, hideClose, secureAction)
     dialogCounter = dialogCounter + 1
     local name = "GuildDBActionDialog" .. dialogCounter
     local dialog = CreateFrame("Frame", name, UIParent, "BackdropTemplate")
     local contentHeight = 0
-    for _, field in ipairs(fields) do contentHeight = contentHeight + (field.multiline and 116 or 56) end
+    for _, field in ipairs(fields) do contentHeight = contentHeight + (field.itemPreview and 76 or field.checklist and 236 or field.multiline and 116 or 56) end
     dialog:SetSize(410, 96 + contentHeight)
     dialog:SetPoint("CENTER")
-    dialog:SetFrameStrata("DIALOG")
+    dialog:SetFrameStrata("FULLSCREEN_DIALOG")
     dialog:SetFrameLevel(100)
     dialog:EnableMouse(true)
     dialog:SetClampedToScreen(true)
@@ -669,7 +670,44 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose, se
         setTextColor(label, CREAM)
         local height = field.multiline and 84 or 24
         local input
-        if field.checkbox then
+        if field.checklist then
+            input = CreateFrame("Frame", nil, dialog)
+            input:SetSize(370, 200)
+            input:SetPoint("TOPLEFT", 20, -offset - 16)
+            local selected = {}
+            for _, value in ipairs(field.value or {}) do selected[value] = true end
+            local function updateSelection()
+                input.selectedValue = {}
+                for _, value in ipairs(field.checklist) do
+                    if selected[value] then input.selectedValue[#input.selectedValue + 1] = value end
+                end
+            end
+            local list = CreateFrame("ScrollFrame", nil, input, "UIPanelScrollFrameTemplate")
+            list:SetPoint("TOPLEFT")
+            list:SetPoint("BOTTOMRIGHT", -24, 0)
+            local content = CreateFrame("Frame", nil, list)
+            content:SetSize(340, math.max(200, #field.checklist * 26))
+            list:SetScrollChild(content)
+            GD:StyleScrollFrame(list)
+            for index, value in ipairs(field.checklist) do
+                local chosen = value
+                local check = CreateFrame("CheckButton", nil, content)
+                GD:StyleCheckbox(check)
+                check:SetPoint("TOPLEFT", 0, -(index - 1) * 26)
+                check:SetChecked(selected[chosen] == true)
+                check:SetEnabled(not field.readOnly)
+                local name = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                name:SetPoint("LEFT", check, "RIGHT", 4, 0)
+                name:SetWidth(300)
+                name:SetJustifyH("LEFT")
+                name:SetText(GD:Display(chosen))
+                check:SetScript("OnClick", function(button)
+                    selected[chosen] = button:GetChecked() == true
+                    updateSelection()
+                end)
+            end
+            updateSelection()
+        elseif field.checkbox then
             input = CreateFrame("CheckButton", nil, dialog)
             GD:StyleCheckbox(input)
             input:SetPoint("TOPLEFT", 18, -offset - 12)
@@ -765,17 +803,33 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose, se
             input:SetPoint("TOPLEFT", 20, -offset - 16)
             GD:StyleEditBox(input, field.multiline)
         end
-        if not field.options and not field.calendar and not field.weekdays and not field.checkbox then
+        if not field.options and not field.calendar and not field.weekdays and not field.checkbox and not field.checklist then
             input:SetAutoFocus(false)
             input:SetMaxLetters(field.max or 200)
             input:SetText(field.value or "")
             if field.readOnly then
                 input:SetEnabled(false)
                 input:SetTextColor(MUTED_GOLD[1], MUTED_GOLD[2], MUTED_GOLD[3])
+                if field.itemPreview and GD.CreateDKPItemPreview then
+                    input:Hide()
+                    input.itemPreview = GD:CreateDKPItemPreview(dialog, field.itemPreview, field.itemName)
+                    input.itemPreview:SetPoint("TOPLEFT", 20, -offset - 16)
+                end
+            end
+            if field.itemLink and not field.readOnly then
+                itemLinkInputs[input] = true
+                if not itemLinkHooked and hooksecurefunc and ChatEdit_InsertLink then
+                    hooksecurefunc("ChatEdit_InsertLink", function(link)
+                        for edit in pairs(itemLinkInputs) do
+                            if edit:IsShown() and edit:HasFocus() then edit:SetText(link); return end
+                        end
+                    end)
+                    itemLinkHooked = true
+                end
             end
         end
         dialog.inputs[i] = input
-        offset = offset + (field.multiline and 116 or 56)
+        offset = offset + (field.itemPreview and 76 or field.checklist and 236 or field.multiline and 116 or 56)
     end
     if not hideClose then
         local close = CreateFrame("Button", nil, dialog, "UIPanelButtonTemplate")
@@ -845,7 +899,7 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose, se
     end)
     dialog:Show()
     for index, input in ipairs(dialog.inputs) do
-        if not fields[index].readOnly and not fields[index].options and not fields[index].calendar and not fields[index].weekdays and not fields[index].checkbox then
+        if not fields[index].readOnly and not fields[index].options and not fields[index].calendar and not fields[index].weekdays and not fields[index].checkbox and not fields[index].checklist then
             input:SetFocus()
             break
         end
@@ -2048,6 +2102,7 @@ function GD:RefreshUI()
     if frame.analytics then frame.analytics:Hide() end
     if frame.activity and active ~= "Guild Achievements" then frame.activity:Hide() end
     if frame.recruitment and active ~= "Recruitment" then frame.recruitment:Hide() end
+    if frame.dkp and active ~= "DKP" then frame.dkp:Hide() end
     local isActionList = active == "Polls" or active == "Announcements"
     frame.detailRule:SetShown(not isPvP and not isEvents and not isActionList)
     frame.detailMeta:SetShown(not isPvP and not isActionList)
@@ -2849,6 +2904,7 @@ function GD:RefreshUI()
     if active == "Analytics" and self.RefreshAnalytics then self:RefreshAnalytics() end
     if active == "Guild Achievements" and self.RefreshActivity then self:RefreshActivity() end
     if active == "Recruitment" and self.RefreshRecruitment then self:RefreshRecruitment() end
+    if active == "DKP" and self.RefreshDKP then self:RefreshDKP() end
 end
 
 local function rebuildRoster()

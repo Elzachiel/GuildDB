@@ -1,7 +1,7 @@
 -- Personal preferences plus per-guild, officer-managed feature visibility.
 local _, GD = ...
 
-local defaults = { onlineOnly = true, scale = 1, popups = true, raidReminders = true, levelGuildChat = false, shareMapLocation = false, accentColor = 1, uiTheme = 1, showMinimapButton = true, minimapAngle = 225 }
+local defaults = { onlineOnly = true, scale = 1, popups = true, raidReminders = true, levelGuildChat = false, shareMapLocation = false, accentColor = 1, uiTheme = 1, showMinimapButton = true, minimapAngle = 225, dkpAuctionWidth = 520, dkpAuctionHeight = 610, dkpOutbidSound = false, dkpOutbidFlash = false }
 
 function GD:ResetAppearance()
     self:SetSetting("accentColor", defaults.accentColor)
@@ -26,6 +26,7 @@ function GD:HasGuildFeatureSettings()
 end
 
 function GD:GetSetting(key)
+    if key == "feature:DKP" then return self:IsDKPEnabled() end
     local db = settings()
     if key:sub(1, 8) == "feature:" then
         local tab = key:sub(9)
@@ -57,6 +58,7 @@ function GD:GetSetting(key)
 end
 
 function GD:SetSetting(key, value)
+    if key == "feature:DKP" then return self:SetDKPEnabled(value) end
     local db = settings()
     if key:sub(1, 8) == "feature:" then
         if not self:CanManage() or not self.bucket then return end
@@ -91,6 +93,10 @@ function GD:SetSetting(key, value)
             value = math.max(1, math.min(7, math.floor(tonumber(value) or 1)))
         elseif key == "uiTheme" then
             value = math.max(1, math.min(4, math.floor(tonumber(value) or 1)))
+        elseif key == "dkpAuctionWidth" then
+            value = math.max(500, math.min(800, math.floor(tonumber(value) or 520)))
+        elseif key == "dkpAuctionHeight" then
+            value = math.max(540, math.min(900, math.floor(tonumber(value) or 610)))
         elseif key == "minimapAngle" then
             value = (tonumber(value) or 225) % 360
             if type(GDB.minimap) == "table" then GDB.minimap.minimapPos = value end
@@ -224,6 +230,7 @@ local pendingFeatureReply
 local immediateFeatureRequest = false
 function GD:RequestFeatureSettings(immediate)
     if not self.bucket then return false end
+    if self.RequestDKPSettings then self:RequestDKPSettings(immediate) end
     if featureRequestBucket ~= self.bucket then
         featureRequestBucket, lastFeatureRequest, lastFeatureReply = self.bucket, 0, 0
         immediateFeatureRequest = false
@@ -327,10 +334,19 @@ local function check(parent, text, key, x, y, list, officerOnly)
         button:GetNormalTexture():SetVertexColor(0.075, 0.09, 0.12, 1)
         for _, edge in ipairs(button.border) do edge:SetColorTexture(0.16, 0.25, 0.34, 1) end
         local permitted = not officerOnly or GD:CanManage()
+        if key == "feature:DKP" then permitted = GD:CanConfigureDKP() end
         button:SetEnabled(permitted)
         button.text:SetTextColor(permitted and 0.88 or 0.38, permitted and 0.84 or 0.40, permitted and 0.73 or 0.45)
     end
     button:SetScript("OnClick", function()
+        if key == "feature:DKP" and GD:IsDKPEnabled() then
+            local bucket = GD.bucket
+            GD:ConfirmAction("Disable guild DKP?", "Hide DKP for this guild. Saved balances and history will be kept.", function()
+                if GD.bucket ~= bucket then return false, "Your guild changed. Open Guild Settings again." end
+                return GD:SetDKPEnabled(false)
+            end, "Disable")
+            return
+        end
         GD:SetSetting(key, not GD:GetSetting(key))
         update()
     end)
@@ -593,7 +609,7 @@ local function build(parent)
     for index, tab in ipairs(tabs) do
         local column = index > split and 1 or 0
         local row = index > split and index - split or index
-        check(officerPanel, tab == "Events" and "Raid Info" or tab, "feature:" .. tab, 12 + column * 180, -70 - (row - 1) * 30, list, true)
+        check(officerPanel, tab == "Events" and "Raid Info" or tab == "DKP" and "DKP (testing)" or tab, "feature:" .. tab, 12 + column * 180, -70 - (row - 1) * 30, list, true)
     end
     label(officerPanel, GD:CanManage() and "Online users update now; offline users on next sync." or "Only the guild leader or rank 1 can change these switches.", 12, -70 - (split + 1) * 30, "GameFontDisableSmall", list)
 
