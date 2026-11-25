@@ -997,6 +997,93 @@ do
  local _,lateReport=c:GetDKPSyncReport();assert(lateReport:find('Waiting - No response',1,true))
  assert(not peer:CheckDKPSync());active=c;c.rank=2;c.dkpSyncWindow.scripts.OnUpdate(c.dkpSyncWindow,2);assert(not c.dkpSyncWindow.shown)
 end
+do
+ local savedInRaid,savedInGroup,savedSubgroup,savedName,savedConnected=IsInRaid,IsInGroup,GetNumSubgroupMembers,GetUnitName,UnitIsConnected
+ local units={party1='Novice One',party2='Member One',party3='Unknown Visitor',party4='Officer One'}
+ local disconnected={party2=true}
+ IsInRaid=function() return false end;IsInGroup=function() return true end;GetNumSubgroupMembers=function() return 4 end
+ GetUnitName=function(unit) return units[unit] end;UnitIsConnected=function(unit) return not disconnected[unit] end
+ local c=systemClient(1,'Officer One');active=c
+ assert(#c:GetDKPRaidMembers()==0 and #c:GetDKPParticipants()==0)
+ assert(#c:GetDKPParticipants(true)==2)
+ c:ShowDKPStartRaid();assert(c.form.fields[2].value:find('raid or party',1,true))
+ assert(c.form.callback({'Party test'}));local recording=c:GetDKPActiveRaid();assert(recording)
+ assert(c:GetDKPBalance('Officer One')==10 and c:GetDKPBalance('Novice One')==10 and c:GetDKPBalance('Member One')==0)
+ assert(not c:StartDKPAuction('19019',10,10,30))
+ event(c,'ENCOUNTER_END');assert(c:HandleDKPBossKill('Party Boss'))
+ assert(c:GetDKPBalance('Officer One')==40 and c:GetDKPBalance('Novice One')==40)
+ assert(not c:HandleDKPBossKill('Party Boss'))
+ disconnected.party2=nil;units.party1=nil;assert(c:EndDKPRaid())
+ assert(c:GetDKPBalance('Officer One')==50 and c:GetDKPBalance('Novice One')==40 and c:GetDKPBalance('Member One')==10)
+ local summary=c:GetDKPRaidSummary(recording.id);assert(#summary.attendees==3 and #summary.bosses==1 and summary.earned==100)
+ local peer=systemClient(2,'Member One');broadcast(c,0,{peer},'Officer One');assert(peer:GetDKPBalance('Novice One')==40)
+ active=peer;assert(not peer:StartDKPRaid('Unauthorized'))
+ active=c;IsInGroup=function() return false end;assert(not c:StartDKPRaid('Ungrouped'))
+ IsInRaid,IsInGroup,GetNumSubgroupMembers,GetUnitName,UnitIsConnected=savedInRaid,savedInGroup,savedSubgroup,savedName,savedConnected
+end
+do
+ local oldRaid,oldInRaid,oldInGroup=raid,IsInRaid,IsInGroup
+ raid={'Officer One','Member One'};IsInRaid=function() return true end
+ local c=systemClient(1,'Officer One');active=c;local _,_,recording=c:StartDKPRaid('Leave then end');assert(recording)
+ raid={};IsInRaid=function() return false end;IsInGroup=function() return false end
+ local stranger=systemClient(0,'Leader One',c.bucket);active=stranger;assert(not stranger:EndDKPRaid())
+ active=c;c.rank=2;assert(not c:EndDKPRaid());c.rank=1
+ local before=c:GetDKPBalance('Member One');local count=#c:GetDKPSystemRecords('DKV')
+ assert(c:EndDKPRaid());assert(not c:GetDKPActiveRaid() and #c:GetDKPSystemRecords('DKV')==count)
+ assert(c:GetDKPBalance('Member One')==before and not c:EndDKPRaid())
+ local peer=systemClient(2,'Member One');broadcast(c,0,{peer},'Officer One');assert(not peer:GetDKPActiveRaid())
+ local reload=systemClient(1,'Officer One',c.bucket);assert(not reload:GetDKPActiveRaid())
+ raid=oldRaid;IsInRaid=oldInRaid;IsInGroup=oldInGroup
+ local auctions=systemClient(1,'Officer One');active=auctions
+ local _,_,auction=auctions:StartDKPAuction('19019',10,10,30);assert(auction)
+ auctions:ShowDKPAuctionPopup(auction);local window=auctionPopup(auction)
+ window.close.scripts.OnClick();auctions:TickDKPSystems();assert(not window.shown)
+ local reloaded=systemClient(1,'Officer One',auctions.bucket);active=reloaded
+ local frames=#created;reloaded:RefreshDKPAuctionPopup();assert(#created==frames)
+ -- Replay and expiration into REVIEW cannot undo the local dismissal.
+ broadcast(auctions,0,{reloaded},'Officer One');assert(#created==frames)
+ now=now+31;reloaded:TickDKPSystems();assert(#created==frames and reloaded:GetDKPAuctionStatus(reloaded:GetDKPAuction(auction))=='REVIEW')
+ reloaded:ShowDKPAuctionPopup(auction);local reopened=auctionPopup(auction);assert(reopened.shown)
+ reopened.close.scripts.OnClick();reloaded:RefreshDKPAuctionPopup();assert(not reopened.shown)
+ local otherCharacter=systemClient(0,'Leader One',auctions.bucket);active=otherCharacter
+ otherCharacter:RefreshDKPAuctionPopup();assert(auctionPopup(auction).shown)
+ active=reloaded;assert(reloaded:CancelDKPAuction(auction))
+ local _,_,nextID=reloaded:StartDKPAuction('19020',10,10,30);assert(nextID and auctionPopup(nextID).shown)
+end
+do
+ local oldRaid,oldInRaid,oldInGroup,oldCombat=raid,IsInRaid,IsInGroup,InCombatLockdown
+ raid={'Officer One','Member One'};local grouped,combat=true,false
+ IsInRaid=function() return grouped end;IsInGroup=function() return grouped end;InCombatLockdown=function() return combat end
+ local c=systemClient(1,'Officer One');active=c;assert(c:StartDKPRaid('Safety test'))
+ c:TickDKPSystems();assert(not c.form)
+ grouped=false;c:TickDKPSystems();now=now+4;c:TickDKPSystems();assert(not c.form)
+ combat=true;now=now+2;c:TickDKPSystems();assert(not c.form)
+ combat=false;c:TickDKPSystems();local prompt=c.form
+ assert(prompt.title=='DKP Raid Still Recording' and c:GetDKPActiveRaid())
+ c:TickDKPSystems();assert(c.form==prompt)
+ -- Cancel is safe: no writes, and no repeated dialog until another departure.
+ now=now+20;c:TickDKPSystems();assert(c.form==prompt and c:GetDKPBalance('Member One')==10)
+ grouped=true;c:TickDKPSystems();assert(not prompt.callback())
+ grouped=false;c:TickDKPSystems();now=now+5;c:TickDKPSystems();assert(c.form~=prompt)
+ local endPrompt=c.form;c.rank=2;assert(not endPrompt.callback());c.rank=1
+ assert(endPrompt.callback() and not c:GetDKPActiveRaid() and c:GetDKPBalance('Member One')==10)
+ assert(not endPrompt.callback())
+ -- A recording that survived reload produces the same reminder after settling.
+ grouped=true;assert(c:StartDKPRaid('Reload safety'))
+ local reload=systemClient(1,'Officer One',c.bucket);active=reload;grouped=false
+ reload:TickDKPSystems();assert(not reload.form);now=now+5;reload:TickDKPSystems();assert(reload.form.title=='DKP Raid Still Recording')
+ local stale=reload.form;assert(reload:EndDKPRaid());grouped=true;assert(reload:StartDKPRaid('Replacement recording'))
+ grouped=false;assert(not stale.callback() and reload:GetDKPActiveRaid().data.label=='Replacement recording')
+ local saved=reload.bucket;reload.bucket={dkpConfig={enabled=true},dkpSystems={},dkpAwards={},dkpBalances={}}
+ assert(not stale.callback());reload.bucket=saved
+ local other=systemClient(0,'Leader One',saved);active=other;other:TickDKPSystems();now=now+6;other:TickDKPSystems();assert(not other.form)
+ active=reload;assert(reload:EndDKPRaid());reload:TickDKPSystems();assert(not reload.dkpRecordingSafety)
+ assert(reload:ToggleDKPSoloTest());assert(reload:StartDKPRaid('Solo safety'));reload:TickDKPSystems();now=now+6;reload:TickDKPSystems();assert(not reload.dkpRecordingSafety)
+ raid,IsInRaid,IsInGroup,InCombatLockdown=oldRaid,oldInRaid,oldInGroup,oldCombat
+end
+print('Passed recording safety: group departure/reload reminder, grace period/combat deferral, cancel without spam, rejoin/permissions/guild/replacement checks, preserved DKP and solo exclusion')
+print('Passed recording cleanup after group departure: no phantom bonus, host permissions, sync/reload; auction dismissal survives reload/replay/expiry, explicit reopen, per-character isolation and new-auction popups')
+print('Passed party raid testing: recording form/start, any-level guild attendance, connected current party checkpoints, automatic boss awards/deduplication, end bonuses, sync and permission/ungrouped checks')
 print('Passed visible queue, loot delivery persistence/sync/permissions, history filters and controls, snapshot acknowledgements/mismatches/staleness/spoof rejection')
 print('Passed recovery/capacity: stale auction and raid cancellation, offline attendee exclusion, forty live bidders and bounded transport packet, staged restore rollback')
 do

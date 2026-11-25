@@ -99,13 +99,13 @@ end
 
 function GD:GetDKPParticipants(includeAllLevels)
     local result, seen, offline = {}, {}, {}
-    if GetRaidRosterInfo then
+    if IsInRaid and IsInRaid() and GetRaidRosterInfo then
         for i = 1, math.min(40, GetNumGroupMembers and GetNumGroupMembers() or 40) do
             local name, _, _, _, _, _, _, online = GetRaidRosterInfo(i)
             if name and (online == false or online == 0) then offline[key(self:GetDKPGuildMember(name) or name)] = true end
         end
     end
-    for _, name in ipairs(self:GetDKPRaidMembers()) do
+    for _, name in ipairs(self:GetDKPRaidMembers(includeAllLevels)) do
         local eligible, canonical = self:IsDKPEligible(name)
         if includeAllLevels then canonical = self:GetDKPGuildMember(name); eligible = canonical ~= nil end
         local account = key(self:GetDKPAccount(name))
@@ -689,7 +689,7 @@ local function raidFields(a) return { a.revision, a.owner, a.label, a.started, a
 local function raidEvent(raid, kind, label, boss)
     if not allowed() or key(raid.data.owner) ~= key(own()) or raid.data.ended > 0 then return false, "Only the recording raid's host can award attendance or kills." end
     local participants = GD:GetDKPParticipants(true)
-    if #participants == 0 then return false, "No eligible guild members are currently in the raid." end
+    if #participants == 0 then return false, "No connected guild members are currently in the raid or party." end
     local suffix = kind == "boss" and ("boss:" .. key(boss)) or kind
     -- Boss names are bounded in the saved identity; collisions are explicitly rejected.
     local recordID = raid.id .. ":" .. suffix
@@ -702,7 +702,7 @@ function GD:StartDKPRaid(label)
     if self:GetDKPActiveRaid() then return false, "End the current recording before starting another raid." end
     if not clean(label, 100) or not label:find("%S") then return false, "Enter a raid name." end
     local participants = self:GetDKPParticipants(true)
-    if #participants == 0 then return false, "Join a raid with connected guild members first." end
+    if #participants == 0 then return false, "Join a raid or party with connected guild members first." end
     local raidID = id("raid")
     local zone = (GetRealZoneText and GetRealZoneText() or label):sub(1, 100)
     local ok, message = publish("DKS", raidID, { 1, own(), label, time(), 0, zone, pack(participants) })
@@ -730,13 +730,39 @@ end
 function GD:EndDKPRaid()
     local raid = self:GetDKPActiveRaid()
     if not raid or not allowed() or key(raid.data.owner) ~= key(own()) then return false, "Only the recording raid's host can end it." end
-    local ok, message = raidEvent(raid, "finish", "Raid end: " .. raid.data.label, "")
-    if not ok then return false, message end
+    local participants = self:GetDKPParticipants(true)
+    if #participants > 0 and not get("DKV", raid.id .. ":finish") then
+        local ok, message = raidEvent(raid, "finish", "Raid end: " .. raid.data.label, "")
+        if not ok then return false, message end
+    end
     local a = copy(raid.data); a.revision = a.revision + 1; a.ended = time()
-    return publish("DKS", raid.id, raidFields(a))
+    local ok, message = publish("DKS", raid.id, raidFields(a))
+    if ok and #participants == 0 then return true, "Raid recording ended. No end bonus was awarded because no connected guild participants remain in your group." end
+    return ok, message
+end
+function GD:CheckDKPRaidRecordingSafety()
+    local raid = self:GetDKPActiveRaid()
+    if not allowed() or self:IsDKPSoloTesting() or not raid or key(raid.data.owner) ~= key(own()) then
+        self.dkpRecordingSafety = nil; return
+    end
+    local state = self.dkpRecordingSafety
+    if not state or state.bucket ~= self:GetDKPBucket() or state.raidID ~= raid.id then
+        state = { bucket = self:GetDKPBucket(), raidID = raid.id }; self.dkpRecordingSafety = state
+    end
+    if (IsInRaid and IsInRaid()) or (IsInGroup and IsInGroup()) then
+        state.ungroupedSince, state.notified = nil, false; return
+    end
+    state.ungroupedSince = state.ungroupedSince or time()
+    -- Allow roster transitions and login to settle; defer the dialog during combat.
+    if time() - state.ungroupedSince < 5 or state.notified or (InCombatLockdown and InCombatLockdown()) then return end
+    if self.ShowDKPRaidEndReminder then
+        state.notified = true
+        self:ShowDKPRaidEndReminder(raid)
+    end
 end
 function GD:TickDKPSystems()
     if not self:GetDKPBucket() then return end
+    self:CheckDKPRaidRecordingSafety()
     for _, r in ipairs(records("DKU")) do
         if self:GetDKPAuctionStatus(r) == "OPEN" and time() >= r.data.ends and allowed() and key(r.data.owner) == key(own()) then self:CloseDKPAuction(r.id) end
     end

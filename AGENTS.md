@@ -11,4 +11,4 @@ touches. Update the counter below after each completed addon change. On the
 Instruction-only or documentation-only updates do not count.
 
 Current version: `0.2.64`
-Completed addon changes toward the next version bump: **2 / 15**
+Completed addon changes toward the next version bump: **5 / 15**

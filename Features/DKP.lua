@@ -566,13 +566,36 @@ GD:RegisterEventHandler("GUILD_ROSTER_UPDATE", function()
     end
 end)
 
-function GD:GetDKPRaidMembers()
+function GD:GetDKPRaidMembers(allowParty)
     local members, seen = {}, {}
     if self:IsDKPSoloTesting() then
         local member = self:GetDKPGuildMember(self:PlayerName())
         return member and { member } or members
     end
-    if not self:IsDKPEnabled() or not IsInRaid or not IsInRaid() or not GetRaidRosterInfo then return members end
+    if not self:IsDKPEnabled() then return members end
+    if not IsInRaid or not IsInRaid() then
+        -- Temporary party support for recording tests; ordinary raid awards and
+        -- auction eligibility still use the raid-only path by default.
+        if not allowParty or not IsInGroup or not IsInGroup() then return members end
+        local count = math.min(4, GetNumSubgroupMembers and GetNumSubgroupMembers()
+            or math.max(0, (GetNumGroupMembers and GetNumGroupMembers() or 1) - 1))
+        for index = 0, count do
+            local unit = index == 0 and "player" or "party" .. index
+            local name = index == 0 and self:PlayerName() or GetUnitName and GetUnitName(unit, true)
+            if not name and UnitName then
+                local base, realm = UnitName(unit)
+                name = base and (realm and realm ~= "" and base .. "-" .. realm or base)
+            end
+            local connected = not UnitIsConnected or UnitIsConnected(unit)
+            local canonical = rosterMember(name)
+            if canonical and connected and connected ~= 0 and not seen[nameKey(canonical)] then
+                seen[nameKey(canonical)] = true; members[#members + 1] = canonical
+            end
+        end
+        table.sort(members, function(a,b) return nameKey(a) < nameKey(b) end)
+        return members
+    end
+    if not GetRaidRosterInfo then return members end
     for index = 1, math.min(40, GetNumGroupMembers and GetNumGroupMembers() or 40) do
         local name = GetRaidRosterInfo(index)
         local canonical = rosterMember(name)

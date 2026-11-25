@@ -498,11 +498,22 @@ function GD:ShowDKPRestore()
     end), "Review")
 end
 
+function GD:ShowDKPRaidEndReminder(raid)
+    if not isHost(raid) or self:IsDKPSoloTesting() then return end
+    print("GuildDB: " .. raid.data.label .. " is still recording after leaving your group. End the recording, or use DKP > Raids > End Raid later.")
+    confirm("DKP Raid Still Recording", raid.data.label .. " is still recording, but you are no longer in a party or raid.\nEnd the recording now? Already-earned DKP is preserved; no end bonus will be awarded.\nCancel keeps it recording. You can end it later in DKP > Raids.", ownedBucket(function()
+        local current = self:GetDKPActiveRaid()
+        if not current or current.id ~= raid.id then return false, "This recording is no longer active. Open DKP > Raids to review it." end
+        if (IsInRaid and IsInRaid()) or (IsInGroup and IsInGroup()) then return false, "You have rejoined a group. Use End Raid in DKP > Raids to review the end bonus." end
+        return self:EndDKPRaid()
+    end), "End Recording")
+end
+
 function GD:ShowDKPStartRaid()
     if not self:CanConfigureDKP() then return end
     self.ShowInputForm("Record a DKP Raid", {
         { label = "Raid name", value = GetRealZoneText and GetRealZoneText() or "", max = 100 },
-        { label = "Attendance and boss awards", value = "Testing: guild raiders of any level can participate.\nStart: 10 on-time DKP for current guild raiders.\nBoss kills: 20 DKP plus 10 on the guild's first kill.\nEnd: 10 DKP for current guild raiders.\nOnly this host records automatic kills.", readOnly = true, multiline = true, max = 500 },
+        { label = "Attendance and boss awards", value = "Testing: a raid or party is allowed, at any level.\nStart: 10 on-time DKP for connected guild participants.\nBoss kills: 20 DKP plus 10 on the guild's first kill.\nEnd: 10 DKP for current guild participants.\nOnly this host records automatic kills.", readOnly = true, multiline = true, max = 500 },
     }, ownedBucket(function(values) return self:StartDKPRaid(values[1]) end), "Start")
 end
 
@@ -565,6 +576,13 @@ local function bidderColors()
     return result
 end
 local popup, dismissed, popupBucket = nil, {}, nil
+local function savedDismissals()
+    local bucket = GD:GetDKPBucket()
+    bucket.dkpAuctionDismissals = bucket.dkpAuctionDismissals or {}
+    local character = key(GD:GetDKPGuildMember(GD:PlayerName()) or GD:PlayerName())
+    bucket.dkpAuctionDismissals[character] = bucket.dkpAuctionDismissals[character] or {}
+    return bucket.dkpAuctionDismissals[character]
+end
 local function buildPopup()
     local frame = CreateFrame("Frame", "GuildDBDKPAuctionPopup", UIParent, "BackdropTemplate")
     frame:SetSize(math.max(500, math.min(800, tonumber(GD:GetSetting("dkpAuctionWidth")) or 520)),
@@ -705,17 +723,16 @@ end
 
 function GD:ShowDKPAuctionPopup(auctionID)
     if not self:IsDKPEnabled() or not self:GetDKPAuction(auctionID) then return end
-    if popupBucket ~= self:GetDKPBucket() then popupBucket, dismissed = self:GetDKPBucket(), {} end
+    if popupBucket ~= self:GetDKPBucket() then popupBucket, dismissed = self:GetDKPBucket(), savedDismissals() end
     popup = popup or buildPopup()
     popup.manual = true; popup.auctionID = auctionID; popup.initializedID = nil
-    dismissed[auctionID] = nil
     self:RefreshDKPAuctionPopup()
 end
 function GD:RefreshDKPAuctionPopup()
     if not self:IsDKPEnabled() then self.dkpOutbidState = nil; if popup then popup:Hide() end; return end
     self:CheckDKPOutbidAlert()
     if popupBucket ~= self:GetDKPBucket() then
-        popupBucket, dismissed = self:GetDKPBucket(), {}
+        popupBucket, dismissed = self:GetDKPBucket(), savedDismissals()
         if popup then popup:Hide(); popup.manual = false; popup.auctionID = nil end
     end
     if self:GetDKPBucket().dkpAuctionPopups == false and popup and not popup.manual then popup:Hide(); return end
@@ -953,7 +970,7 @@ function GD:RefreshDKPWorkspace(panel)
             if not active then actions[#actions + 1] = { "Start Raid", function() self:ShowDKPStartRaid() end } end
             if isHost(active) then
                 actions[#actions + 1] = { "End Raid", function()
-                    confirm("End DKP Raid", "End this recording and grant 10 DKP to eligible guild members currently in the raid?", ownedBucket(function() return self:EndDKPRaid() end), "End Raid")
+                    confirm("End DKP Raid", "End this recording?\nConnected guild members currently in your raid or party receive 10 DKP.\nIf you have left the group, the recording ends without an end bonus.", ownedBucket(function() return self:EndDKPRaid() end), "End Raid")
                 end }
                 actions[#actions + 1] = { "Stop Recording", function()
                     confirm("Stop Raid Recording", "Stop recording without an end-of-raid bonus?\nAlready-earned points are preserved.", ownedBucket(function() return self:StopStaleDKPRecording(active.id, "raid") end), "Stop")
