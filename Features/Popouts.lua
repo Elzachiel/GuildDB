@@ -212,7 +212,7 @@ local function broadcastMilestone(kind, value, profession, isTest)
     local content = kind == "L" and (wireKind .. "\n" .. value) or (wireKind .. "\n" .. profession .. "\n" .. value)
     local id = (isTest and "milestone-test:" or "milestone:") .. tostring(time()) .. ":" .. tostring(math.random(100000, 999999))
     seenMilestones[id] = true
-    if not isTest and GD.RecordGuildActivity then GD:RecordGuildActivity(id, time(), author, kind, value, profession) end
+    if not isTest and GD.RecordGuildActivity then GD:RecordGuildActivity(id, time(), author, kind, value, profession, true) end
     GD:SendRecord("MP", id, time(), author, content)
     milestoneToast(kind, value, author, profession, isTest)
 end

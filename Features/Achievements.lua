@@ -186,3 +186,32 @@ GD:RegisterHistoryProvider(function()
         GD:SendRecord("GA", record.id, record.ts, record.by, payload(record))
     end
 end)
+
+-- Publish the logged-in character's retained milestones independently of popup
+-- sender matching or officer-only history responders. This repairs missed reports
+-- after upgrading, without inventing milestones from current character levels.
+local publishedBucket
+function GD:PublishOwnAchievements()
+    if not self.bucket or publishedBucket == self.bucket then return end
+    local player = self:PlayerName()
+    if not player or player == "" or player == "Guild member" then return end
+    self:ImportActivityAchievements()
+    publishedBucket = self.bucket
+    for _, record in ipairs(self:GetGuildAchievements()) do
+        if record.kind ~= "R" and record.by:lower() == player:lower() then
+            self:SendRecord("GA", record.id, record.ts, record.by, payload(record))
+        end
+    end
+end
+local function scheduleOwnAchievements()
+    local bucket = GD.bucket
+    if not bucket or publishedBucket == bucket then return end
+    if C_Timer and C_Timer.After then
+        C_Timer.After(5, function()
+            if GD.bucket == bucket then GD:PublishOwnAchievements() end
+        end)
+    else GD:PublishOwnAchievements() end
+end
+GD:RegisterEventHandler("PLAYER_LOGIN", scheduleOwnAchievements)
+GD:RegisterEventHandler("PLAYER_GUILD_UPDATE", scheduleOwnAchievements)
+GD:RegisterEventHandler("GUILD_ROSTER_UPDATE", scheduleOwnAchievements)

@@ -216,11 +216,11 @@ function GD:RefreshActivity()
     local records = {}
     local visible = isAchievements and achievements or isShoutouts and self:GetGuildShoutouts() or self:GetGuildActivity(activeFilter)
     for _, record in ipairs(visible) do records[#records + 1] = { record = record, award = isAchievements, shoutout = isShoutouts } end
-    panel.summary:SetText(isShoutouts and (#records .. " shoutouts | Celebrate your guildmates with kudos")
+    panel.summary:SetText(isShoutouts and (#records .. " shoutouts | Celebrate your guildmates")
         or isAchievements and (#records .. " awards | Level milestones, professions and recorded raid clears")
         or (#records .. " reports | Every 10 levels and profession milestones | Newest first"))
-    panel.note:SetText(isShoutouts and "Choose Cheers, Thanks, or Epic. Click your selected reaction again to remove it."
-        or isAchievements and "Give Cheers, Thanks, or Epic. One reaction per member; click again to remove it."
+    panel.note:SetText(isShoutouts and "Give a shoutout to thank a guildmate. GM and rank 1 officers can delete posts."
+        or isAchievements and "Awards: latest 500, no expiry. Tracking starts with reported events."
         or "Activity: latest 200 reports, up to 30 days. Popup preferences do not disable tracking.")
     panel.achievementHeading:SetText(panel.view)
     panel.empty:SetText(isShoutouts and "No shoutouts yet. Thank a guildmate using Give a shoutout."
@@ -281,7 +281,7 @@ function GD:RefreshActivity()
         row.accent:Show()
         row.title:SetTextColor(unpack(accent))
         row.detail:SetTextColor(unpack(colors.muted))
-        local canDelete = item.award and self:CanDeleteGuildAchievements()
+        local canDelete = (item.award and self:CanDeleteGuildAchievements()) or (item.shoutout and self:CanManage())
         row.delete:SetShown(canDelete == true)
         self:StyleButton(row.delete)
         row.title:ClearAllPoints()
@@ -289,6 +289,11 @@ function GD:RefreshActivity()
         row.title:SetPoint("TOPRIGHT", canDelete and -86 or -14, -12)
         local recordId = record.id
         row.delete:SetScript("OnClick", function()
+            if item.shoutout then
+                GD:ConfirmAction("Delete shoutout?", "Remove this shoutout to " .. GD:Display(record.target) .. " from " .. GD:Display(record.by) .. " for the guild?",
+                    function() return GD:DeleteShoutout(recordId) end, "Delete")
+                return
+            end
             local label = record.kind == "R" and record.title or (record.by .. " - " .. tostring(record.value) .. " " .. (record.profession or ""))
             GD:ConfirmAction("Delete achievement?", "Remove this achievement for the guild: " .. GD:Display(label),
                 function() return GD:DeleteGuildAchievement(recordId) end, "Delete")
@@ -314,14 +319,10 @@ function GD:RefreshActivity()
         row.title:SetText(self:Display(title))
         row.detail:SetText(date("%b %d, %Y  %I:%M %p", record.ts) .. "  |  " .. self:Display(detail))
         row.icon:SetTexture(icon)
-        local hasKudos = item.award or item.shoutout
         local height = 72
         row.detail:SetWordWrap(item.shoutout == true)
-        if item.shoutout then height = math.max(104, 34 + row.detail:GetStringHeight() + 44)
-        elseif hasKudos then height = 104 end
+        if item.shoutout then height = math.max(72, 34 + row.detail:GetStringHeight() + 12) end
         row:SetHeight(height)
-        if hasKudos then self:RefreshKudosButtons(row, item.shoutout and "S" or "A", record)
-        else for _, button in ipairs(row.kudosButtons or {}) do button:Hide() end end
         row:Show()
         y = y + height + 10
     end
