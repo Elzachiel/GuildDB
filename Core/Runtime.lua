@@ -134,7 +134,8 @@ end
 
 function GD:Display(value)
     if value == "Windshaper Skyborne" then value = "Skyborne" end
-    return tostring(value or ""):gsub("|", "||")
+    local displayed = tostring(value or ""):gsub("|", "||")
+    return displayed
 end
 
 function GD:CanManage()
