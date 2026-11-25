@@ -10,6 +10,7 @@ const L=lauxlib.luaL_newstate();lualib.luaL_openlibs(L);
 const setup=`
 MASTER_LOOT_SOURCE=${JSON.stringify(sources['Features/DKPMasterLoot.lua'])}
 unpack=table.unpack
+local function plainText(value) return (value:gsub('|c%x%x%x%x%x%x%x%x',''):gsub('|r','')) end
 local now=100000;time=function() return now end
 local active, rosterReady=true,true
 local roster={{'Leader One-Realm',0},{'Officer One-Realm',1},{'Member One-Realm',2}}
@@ -987,7 +988,7 @@ do
  local _,initialReport=c:GetDKPSyncReport();assert(initialReport:find('Absent - Offline',1,true) and initialReport:find('Waiting - Waiting for reply',1,true))
  deliver(peer,c.sent[#c.sent],'Officer One');local ack=peer.sent[#peer.sent];assert(ack[1]=='DKSA')
  deliver(c,ack,'Member One');assert(check.members['member one-realm'].fingerprint==check.fingerprint)
- local heading,lines=c:GetDKPSyncReport();assert(lines:find('Member One-Realm - Confirmed',1,true))
+ local heading,lines=c:GetDKPSyncReport();assert(plainText(lines):find('Member One-Realm - Confirmed',1,true))
  local mismatch=systemClient(2,'Member One');now=now+3;deliver(mismatch,{'DKSC',check.id,check.ts,'Officer One-Realm',check.fingerprint},'Officer One')
  deliver(c,mismatch.sent[#mismatch.sent],'Member One');assert(check.members['member one-realm'].fingerprint~=check.fingerprint)
  local previous=check.members['member one-realm'].fingerprint
@@ -1289,6 +1290,68 @@ do
  GetLootMethod,GetNumLootItems,GetLootSlotLink,GetLootSourceInfo,GetMasterLootCandidate,GiveMasterLoot,InCombatLockdown=unpack(previous,1,7)
  raid=savedRaid
 end
+do
+ local oldRaid,oldInRaid,oldInGroup,oldCombat,oldRoster=raid,IsInRaid,IsInGroup,InCombatLockdown,GetGuildRosterInfo
+ local grouped,combat=true,false;raid={'Officer One','Member One'}
+ IsInRaid=function() return grouped end;IsInGroup=function() return grouped end;InCombatLockdown=function() return combat end
+ local host=systemClient(1,'Officer One');active=host;assert(host:StartDKPRaid('Officer warning'))
+ local gm=systemClient(0,'Leader One');local member=systemClient(2,'Member One')
+ broadcast(host,0,{gm,member},'Officer One')
+ grouped=false;combat=true;active=host;host:TickDKPSystems();now=now+5;host:TickDKPSystems()
+ local notice=host.sent[#host.sent];assert(notice[1]=='DKRA' and notice[5]=='unfinished' and not host.form)
+ deliver(gm,notice,'Member One');assert(not gm.dkpUnfinishedRaidNotice)
+ deliver(gm,notice,'Officer One');deliver(member,notice,'Officer One');assert(gm.dkpUnfinishedRaidNotice and not member.dkpUnfinishedRaidNotice)
+ active=gm;gm:TickDKPSystems();now=now+5;gm:TickDKPSystems();assert(not gm.form)
+ combat=false;gm:TickDKPSystems();local prompt=gm.form;assert(prompt.title=='DKP Raid Still Recording' and plainText(prompt.fields[1].value):find('Host: Officer One',1,true))
+ gm:TickDKPSystems();assert(gm.form==prompt)
+ -- Rejoining clears remote notices, and an old dialog cannot stop a resumed raid.
+ grouped=true;active=host;host:TickDKPSystems();local resume=host.sent[#host.sent];assert(resume[5]=='resumed')
+ deliver(gm,resume,'Officer One');assert(not gm.dkpUnfinishedRaidNotice and not prompt.callback())
+ deliver(gm,notice,'Officer One');assert(not gm.dkpUnfinishedRaidNotice)
+ active=gm;gm:TickDKPSystems()
+ grouped=false;active=host;host:TickDKPSystems();now=now+5;host:TickDKPSystems();notice=host.sent[#host.sent]
+ deliver(gm,notice,'Officer One');active=gm;gm:TickDKPSystems();now=now+5;gm:TickDKPSystems();prompt=gm.form
+ gm.rank=2;assert(not prompt.callback());gm.rank=0
+ assert(prompt.callback() and not gm:GetDKPActiveRaid() and gm:GetDKPBalance('Member One')==10)
+ broadcast(gm,0,{host,member},'Leader One');assert(not host:GetDKPActiveRaid() and not member:GetDKPActiveRaid())
+ -- Reloaded officers can detect an offline host without receiving a live notice.
+ grouped=true;active=host;assert(host:StartDKPRaid('Offline host warning'))
+ GetGuildRosterInfo=function(i)
+  local name,rank,rankIndex,level,class,zone,note,officer,online,status,classFile=oldRoster(i)
+  return name,rank,rankIndex,level,class,zone,note,officer,name~='Officer One-Realm',status,classFile
+ end
+ local reload=systemClient(0,'Leader One',host.bucket);active=reload;reload:TickDKPSystems();now=now+5;reload:TickDKPSystems()
+ assert(reload.form.title=='DKP Raid Still Recording' and reload.form.fields[1].value:find('offline',1,true))
+ local stale=reload.form;local saved=reload.bucket;reload.bucket={dkpConfig={enabled=true},dkpSystems={},dkpAwards={},dkpBalances={}}
+ assert(not stale.callback());reload.bucket=saved
+ local ordinary=systemClient(2,'Member One',saved);active=ordinary;ordinary:TickDKPSystems();now=now+6;ordinary:TickDKPSystems();assert(not ordinary.form)
+ raid,IsInRaid,IsInGroup,InCombatLockdown,GetGuildRosterInfo=oldRaid,oldInRaid,oldInGroup,oldCombat,oldRoster
+end
+do
+ local oldRoster,oldColors,oldCustom=GetGuildRosterInfo,RAID_CLASS_COLORS,CUSTOM_CLASS_COLORS
+ local memberClass='WARRIOR'
+ RAID_CLASS_COLORS={WARRIOR={r=1,g=.5,b=0},MAGE={r=.5,g=.7,b=1}}
+ CUSTOM_CLASS_COLORS={MAGE={r=.2,g=.4,b=.6}}
+ GetGuildRosterInfo=function(i)
+  local name,rank,rankIndex,level,class,zone,note,officer,online,status=oldRoster(i)
+  return name,rank,rankIndex,level,class,zone,note,officer,online,status,name=='Member One-Realm' and memberClass or 'MAGE'
+ end
+ local c=systemClient(1,'Officer One');active=c
+ assert(c:DKPCharacterText('Member One')=='|cffff8000Member One|r')
+ assert(c:DKPCharacterText('Officer One-Realm')=='|cff336699Officer One-Realm|r')
+ assert(c:DKPCharacterText('Former Raider')=='Former Raider')
+ assert(c:AwardDKP('Member One',10,'Color test'));assert(c:GetDKPAwardHistory()[1].member=='Member One-Realm')
+ c.activeTab='DKP';c.frame={detailPanel=widget()}
+ for _,name in ipairs({'detailScroll','detailTitle','detailMeta','detailRule','detailBody','footer'}) do c.frame[name]=widget() end
+ c:RefreshDKP();c.frame.dkp.history.scripts.OnClick();local row=c.frame.dkp.rows[1]
+ assert(row.name.color[1]==1 and row.name.color[2]==.5 and row.meta:GetText():find('|cff336699',1,true))
+ memberClass='MAGE';event(c,'GUILD_ROSTER_UPDATE');c:RefreshDKP()
+ assert(row.name.color[1]==.2 and row.name.color[3]==.6)
+ GetGuildRosterInfo,RAID_CLASS_COLORS,CUSTOM_CLASS_COLORS=oldRoster,oldColors,oldCustom
+ event(c,'GUILD_ROSTER_UPDATE')
+end
+print('Passed DKP class styling: short/full names, custom class palette, unknown-name fallback, history names/officers, roster refresh and plain saved identity')
+print('Passed GM/officer unfinished-raid alerts: authenticated host departure/resume messages, combat deferral, no popup spam, stale notice rejection, safe stop without bonus, offline host/reload detection and permission/guild/member isolation')
 print('Passed optional Master Loot: unique boss slot/source/recipient, default off, replay/reload/import suppression, confirmed receipt status, remote Master Looter, role changes, missing APIs/combat/game failure and manual fallback without extra DKP charges')
 print('Passed automatic expiry: MS winner charged once, both popups close, empty/invalid winners cancel, immediate next start, stale REVIEW reload recovery; server deadlines survive two-hour local clock skew, different uptimes, late delivery and bid extensions')
 print('Passed two-client party bidding below 60: regular member quick bid/request/host acceptance/ack, host counterbid, member raise, spoof rejection, award sync and independent balances')

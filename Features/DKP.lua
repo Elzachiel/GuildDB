@@ -126,6 +126,33 @@ function GD:GetDKPGuildMember(name)
     return rosterMember(name)
 end
 
+local classRoster, classBucket, classCount
+function GD:GetDKPClassColor(name)
+    local count = GetNumGuildMembers(true)
+    if not classRoster or classBucket ~= self:GetDKPBucket() or classCount ~= count then
+        classRoster, classBucket, classCount = {}, self:GetDKPBucket(), count
+        for index = 1, count do
+            local member, _, _, _, localized, _, _, _, _, _, classFile = GetGuildRosterInfo(index)
+            if not classFile and localized then
+                for token, label in pairs(LOCALIZED_CLASS_NAMES_MALE or {}) do if label == localized then classFile = token; break end end
+                if not classFile then for token, label in pairs(LOCALIZED_CLASS_NAMES_FEMALE or {}) do if label == localized then classFile = token; break end end end
+                classFile = classFile or localized:upper()
+            end
+            if member then classRoster[nameKey(member)] = classFile end
+        end
+    end
+    local canonical = classRoster[nameKey(name)] and name or self:GetDKPGuildMember(name)
+    local token = canonical and classRoster[nameKey(canonical)]
+    return token and ((CUSTOM_CLASS_COLORS and CUSTOM_CLASS_COLORS[token]) or (RAID_CLASS_COLORS and RAID_CLASS_COLORS[token])) or nil
+end
+function GD:DKPCharacterText(name)
+    local value, color = self:Display(name), self:GetDKPClassColor(name)
+    if not color then return value end
+    local function byte(n) return math.floor(math.max(0, math.min(1, n)) * 255 + .5) end
+    return string.format("|cff%02x%02x%02x%s|r", byte(color.r), byte(color.g), byte(color.b), value)
+end
+GD:RegisterEventHandler("GUILD_ROSTER_UPDATE", function() classRoster = nil end)
+
 function GD:CanConfigureDKP()
     return self:GetDKPBucket() ~= nil and self:CanManage()
 end
@@ -1032,7 +1059,7 @@ function GD:RefreshDKP()
         row:SetPoint("TOPRIGHT", 0, -(index - 1) * rowHeight)
         row:SetHeight(rowHeight - 4)
         row.member, row.record = member.name, panel.historyMode and member or nil
-        local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[member.classFile or ""]
+        local color = self:GetDKPClassColor(panel.historyMode and member.member or member.name)
         row.background:SetColorTexture(unpack(index % 2 == 0 and colors.panel or colors.alternate))
         row.name:SetWidth(math.max(1, width - (canAward and 254 or 110)))
         row.name:SetWordWrap(false)
@@ -1041,7 +1068,7 @@ function GD:RefreshDKP()
         row.meta:SetHeight(panel.historyMode and 34 or 14)
         row.name:SetText(self:Display(panel.historyMode and member.member or member.name))
         row.name:SetTextColor(color and color.r or colors.text[1], color and color.g or colors.text[2], color and color.b or colors.text[3])
-        row.meta:SetText(panel.historyMode and ("By " .. self:Display(member.by) .. " - " .. date("%b %d, %I:%M %p", member.ts) .. "\n" .. self:Display(member.reason))
+        row.meta:SetText(panel.historyMode and ("By " .. self:DKPCharacterText(member.by) .. " - " .. date("%b %d, %I:%M %p", member.ts) .. "\n" .. self:Display(member.reason))
             or (self:Display(member.class) .. (member.online and " - Online" or " - Offline")))
         row.meta:SetTextColor(unpack(colors.muted))
         row.points:ClearAllPoints()

@@ -726,24 +726,58 @@ function GD:EndDKPRaid()
     if ok and #participants == 0 then return true, "Raid recording ended. No end bonus was awarded because no connected guild participants remain in your group." end
     return ok, message
 end
+function GD:GetDKPUnfinishedRaidReason(raid)
+    if not raid or self:GetDKPActiveRaid() ~= raid then return end
+    if key(raid.data.owner) == key(own()) then
+        if not ((IsInRaid and IsInRaid()) or (IsInGroup and IsInGroup())) then return "You are no longer in a party or raid." end
+        return
+    end
+    local notice = self.dkpUnfinishedRaidNotice
+    if notice and notice.bucket == self:GetDKPBucket() and notice.raidID == raid.id then return "The recording host left their group without ending the raid." end
+    for index = 1, GetNumGuildMembers(true) do
+        local name, _, _, _, _, _, _, _, online = GetGuildRosterInfo(index)
+        if key(name) == key(raid.data.owner) and (online == false or online == 0) then return "The recording host is offline and this raid has not been ended." end
+    end
+end
+GD:RegisterDKPRecordHandler("DKRA", function(recordID, ts, author, content, sender)
+    if not allowed() or not integer(ts, GD:GetDKPTime() - 60, GD:GetDKPTime() + 60) or (content ~= "unfinished" and content ~= "resumed") then return end
+    local raid = GD:GetDKPActiveRaid()
+    local canonical, rank = GD:GetDKPGuildMember(sender)
+    if not raid or raid.id ~= recordID or not canonical or rank == nil or rank > 1 or key(canonical) ~= key(author) or key(canonical) ~= key(raid.data.owner) then return end
+    local previous = GD.dkpUnfinishedRaidNoticeVersion
+    if previous and previous.bucket == GD:GetDKPBucket() and previous.raidID == recordID and ts <= previous.ts then return end
+    GD.dkpUnfinishedRaidNoticeVersion = { bucket = GD:GetDKPBucket(), raidID = recordID, ts = ts }
+    GD.dkpUnfinishedRaidNotice = content == "unfinished" and { bucket = GD:GetDKPBucket(), raidID = recordID } or nil
+end, 20)
 function GD:CheckDKPRaidRecordingSafety()
     local raid = self:GetDKPActiveRaid()
-    if not allowed() or self:IsDKPSoloTesting() or not raid or key(raid.data.owner) ~= key(own()) then
+    if not allowed() or self:IsDKPSoloTesting() or not raid then
         self.dkpRecordingSafety = nil; return
     end
     local state = self.dkpRecordingSafety
     if not state or state.bucket ~= self:GetDKPBucket() or state.raidID ~= raid.id then
         state = { bucket = self:GetDKPBucket(), raidID = raid.id }; self.dkpRecordingSafety = state
     end
-    if (IsInRaid and IsInRaid()) or (IsInGroup and IsInGroup()) then
-        state.ungroupedSince, state.notified = nil, false; return
+    local reason = self:GetDKPUnfinishedRaidReason(raid)
+    local host = key(raid.data.owner) == key(own())
+    if not reason then
+        if host and state.broadcast then
+            state.noticeTS = math.max(GD:GetDKPTime(), (state.noticeTS or 0) + 1)
+            self:SendDKPRecord("DKRA", raid.id, state.noticeTS, own(), "resumed", true)
+        end
+        state.ungroupedSince, state.notified, state.broadcast = nil, false, false; return
     end
     state.ungroupedSince = state.ungroupedSince or GD:GetDKPTime()
-    -- Allow roster transitions and login to settle; defer the dialog during combat.
-    if GD:GetDKPTime() - state.ungroupedSince < 5 or state.notified or (InCombatLockdown and InCombatLockdown()) then return end
+    if GD:GetDKPTime() - state.ungroupedSince < 5 then return end
+    if host and not state.broadcast then
+        state.noticeTS = math.max(GD:GetDKPTime(), (state.noticeTS or 0) + 1); state.broadcast = true
+        self:SendDKPRecord("DKRA", raid.id, state.noticeTS, own(), "unfinished", true)
+    end
+    -- Notify officer clients once, and defer each local dialog during combat.
+    if state.notified or (InCombatLockdown and InCombatLockdown()) then return end
     if self.ShowDKPRaidEndReminder then
         state.notified = true
-        self:ShowDKPRaidEndReminder(raid)
+        self:ShowDKPRaidEndReminder(raid, reason)
     end
 end
 function GD:FinishDKPAuction(auctionID)

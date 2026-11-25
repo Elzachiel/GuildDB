@@ -136,6 +136,8 @@ Officer > Starting DKP opens an unchecked roster of eligible level-60 characters
 
 Standings includes offline level-60 characters, class colors, search and DKP sorting. Hover a member to see that character and their own balance. Award and Take DKP require whole numbers and a reason; these manual adjustments can create negative balances. Auctions and normal loot purchases require sufficient available funds.
 
+DKP character names use guild-roster class colors consistently in standings/history, auction leaders/winners/bidders/hosts, loot recipients, officer audit entries, raid summaries and sync reports. Custom class palettes are respected; unknown or departed characters retain readable theme colors. Item names retain rarity colors. Delivery states use green for Delivered, amber for Pending and red for Refunded. Styling is display-only and never changes saved names or DKP records.
+
 ### Auction and loot windows
 
 1. Join a raid or testing party, then open DKP > Auctions > Start Auction.
@@ -186,6 +188,8 @@ Boss kills award DKP automatically during a recorded raid. Use Award Raid for re
 The recording host can also use End Raid after leaving the party or raid. With no connected guild participants in the current group, it finishes recording without an end bonus; already-earned DKP is preserved. It does not award absent members from an earlier checkpoint.
 
 If the host remains outside a group for five seconds with a recording active, a safety prompt offers End Recording. The same check runs after login/reload, waits through combat, and ignores Solo Test. Cancel leaves recording active without repeatedly reopening the prompt; joining and leaving another group enables a new reminder. Confirmation rechecks the guild, host, recording and group state so an old dialog cannot end a different raid or grant an unintended bonus after rejoining.
+
+The host also broadcasts an unfinished-recording notice to updated GM/rank-1 officer clients after the five-second grace period. They receive a RAID NOT ENDED chat warning and popup identifying the recording and host, with Stop Recording available without granting an end bonus. Officers independently warn about an offline host when an active recording is restored after reload. Ordinary members do not receive these warnings. Each client defers its popup in combat and suppresses repeats after dismissal; a resumed-host notice clears the remote warning, and an old popup cannot stop a recording the host has resumed. The Raids view retains a visible unfinished-recording warning while the condition remains.
 
 While a raid recording is active, the Raids view shows that automatic boss awards are running and identifies the recording host. A successful encounter or boss-kill notification records the award automatically and prints the boss, DKP amount and recipient count for that host. Wipes and repeated notifications do not create awards; offline, departed and non-guild players are excluded from the current kill's recipient list. The auction popup uses a layer above the main addon window, with review and confirmation forms above the popup.
 

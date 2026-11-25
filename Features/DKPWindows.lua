@@ -27,7 +27,12 @@ local function report(ok, message)
     return ok, message
 end
 local function leadingText(bid)
-    return bid and (GD:Display(bid.member) .. " leads with " .. bid.amount .. " DKP (" .. bid.spec .. ")") or "No bids yet."
+    return bid and (GD:DKPCharacterText(bid.member) .. " leads with " .. bid.amount .. " DKP (" .. bid.spec .. ")") or "No bids yet."
+end
+local function deliveryText(status)
+    status = status or "Pending"
+    local tint = ({ Delivered = "66dd88", Pending = "ffcc66", Refunded = "ff7777" })[status]
+    return tint and ("|cff" .. tint .. status .. "|r") or status
 end
 local function confirm(title, summary, callback, accept)
     local used = false
@@ -211,7 +216,7 @@ function GD:GetDKPSyncReport()
         elseif not member.online then status = "Offline"
         elseif GD:GetDKPTime() - check.ts > 15 then status = "No response"
         else status = "Waiting for reply" end
-        lines[#lines + 1] = self:Display(member.name) .. " - " .. status
+        lines[#lines + 1] = self:DKPCharacterText(member.name) .. " - " .. status
     end
     return heading, table.concat(lines, "\n")
 end
@@ -326,13 +331,13 @@ function GD:ShowDKPRaidSummary(raidID)
     window.title:SetText(summary.raid.data.label); window.title:SetTextColor(unpack(colors.accent))
     window.metrics:SetText(#summary.attendees .. " attendees  |  " .. #summary.bosses .. " bosses  |  " .. summary.earned .. " DKP earned\n" .. #summary.loot .. " loot awards  |  " .. summary.checkpoints .. " attendance checkpoints")
     local lines = { "ATTENDANCE / DKP EARNED" }
-    for _, member in ipairs(summary.attendees) do lines[#lines + 1] = self:Display(member.name) .. " - " .. member.checkpoints .. "/" .. summary.checkpoints .. " checkpoints, " .. member.earned .. " DKP" end
+    for _, member in ipairs(summary.attendees) do lines[#lines + 1] = self:DKPCharacterText(member.name) .. " - " .. member.checkpoints .. "/" .. summary.checkpoints .. " checkpoints, " .. member.earned .. " DKP" end
     lines[#lines + 1] = "\nBOSSES KILLED"
     for _, boss in ipairs(summary.bosses) do lines[#lines + 1] = boss end
     if #summary.bosses == 0 then lines[#lines + 1] = "No bosses recorded yet." end
     lines[#lines + 1] = "\nLOOT AWARDED"
     for _, loot in ipairs(summary.loot) do
-        lines[#lines + 1] = self:GetDKPItemAppearance(loot.item, loot.label).name .. " - " .. self:Display(loot.member) .. ", " .. loot.cost .. " DKP (" .. loot.spec .. ") - " .. (loot.delivery or "Pending")
+        lines[#lines + 1] = self:GetDKPItemAppearance(loot.item, loot.label).name .. " - " .. self:DKPCharacterText(loot.member) .. ", " .. loot.cost .. " DKP (" .. loot.spec .. ") - " .. deliveryText(loot.delivery)
     end
     if #summary.loot == 0 then lines[#lines + 1] = "No loot linked to this raid." end
     window.report:SetText(table.concat(lines, "\n")); window.report:SetTextColor(unpack(colors.text)); window.metrics:SetTextColor(unpack(colors.text))
@@ -471,8 +476,8 @@ end
 function GD:ShowDKPEntry(record)
     if not record then return end
     local reversed = self:GetDKPBucket().dkpSystems["DKX:" .. record.id] ~= nil
-    local summary = self:Display(record.member) .. "  " .. (record.amount > 0 and "+" or "") .. record.amount .. " DKP\n"
-        .. date("%b %d, %Y %I:%M %p", record.ts) .. " - " .. self:Display(record.by) .. "\n" .. self:Display(record.reason)
+    local summary = self:DKPCharacterText(record.member) .. "  " .. (record.amount > 0 and "+" or "") .. record.amount .. " DKP\n"
+        .. date("%b %d, %Y %I:%M %p", record.ts) .. " - " .. self:DKPCharacterText(record.by) .. "\n" .. self:Display(record.reason)
         .. (record.spec and ("\nSpec: " .. record.spec) or "") .. (reversed and "\nREVERSED - original entry retained." or "")
     if self:CanConfigureDKP() and not record.reverses and not reversed and record.amount ~= 0 then
         self.ShowInputForm("DKP Entry", {
@@ -544,15 +549,19 @@ function GD:ShowDKPRecordedReward(preset)
     return true
 end
 
-function GD:ShowDKPRaidEndReminder(raid)
-    if not isHost(raid) or self:IsDKPSoloTesting() then return end
-    print("GuildDB: " .. raid.data.label .. " is still recording after leaving your group. End the recording, or use DKP > Raids > End Raid later.")
-    confirm("DKP Raid Still Recording", raid.data.label .. " is still recording, but you are no longer in a party or raid.\nEnd the recording now? Already-earned DKP is preserved; no end bonus will be awarded.\nCancel keeps it recording. You can end it later in DKP > Raids.", ownedBucket(function()
+function GD:ShowDKPRaidEndReminder(raid, reason)
+    if not self:CanConfigureDKP() or self:IsDKPSoloTesting() then return end
+    local host = isHost(raid)
+    print("GuildDB: RAID NOT ENDED: " .. raid.data.label .. " | Host: " .. self:DKPCharacterText(raid.data.owner) .. ". " .. (reason or "Open DKP > Raids to review the recording."))
+    local action = host and "End the recording now?" or "Stop this unfinished recording now?"
+    confirm("DKP Raid Still Recording", "RAID NOT ENDED: " .. raid.data.label .. "\nHost: " .. self:DKPCharacterText(raid.data.owner) .. "\n" .. (reason or "The recording is still active.") .. "\n" .. action .. " Already-earned DKP is preserved; no end bonus will be awarded.\nCancel leaves recording active. Review it later in DKP > Raids.", ownedBucket(function()
         local current = self:GetDKPActiveRaid()
         if not current or current.id ~= raid.id then return false, "This recording is no longer active. Open DKP > Raids to review it." end
-        if (IsInRaid and IsInRaid()) or (IsInGroup and IsInGroup()) then return false, "You have rejoined a group. Use End Raid in DKP > Raids to review the end bonus." end
-        return self:EndDKPRaid()
-    end), "End Recording")
+        if not self:CanConfigureDKP() then return false, "Only officers and the GM can stop this recording." end
+        if not self:GetDKPUnfinishedRaidReason(current) then return false, "The host has resumed recording. Open DKP > Raids to review it." end
+        if host then return self:EndDKPRaid() end
+        return self:StopStaleDKPRecording(raid.id, "raid")
+    end), host and "End Recording" or "Stop Recording")
 end
 
 function GD:ShowDKPStartRaid()
@@ -617,7 +626,7 @@ local function bidderColors()
     local result = {}
     for index = 1, GetNumGuildMembers(true) do
         local name, _, _, _, _, _, _, _, _, _, class = GetGuildRosterInfo(index)
-        if name and class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class] then result[key(name)] = RAID_CLASS_COLORS[class] end
+        if name then result[key(name)] = GD:GetDKPClassColor(name) end
     end
     return result
 end
@@ -829,11 +838,11 @@ function GD:RefreshDKPAuctionPopup()
     popup.item:SetText(itemInfo.name); popup.icon:SetTexture(itemInfo.icon)
     local remaining = math.max(0, a.ends - GD:GetDKPTime())
     local status = self:GetDKPAuctionStatus(r)
-    popup.status:SetText("Minimum " .. a.minimum .. " | Increase " .. a.increment .. " | Host: " .. self:Display(a.owner))
+    popup.status:SetText("Minimum " .. a.minimum .. " | Increase " .. a.increment .. " | Host: " .. self:DKPCharacterText(a.owner))
     updateTimer(popup.timer, r)
     popup.leaderCard:SetBackdropColor(unpack(colors.alternate)); popup.leaderCard:SetBackdropBorderColor(unpack(colors.accent))
-    popup.leader:SetText(a.status == "AWARDED" and ("Winner: " .. self:Display(a.winner) .. " - " .. a.cost .. " DKP (" .. a.spec .. ")")
-        or (leading and ("Leading: " .. self:Display(leading.member) .. " - " .. leading.amount .. " DKP (" .. leading.spec .. ")") or "No bids yet."))
+    popup.leader:SetText(a.status == "AWARDED" and ("Winner: " .. self:DKPCharacterText(a.winner) .. " - " .. a.cost .. " DKP (" .. a.spec .. ")")
+        or (leading and ("Leading: " .. self:DKPCharacterText(leading.member) .. " - " .. leading.amount .. " DKP (" .. leading.spec .. ")") or "No bids yet."))
     local available = self:GetDKPAvailable(self:PlayerName(), r.id)
     local yourBid, account = nil, key(self:GetDKPAccount(self:PlayerName()))
     for _, bid in ipairs(bids) do if key(self:GetDKPAccount(bid.member)) == account then yourBid = bid; break end end
@@ -868,7 +877,7 @@ function GD:RefreshDKPAuctionPopup()
         end
         row:ClearAllPoints(); row:SetPoint("TOPLEFT", 0, -(index - 1) * 28); row:SetPoint("TOPRIGHT", 0, -(index - 1) * 28)
         row.name:SetWidth(math.max(1, width - 128))
-        row.name:SetText(index .. ". " .. self:Display(bid.member) .. (key(bid.member) == own and " (You)" or ""))
+        row.name:SetText(index .. ". " .. self:DKPCharacterText(bid.member) .. (key(bid.member) == own and " (You)" or ""))
         local class = classColors[key(bid.member)]
         if class then row.name:SetTextColor(class.r, class.g, class.b) else row.name:SetTextColor(unpack(colors.text)) end
         row.spec:SetText(bid.spec); row.amount:SetText(tostring(bid.amount))
@@ -990,7 +999,7 @@ function GD:RefreshDKPWorkspace(panel)
             area.live.title:SetTextColor(itemInfo.r, itemInfo.g, itemInfo.b)
             area.live.icon:SetTexture(itemInfo.icon); area.live.rarity:SetText(itemInfo.rarity)
             area.live.rarity:SetTextColor(itemInfo.r, itemInfo.g, itemInfo.b)
-            area.live.detail:SetText(leadingText(leader) .. "\nMinimum " .. active.data.minimum .. " | Increase " .. active.data.increment .. " | Host: " .. self:Display(active.data.owner))
+            area.live.detail:SetText(leadingText(leader) .. "\nMinimum " .. active.data.minimum .. " | Increase " .. active.data.increment .. " | Host: " .. self:DKPCharacterText(active.data.owner))
             area.live.detail:SetTextColor(unpack(colors.text)); updateTimer(area.live.timer, active)
             area.scroll:ClearAllPoints(); area.scroll:SetPoint("TOPLEFT", 0, -150); area.scroll:SetPoint("BOTTOMRIGHT", -20, 0)
             local openAction = { "Bid Window", function() self:ShowDKPAuctionPopup(active.id) end }
@@ -999,7 +1008,7 @@ function GD:RefreshDKPWorkspace(panel)
             for index, bid in ipairs(bids) do
                 if matching(query, bid.member .. " " .. bid.spec) then
                     local class = classColors[key(bid.member)]
-                    rows[#rows + 1] = { title = index .. ". " .. self:Display(bid.member) .. " - " .. bid.amount .. " DKP",
+                    rows[#rows + 1] = { title = index .. ". " .. self:DKPCharacterText(bid.member) .. " - " .. bid.amount .. " DKP",
                         detail = (bid.spec == "MS" and "Main spec" or "Off spec") .. (index == 1 and " | Leading" or ""),
                         height = 52, color = class and { class.r, class.g, class.b } or colors.accent }
                 end
@@ -1019,8 +1028,8 @@ function GD:RefreshDKPWorkspace(panel)
                 local statusLabels = { OPEN = "Bidding open", REVIEW = "Awaiting award", AWARDED = "Awarded", CANCELLED = "Cancelled" }
                 local status = self:GetDKPAuctionStatus(r)
                 rows[#rows + 1] = { title = itemInfo.name .. " - " .. (statusLabels[status] or status), itemInfo = itemInfo,
-                    color = { itemInfo.r, itemInfo.g, itemInfo.b }, detail = "Host: " .. self:Display(a.owner) .. " | Minimum " .. a.minimum .. " DKP\n"
-                    .. (a.status == "AWARDED" and (self:Display(a.winner) .. " paid " .. a.cost .. " DKP") or leadingText(leader)), action = function() self:ShowDKPAuctionPopup(current.id) end, button = "Open" }
+                    color = { itemInfo.r, itemInfo.g, itemInfo.b }, detail = "Host: " .. self:DKPCharacterText(a.owner) .. " | Minimum " .. a.minimum .. " DKP\n"
+                    .. (a.status == "AWARDED" and (self:DKPCharacterText(a.winner) .. " paid " .. a.cost .. " DKP") or leadingText(leader)), action = function() self:ShowDKPAuctionPopup(current.id) end, button = "Open" }
             end
         end
     elseif section == "Loot" then
@@ -1032,8 +1041,8 @@ function GD:RefreshDKPWorkspace(panel)
                 local itemInfo = r.item and self:GetDKPItemAppearance(r.item, r.label)
                 local delivery = self:GetDKPLootDelivery(r.id)
                 rows[#rows + 1] = { title = (itemInfo and itemInfo.name or r.label or r.reason) .. " - " .. math.abs(r.amount) .. " DKP",
-                    itemInfo = itemInfo, color = itemInfo and { itemInfo.r, itemInfo.g, itemInfo.b }, detail = self:Display(r.member) .. " (" .. (r.spec or "MS") .. ") | " .. date("%b %d, %I:%M %p", r.ts)
-                    .. "\n" .. (delivery or "Pending") .. " | By " .. self:Display(r.by), action = function() self:ShowDKPEntry(entry) end, button = "Details",
+                    itemInfo = itemInfo, color = itemInfo and { itemInfo.r, itemInfo.g, itemInfo.b }, detail = self:DKPCharacterText(r.member) .. " (" .. (r.spec or "MS") .. ") | " .. date("%b %d, %I:%M %p", r.ts)
+                    .. "\n" .. deliveryText(delivery) .. " | By " .. self:DKPCharacterText(r.by), action = function() self:ShowDKPEntry(entry) end, button = "Details",
                     deliveryText = officer and delivery ~= "Refunded" and (delivery == "Delivered" and "Mark pending" or "Mark delivered") or nil,
                     deliveryAction = ownedBucket(function() report(self:SetDKPLootDelivery(entry.id, delivery ~= "Delivered")) end) }
             end
@@ -1058,13 +1067,15 @@ function GD:RefreshDKPWorkspace(panel)
         if officer and (not active or self:IsDKPSoloTesting()) then
             actions[math.min(#actions + 1, 4)] = { self:IsDKPSoloTesting() and "Exit Test" or "Solo Test", function() report(self:ToggleDKPSoloTest()) end }
         end
-        area.description:SetText(self:IsDKPSoloTesting() and "SOLO TEST: you can record a raid and auction items by yourself, at any level. Your 1,000 starting DKP and all test results are temporary."
-            or active and ("Auto boss awards active. Host: " .. self:Display(active.data.owner) .. ". 20 DKP per boss, plus 10 for the guild's first recorded kill. Current connected guild raiders receive the award.")
+        local unfinished = officer and active and self:GetDKPUnfinishedRaidReason(active)
+        area.description:SetText(unfinished and ("RAID NOT ENDED | Host: " .. self:DKPCharacterText(active.data.owner) .. ". " .. unfinished .. " Use End Raid or Stop Recording to finish it.")
+            or self:IsDKPSoloTesting() and "SOLO TEST: you can record a raid and auction items by yourself, at any level. Your 1,000 starting DKP and all test results are temporary."
+            or active and ("Auto boss awards active. Host: " .. self:DKPCharacterText(active.data.owner) .. ". 20 DKP per boss, plus 10 for the guild's first recorded kill. Current connected guild raiders receive the award.")
             or "Start recording inside the raid instance, or choose Solo Test to try it alone. Awards: 10 on time, 20 per boss, 10 guild-first bonus, 10 on raid end.")
         for _, r in ipairs(self:GetDKPSystemRecords("DKS")) do
             local raid = r
             if matching(query, r.data.label .. " " .. r.data.owner) then
-                rows[#rows + 1] = { title = r.data.label .. (self:GetDKPBucket().dkpSystems["DKZ:" .. r.id] and " - Stopped" or r.data.ended > 0 and " - Finished" or " - Recording"), detail = "Host: " .. self:Display(r.data.owner) .. " | " .. date("%b %d, %I:%M %p", r.data.started),
+                rows[#rows + 1] = { title = r.data.label .. (self:GetDKPBucket().dkpSystems["DKZ:" .. r.id] and " - Stopped" or r.data.ended > 0 and " - Finished" or " - Recording"), detail = "Host: " .. self:DKPCharacterText(r.data.owner) .. " | " .. date("%b %d, %I:%M %p", r.data.started),
                     button = "Summary", action = function()
                         self:ShowDKPRaidSummary(raid.id)
                     end }
@@ -1077,7 +1088,7 @@ function GD:RefreshDKPWorkspace(panel)
         area.description:SetText("GM and rank-1 officer tools. Select a history entry to reverse it with a reason. Every character, including alts, has its own DKP and starting grant.")
         for _, r in ipairs(self:GetDKPAwardHistory(query)) do
             local entry = r
-            rows[#rows + 1] = { title = self:Display(r.member) .. " " .. (r.amount > 0 and "+" or "") .. r.amount .. " DKP", detail = date("%b %d, %I:%M %p", r.ts) .. " | " .. self:Display(r.by) .. "\n" .. self:Display(r.reason),
+            rows[#rows + 1] = { title = self:DKPCharacterText(r.member) .. " " .. (r.amount > 0 and "+" or "") .. r.amount .. " DKP", detail = date("%b %d, %I:%M %p", r.ts) .. " | " .. self:DKPCharacterText(r.by) .. "\n" .. self:Display(r.reason),
                 action = function() self:ShowDKPEntry(entry) end, button = "Details" }
         end
     end
