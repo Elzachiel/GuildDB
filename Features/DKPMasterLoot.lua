@@ -38,6 +38,7 @@ function GD:ObserveDKPMasterLoot(auction)
         self.dkpMasterLootBucket, self.dkpMasterLootBindings, self.dkpMasterLootReceipts = bucket, {}, {}
     end
     local bindings, a = self.dkpMasterLootBindings, auction.data
+    if self:GetDKPAuctionStatus(auction) == "CANCELLED" then bindings[auction.id] = nil; return end
     if a.status == "OPEN" and a.ends > self:GetDKPTime() and not bindings[auction.id] then
         local session = self.dkpMasterLootSession
         local slot = session and masterLooter() and uniqueSlot(a.item)

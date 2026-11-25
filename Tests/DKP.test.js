@@ -3,12 +3,13 @@ const fs=require('fs'), path=require('path');
 process.chdir(path.resolve(__dirname,'..'));
 const dependency=name=>require(process.env.GUILDDB_TEST_ROOT ? path.join(process.env.GUILDDB_TEST_ROOT,'node_modules',name) : name);
 const parse=dependency('luaparse');
-const files=['Features/DKP.lua','Features/DKPSystems.lua','Features/DKPMasterLoot.lua','Features/DKPWindows.lua','Features/Popouts.lua','Features/Settings.lua','Features/Recruitment.lua','Features/GuildInfo.lua','Features/RosterFilters.lua','UI/Main.lua','Core/Runtime.lua'];
+const files=['Features/DKP.lua','Features/DKPSystems.lua','Features/DKPMasterLoot.lua','Features/DKPLive.lua','Features/DKPWindows.lua','Features/Popouts.lua','Features/Settings.lua','Features/Recruitment.lua','Features/GuildInfo.lua','Features/RosterFilters.lua','UI/Main.lua','Core/Runtime.lua'];
 const sources=Object.fromEntries(files.map(name=>{const s=fs.readFileSync(name,'utf8');parse.parse(s,{luaVersion:'5.1'});return [name,s]}));
 const {lua,lauxlib,lualib,to_luastring,to_jsstring}=dependency('fengari');
 const L=lauxlib.luaL_newstate();lualib.luaL_openlibs(L);
 const setup=`
 MASTER_LOOT_SOURCE=${JSON.stringify(sources['Features/DKPMasterLoot.lua'])}
+LIVE_SOURCE=${JSON.stringify(sources['Features/DKPLive.lua'])}
 LIVE_TRANSPORT_SOURCE=${JSON.stringify('local _,GD=...; '+sources['Core/Runtime.lua'].slice(sources['Core/Runtime.lua'].indexOf('function GD:Encode'),sources['Core/Runtime.lua'].indexOf('function GD:NewRecord')))}
 unpack=table.unpack
 local function plainText(value) return (value:gsub('|c%x%x%x%x%x%x%x%x',''):gsub('|r','')) end
@@ -35,7 +36,7 @@ local function client(rank,name,bucket)
  function g:RegisterCommand() end
   g.recordHandlers=g.handlers
  assert(load(TRANSPORT_SOURCE))('GuildDB',g)
- active=g;assert(load(dkpSource))('GuildDB',g);assert(load(SYSTEM_SOURCE))('GuildDB',g);assert(load(MASTER_LOOT_SOURCE))('GuildDB',g);assert(load(WINDOW_SOURCE))('GuildDB',g);assert(load(settingsSource))('GuildDB',g)
+ active=g;assert(load(dkpSource))('GuildDB',g);assert(load(SYSTEM_SOURCE))('GuildDB',g);assert(load(MASTER_LOOT_SOURCE))('GuildDB',g);assert(load(LIVE_SOURCE))('GuildDB',g);assert(load(WINDOW_SOURCE))('GuildDB',g);assert(load(settingsSource))('GuildDB',g)
  return g
 end
 local function deliver(target,record,sender)
@@ -1060,10 +1061,10 @@ do
  auctions:ShowDKPAuctionPopup(auction);local window=auctionPopup(auction)
  window.close.scripts.OnClick();auctions:TickDKPSystems();assert(not window.shown)
  local reloaded=systemClient(1,'Officer One',auctions.bucket);active=reloaded
- local frames=#created;reloaded:RefreshDKPAuctionPopup();assert(#created==frames)
+ reloaded:RefreshDKPAuctionPopup();assert(reloaded.dkpAuctionLauncher.shown);local frames=#created
  -- Replay and automatic no-bid cancellation cannot undo the local dismissal.
  broadcast(auctions,0,{reloaded},'Officer One');assert(#created==frames)
- now=now+31;reloaded:TickDKPSystems();assert(#created==frames and reloaded:GetDKPAuctionStatus(reloaded:GetDKPAuction(auction))=='CANCELLED')
+ now=now+31;reloaded:TickDKPSystems();assert(not reloaded.dkpAuctionLauncher.shown and reloaded:GetDKPAuctionStatus(reloaded:GetDKPAuction(auction))=='CANCELLED')
  reloaded:ShowDKPAuctionPopup(auction);local reopened=auctionPopup(auction);assert(reopened.shown)
  reopened.close.scripts.OnClick();reloaded:RefreshDKPAuctionPopup();assert(not reopened.shown)
  local otherCharacter=systemClient(0,'Leader One',auctions.bucket);active=otherCharacter
@@ -1112,9 +1113,9 @@ do
  local peer=systemClient(2,'Member One');broadcast(c,0,{peer},'Officer One');local win=auctionPopup(auction);assert(win.shown)
  -- Seeing it once is sufficient to suppress reload popups, even without clicking X.
  local reloaded=systemClient(2,'Member One',peer.bucket);active=reloaded;local frames=#created
- reloaded:RefreshDKPAuctionPopup();assert(#created==frames)
+ reloaded:RefreshDKPAuctionPopup();assert(reloaded.dkpAuctionLauncher.shown);frames=#created
  broadcast(c,0,{reloaded},'Officer One');assert(#created==frames)
- active=peer;raid={'Member One'};peer:RefreshDKPAuctionPopup();assert(not win.shown)
+ active=peer;raid={'Member One'};peer:RefreshDKPAuctionPopup();assert(win.shown and not win.quick.enabled and win.status:GetText():find('Host offline',1,true))
  local outsider=systemClient(0,'Leader One',peer.bucket);active=outsider;frames=#created;outsider:RefreshDKPAuctionPopup();assert(#created==frames)
  raid={'Officer One','Member One'};now=now+31
  local expired=systemClient(2,'Member One');broadcast(c,0,{expired},'Officer One');frames=#created;expired:RefreshDKPAuctionPopup();assert(#created==frames)
@@ -1177,13 +1178,26 @@ do
  assert(peer:CanBidDKPAuction(peer:GetDKPAuction(auction),'Novice One'))
  local w=auctionPopup(auction);assert(w.quick.enabled and w.canBid and w.quickAmount==10)
  w.quick.scripts.OnClick();local request=peer.sent[#peer.sent];assert(request[1]=='DKR' and request[6])
+ assert(peer:GetDKPPendingBid(auction) and w.feedback:GetText()=='Sending bid...' and w.quick:GetText()=='Sending bid...')
+ assert(not w.quick.enabled and not w.bid.enabled and not w.allIn.enabled and not w.withdraw.enabled)
+ local sentCount=#peer.sent;assert(not peer:SubmitDKPBid(auction,20,'MS'));assert(#peer.sent==sentCount)
+ w:Hide();peer:ShowDKPAuctionPopup(auction);assert(w.feedback:GetText()=='Sending bid...' and not w.quick.enabled)
  local mark=#c.sent;deliver(c,request,'Novice One');assert(c:GetDKPAuctionLeader(c:GetDKPAuction(auction)).member=='Novice One-Realm')
  broadcast(c,mark,{peer},'Officer One');assert(peer.dkpBidStatus=='Bid accepted.' and w.quick.enabled)
  active=c;assert(c:SubmitDKPBid(auction,20,'MS'));broadcast(c,mark,{peer},'Officer One')
  active=peer;now=now+1;assert(peer:SubmitDKPBid(auction,30,'MS'));request=peer.sent[#peer.sent]
  mark=#c.sent;deliver(c,request,'Member One');assert(c:GetDKPAuctionLeader(c:GetDKPAuction(auction)).amount==20)
  deliver(c,request,'Novice One');broadcast(c,mark,{peer},'Officer One')
+ active=peer;now=now+1;assert(peer:SubmitDKPBid(auction,30,'MS'));request=peer.sent[#peer.sent]
+ mark=#c.sent;deliver(c,request,'Novice One');broadcast(c,mark,{peer},'Officer One')
+ assert(not peer:GetDKPPendingBid(auction) and peer.dkpBidStatus~='Sending bid...' and w.quick.enabled)
+ active=peer;now=now+1;assert(peer:SubmitDKPBid(auction,40,'MS'))
+ now=now+16;peer:TickDKPSystems()
+ assert(not peer:GetDKPPendingBid(auction) and peer.dkpBidStatus:find('No confirmation received',1,true) and w.quick.enabled)
+ assert(peer:GetDKPAuctionLeader(peer:GetDKPAuction(auction)).amount==30)
+ now=now+1;assert(peer:SubmitDKPBid(auction,40,'MS'));assert(peer:GetDKPPendingBid(auction))
  active=c;assert(c:CloseDKPAuction(auction));assert(c:AwardDKPAuction(auction,'Novice One-Realm',30));broadcast(c,mark,{peer},'Officer One')
+ active=peer;assert(not peer:GetDKPPendingBid(auction))
  assert(peer:GetDKPBalance('Novice One')==70 and c:GetDKPBalance('Officer One')==100)
  assert(#peer:GetDKPStandings('Novice One')==0)
  active=peer;assert(not peer:CanBidDKPAuction(peer:GetDKPAuction(auction),'Unknown Visitor'))
@@ -1204,7 +1218,7 @@ do
  local peer=systemClient(2,'Member One');server=base+5;broadcast(c,0,{peer},'Officer One');local memberWindow=auctionPopup(auction)
  assert(peer:GetDKPTime()==server and memberWindow.timer.value==25)
  active=c;c:RefreshDKPAuctionPopup();assert(hostWindow.timer.value==memberWindow.timer.value)
- server=base+28;active=peer;assert(peer:SubmitDKPBid(auction,10,'MS'))
+ server=base+28;active=c;c:TickDKPLive();broadcast(c,0,{peer},'Officer One');active=peer;assert(peer:SubmitDKPBid(auction,10,'MS'))
  local request=peer.sent[#peer.sent];local mark=#c.sent;deliver(c,request,'Member One')
  assert(c:GetDKPAuction(auction).data.ends==server+10)
  broadcast(c,mark,{peer},'Officer One');active=c;c:RefreshDKPAuctionPopup()
@@ -1414,6 +1428,68 @@ do
  raid=priorRaid
 end
 print('Passed live bid transport: single-message accepted deltas, FIFO ahead of sync/presence, reserved capacity, ordered large fragments, two bidder names and next-bid amounts update together for bidder and observer')
+do
+ local oldRaid,oldUptime=raid,GetTime
+ local uptime=100;GetTime=function() return uptime end
+ raid={'Officer One','Leader One','Member One'}
+ local h=systemClient(1,'Officer One');active=h;h.version='0.2.65'
+ assert(h:AwardDKP('Member One',500,'Live tools funds'))
+ local _,_,auction=h:StartDKPAuction('19019',10,10,60);assert(auction)
+ local p=systemClient(2,'Member One');p.version='0.2.65'
+ broadcast(h,0,{p},'Officer One');active=p
+ p:ShowDKPAuctionPopup(auction);local window=auctionPopup(auction)
+ window.close.scripts.OnClick();p:RefreshDKPAuctionPopup()
+ assert(p.dkpAuctionLauncher.shown);p.dkpAuctionLauncher.scripts.OnClick(p.dkpAuctionLauncher)
+ assert(window.shown and not p.dkpAuctionLauncher.shown)
+ uptime=126;p:RefreshDKPAuctionPopup()
+ assert(not window.quick.enabled and window.status:GetText():find('updates delayed',1,true))
+ assert(not p:SubmitDKPBid(auction,10,'MS'))
+ deliver(p,{'DKH',auction,now,'Member One-Realm','alive'},'Member One')
+ assert(not p:GetDKPAuctionConnection(p:GetDKPAuction(auction)))
+ active=h;local mark=#h.sent;h:TickDKPLive();assert(h.sent[#h.sent][1]=='DKH')
+ broadcast(h,mark,{p},'Officer One');active=p;p:RefreshDKPAuctionPopup();assert(window.quick.enabled)
+ local gm=systemClient(0,'Leader One');gm.version='0.2.65';broadcast(h,0,{gm},'Officer One')
+ active=gm;assert(gm:CheckDKPReadiness());local query=gm.sent[#gm.sent]
+ assert(not gm:CheckDKPReadiness());local disabled=systemClient(2,'Member One');disabled.version='0.2.64';disabled.bucket.dkpConfig.enabled=false
+ deliver(disabled,query,'Leader One');local reply=disabled.sent[#disabled.sent];assert(reply and reply[1]=='DKRS')
+ deliver(gm,reply,'Member One');active=gm
+ local check=gm:GetDKPReadiness();assert(check.members['member one-realm'].enabled==false and check.members['member one-realm'].version=='0.2.64')
+ deliver(gm,{'DKRS',check.id,now,'Officer One-Realm','1|0.2.65'},'Member One')
+ assert(not check.members['officer one-realm'].received)
+ gm:ShowDKPReadiness();assert(gm.dkpReadinessWindow.report:GetText():find('DKP disabled',1,true))
+ uptime=140;gm.dkpReadinessWindow.scripts.OnUpdate(gm.dkpReadinessWindow)
+ assert(gm.dkpReadinessWindow.report:GetText():find('No response',1,true))
+ gm.rank=2;gm.dkpReadinessWindow.scripts.OnUpdate(gm.dkpReadinessWindow);assert(not gm.dkpReadinessWindow.shown);gm.rank=0
+ assert(not p:CheckDKPReadiness())
+ -- A delayed award from an isolated old host must never charge twice.
+ active=h;assert(h:AcceptDKPBid(auction,'Member One',10,'MS'))
+ mark=#h.sent;assert(h:CloseDKPAuction(auction));assert(h:AwardDKPAuction(auction,'Member One-Realm',10))
+ local lateAward=h.sent[#h.sent]
+ assert(h.dkpAuctionResultWindow.shown and h.dkpAuctionResultWindow.result:GetText():find('10 DKP',1,true))
+ h.dkpAuctionResultWindow.close.scripts.OnClick();h:RefreshDKPAuctionPopup();assert(not h.dkpAuctionResultWindow.shown)
+ active=gm;assert(not gm:RecoverDKPAuction(auction))
+ active=p;assert(not p:RecoverDKPAuction(auction))
+ raid={'Leader One','Member One'};now=now+121
+ active=gm;local before=#gm.sent;local ok,message,recovered=gm:RecoverDKPAuction(auction);assert(ok and recovered and recovered~=auction)
+ assert(gm:GetDKPAuctionStatus(gm:GetDKPAuction(auction))=='CANCELLED' and #gm:GetDKPAuction(recovered).data.bids==0)
+ assert(not gm:RecoverDKPAuction(auction))
+ broadcast(gm,before,{p},'Leader One');active=p
+ assert(p.dkpAuctionResultWindow.shown and p.dkpAuctionResultWindow.result:GetText():find('cancelled',1,true))
+ active=gm;assert(gm:AcceptDKPBid(recovered,'Member One',20,'MS'));assert(gm:FinishDKPAuction(recovered))
+ assert(gm:GetDKPBalance('Member One')==480)
+ deliver(gm,lateAward,'Officer One');active=gm
+ assert(gm:GetDKPAuctionStatus(gm:GetDKPAuction(auction))=='CANCELLED' and gm:GetDKPBalance('Member One')==480)
+ -- Earlier ordinary cancellation packets cannot undo the recovery barrier.
+ deliver(gm,{'DKZ',auction,now-1,'Officer One-Realm',gm:Encode('auction')..'|'..gm:Encode('Stopped earlier')},'Officer One');active=gm
+ assert(gm:GetDKPAuctionStatus(gm:GetDKPAuction(auction))=='CANCELLED' and gm:GetDKPBalance('Member One')==480)
+ gm:SetSetting('dkpAutoMasterLoot',true);gm.dkpMasterLootBucket=gm:GetDKPBucket();gm.dkpMasterLootBindings={[auction]={attempted=false}}
+ gm:ObserveDKPMasterLoot(gm:GetDKPAuction(auction));assert(not gm.dkpMasterLootBindings[auction]);gm:SetSetting('dkpAutoMasterLoot',false)
+ local restored=systemClient(0,'Leader One');active=gm;local historyMark=#gm.sent;gm.history[2]();gm:SendDKPSystemsHistory();broadcast(gm,historyMark,{restored},'Leader One');active=restored
+ assert(not restored.dkpAuctionResultWindow and restored:GetDKPBalance('Member One')==480)
+ active=gm;gm:RefreshDKPAuctionPopup();assert(not gm.dkpAuctionLauncher or not gm.dkpAuctionLauncher.shown)
+ raid,GetTime=oldRaid,oldUptime
+end
+print('Passed live tools: reopen, heartbeat spoof/stale/recovery, readiness replies and permissions, results once, officer recovery/rebid and delayed old award without duplicate charges')
 print('Passed DKP class styling: short/full names, custom class palette, unknown-name fallback, history names/officers, roster refresh and plain saved identity')
 print('Passed GM/officer unfinished-raid alerts: authenticated host departure/resume messages, combat deferral, no popup spam, stale notice rejection, safe stop without bonus, offline host/reload detection and permission/guild/member isolation')
 print('Passed optional Master Loot: unique boss slot/source/recipient, default off, replay/reload/import suppression, confirmed receipt status, remote Master Looter, role changes, missing APIs/combat/game failure and manual fallback without extra DKP charges')

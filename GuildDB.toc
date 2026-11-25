@@ -37,6 +37,7 @@ Features/Recruitment.lua
 Features/DKP.lua
 Features/DKPSystems.lua
 Features/DKPMasterLoot.lua
+Features/DKPLive.lua
 Features/DKPWindows.lua
 Features/Settings.lua
 Features/Minimap.lua

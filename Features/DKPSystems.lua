@@ -159,7 +159,7 @@ schemas.DKM = function(f)
     return { main = f[1] }
 end
 schemas.DKZ = function(f)
-    if #f ~= 2 or (f[1] ~= "auction" and f[1] ~= "raid") or not clean(f[2], 160) or not f[2]:find("%S") then return end
+    if #f ~= 2 or (f[1] ~= "auction" and f[1] ~= "raid" and f[1] ~= "recovery") or not clean(f[2], 160) or not f[2]:find("%S") then return end
     return { scope = f[1], label = f[2] }
 end
 schemas.DKT = function(f)
@@ -226,7 +226,7 @@ local function rebuild()
         if a.status == "AWARDED" then
             local cancelled = get("DKZ", r.id)
             GD:UpdateDKPDerivedTransaction({ id = "loot:" .. r.id, ts = r.ts, by = r.by, member = a.winner,
-                amount = cancelled and cancelled.ts <= r.ts and 0 or -a.cost, reason = "Loot: " .. a.label,
+                amount = cancelled and (cancelled.data.scope == "recovery" or cancelled.ts <= r.ts) and 0 or -a.cost, reason = "Loot: " .. a.label,
                 item = a.item, label = a.label, spec = a.spec, auction = r.id, loot = true, system = true })
         end
     end
@@ -277,16 +277,24 @@ local function receive(kind, recordID, ts, author, content, sender)
         elseif kind == "DKM" or kind == "DKY" then
             if ts < previous.ts or (ts == previous.ts and key(author) <= key(previous.by)) then return end
         elseif kind == "DKZ" then
-            if ts > previous.ts or (ts == previous.ts and key(author) >= key(previous.by)) then return end
+            if previous.data.scope == "recovery" and r.data.scope ~= "recovery" then return end
+            if (previous.data.scope == "recovery") == (r.data.scope == "recovery")
+                and (ts > previous.ts or (ts == previous.ts and key(author) >= key(previous.by))) then return end
         else return end
     end
     GD:GetDKPBucket().dkpSystems[storageKey] = r
     if kind == "DKM" then GD:GetDKPBucket().dkpAccounts[recordID] = { main = r.data.main, ts = ts, by = author } end
     rebuild()
+    if GD.ObserveDKPLiveRecord then GD:ObserveDKPLiveRecord(r, sender) end
     if kind == "DKJ" and not GD.dkpImporting then
         local auction = GD:GetDKPAuction(r.data.auction)
         if auction and GD:GetDKPActiveAuction() == auction and key(r.by) == key(auction.data.owner) and key(r.data.member) == key(own()) then
-            GD.dkpBidStatus = r.data.withdraw and "Bid withdrawn." or "Bid accepted."
+            local request = GD:GetDKPPendingBid(auction.id)
+            if not request or r.data.revision > request.revision and r.data.withdraw == request.withdraw
+                and (request.withdraw or r.data.amount == request.amount and r.data.spec == request.spec) then
+                GD.dkpPendingBid = nil
+                GD.dkpBidStatus = r.data.withdraw and "Bid withdrawn." or "Bid accepted."
+            end
         end
     end
     if kind == "DKU" and GD.ObserveDKPMasterLoot then
@@ -313,7 +321,7 @@ function GD:GetDKPSystemRecords(kind) return records(kind) end
 function GD:GetDKPAuction(recordID) return get("DKU", recordID) end
 function GD:GetDKPAuctionStatus(r)
     local cancelled = r and get("DKZ", r.id)
-    if cancelled and (r.data.status ~= "AWARDED" or cancelled.ts <= r.ts) then return "CANCELLED" end
+    if cancelled and (cancelled.data.scope == "recovery" or r.data.status ~= "AWARDED" or cancelled.ts <= r.ts) then return "CANCELLED" end
     return r and r.data.status
 end
 function GD:GetDKPActiveAuction()
@@ -429,19 +437,43 @@ function GD:AcceptDKPBid(auctionID, member, amount, spec, withdraw)
     local success, message = publish("DKJ", auctionID .. ":" .. revision, { auctionID, revision, canonical, withdraw and 0 or amount, spec or "MS", order + 1, ends, withdraw and "1" or "0" })
     return success, message or (withdraw and "Bid withdrawn." or "Bid accepted.")
 end
+function GD:GetDKPPendingBid(auctionID)
+    local request = self.dkpPendingBid
+    if not request then return end
+    local auction = self:GetDKPAuction(request.auction)
+    if request.bucket ~= self:GetDKPBucket() or not self:IsDKPEnabled() then
+        self.dkpPendingBid = nil; self.dkpBidStatus = nil; return
+    end
+    if not auction or self:GetDKPAuctionStatus(auction) ~= "OPEN" or self:GetDKPTime() >= auction.data.ends then
+        self.dkpPendingBid = nil; self.dkpBidStatus = "Bidding closed. Check your final bid."; return
+    end
+    if (GetTime and GetTime() or self:GetDKPTime()) - request.sent >= 15 then
+        self.dkpPendingBid = nil
+        self.dkpBidStatus = "No confirmation received. Check your bid before trying again."; return
+    end
+    if not auctionID or request.auction == auctionID then return request end
+end
 function GD:SubmitDKPBid(auctionID, amount, spec, withdraw)
     local r = self:GetDKPAuction(auctionID)
     local eligible, eligibilityReason = self:CanBidDKPAuction(r, own())
     if not eligible then return false, eligibilityReason end
+    if self.GetDKPAuctionConnection then
+        local connected, reason = self:GetDKPAuctionConnection(r)
+        if not connected then return false, reason end
+    end
+    if self:GetDKPPendingBid() then return false, "Sending bid... Waiting for the host." end
     if key(r.data.owner) == key(own()) then return self:AcceptDKPBid(auctionID, own(), amount, spec, withdraw) end
     if r.data.status ~= "OPEN" or GD:GetDKPTime() >= r.data.ends then return false, "Bidding has closed." end
     if not withdraw and (not integer(amount, r.data.minimum, 1000000) or tonumber(amount) > self:GetDKPAvailable(own(), auctionID)) then return false, "Enter a bid within your available DKP and the item's minimum." end
     local now = GetTime and GetTime() or GD:GetDKPTime()
     if self.dkpLastBidRequest and now - self.dkpLastBidRequest < 0.5 then return false, "Wait a moment before sending another bid." end
     self.dkpLastBidRequest = now
-    self.dkpBidStatus = nil
+    self.dkpPendingBid = { bucket = self:GetDKPBucket(), auction = auctionID, sent = now,
+        amount = tonumber(amount), spec = spec or "MS", withdraw = withdraw == true, revision = r.data.revision }
+    self.dkpBidStatus = withdraw and "Sending withdrawal..." or "Sending bid..."
     self:SendDKPRecord("DKR", auctionID, GD:GetDKPTime(), own(), pack({ withdraw and "withdraw" or "bid", tostring(amount or 0), spec or "MS" }), true)
-    return true, "Bid sent. Waiting for the hosting officer to accept it."
+    if self.RefreshDKPAuctionPopup then self:RefreshDKPAuctionPopup() end
+    return true, self.dkpBidStatus
 end
 local bidThrottle = {}
 GD:RegisterDKPRecordHandler("DKR", function(auctionID, ts, author, content, sender)
@@ -463,7 +495,8 @@ GD:RegisterDKPRecordHandler("DKN", function(auctionID, ts, author, content, send
     local r = GD:GetDKPAuction(auctionID)
     if not r or not clean(content, 400) or key(GD:GetDKPGuildMember(sender)) ~= key(r.data.owner) then return end
     local f = split(content)
-    if #f == 3 and key(f[1]) == key(own()) then
+    if #f == 3 and key(f[1]) == key(own()) and GD:GetDKPPendingBid(auctionID) then
+        GD.dkpPendingBid = nil
         GD.dkpBidStatus = f[3]
         if GD.RefreshDKPAuctionPopup then GD:RefreshDKPAuctionPopup() end
     end
@@ -669,7 +702,7 @@ end
 function GD:GetDKPActiveRaid()
     for _, r in ipairs(records("DKS")) do if r.data.ended == 0 and not get("DKZ", r.id) then return r end end
 end
-function GD:StopStaleDKPRecording(recordID, scope)
+function GD:StopStaleDKPRecording(recordID, scope, recovery)
     if not allowed() then return false, "Only the GM or rank 1 officers can stop stale operations." end
     local r = get(scope == "auction" and "DKU" or "DKS", recordID)
     if not r or get("DKZ", recordID) then return false, "This recording has already stopped or is missing." end
@@ -677,7 +710,7 @@ function GD:StopStaleDKPRecording(recordID, scope)
         if self:GetDKPAuctionStatus(r) == "AWARDED" or r.data.status == "CANCELLED" then return false, "The auction has already finished." end
         if GD:GetDKPTime() < r.data.ends + 60 then return false, "Wait until 60 seconds after the bidding deadline before stopping another host's auction." end
     elseif r.data.ended > 0 then return false, "This raid recording has finished." end
-    return publish("DKZ", recordID, { scope, "Stopped by " .. own() })
+    return publish("DKZ", recordID, { recovery and scope == "auction" and "recovery" or scope, "Stopped by " .. own() })
 end
 local function raidFields(a) return { a.revision, a.owner, a.label, a.started, a.ended, a.zone, pack(a.participants) } end
 local function raidEvent(raid, kind, label, boss)
@@ -816,7 +849,9 @@ function GD:ResolveExpiredDKPAuctions()
     self.dkpResolvingAuctions = nil
 end
 function GD:TickDKPSystems()
+    self:GetDKPPendingBid()
     if not self:GetDKPBucket() then return end
+    if self.TickDKPLive then self:TickDKPLive() end
     self:CheckDKPRaidRecordingSafety()
     self:ResolveExpiredDKPAuctions()
     if self.RefreshDKPAuctionPopup then self:RefreshDKPAuctionPopup() end

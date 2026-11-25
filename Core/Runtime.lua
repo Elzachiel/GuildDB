@@ -47,7 +47,7 @@ function GD:Decode(value)
 end
 
 function GD:Enqueue(payload, lowPriority, urgent)
-    local live = urgent and not lowPriority and payload:match("^DK[URJN]|")
+    local live = urgent and not lowPriority and payload:match("^DK[URJNH]|")
     if live then
         self.liveQueue = self.liveQueue or {}
         -- Short live auction records need no fragment envelope. All clients

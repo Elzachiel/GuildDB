@@ -1,5 +1,6 @@
 -- The DKP workspace and movable player auction popup share GuildDB's theme.
 local _, GD = ...
+local popup, dismissed, popupBucket = nil, {}, nil
 local escapeSequence = 0
 local function escapeWindow(frame, name)
     escapeSequence = escapeSequence + 1
@@ -298,6 +299,118 @@ function GD:CheckDKPOutbidAlert()
         flash:Show()
     end
     return true
+end
+
+local function liveWindow(name, title, width, height)
+    local frame = CreateFrame("Frame", name, UIParent, "BackdropTemplate")
+    escapeWindow(frame, name)
+    frame:SetSize(width, height); frame:SetPoint("CENTER"); frame:SetClampedToScreen(true)
+    frame:SetFrameStrata("FULLSCREEN_DIALOG"); frame:SetFrameLevel(110)
+    frame:SetMovable(true); frame:EnableMouse(true); frame:RegisterForDrag("LeftButton")
+    frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
+    frame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+    frame:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8", edgeFile = "Interface/Tooltips/UI-Tooltip-Border", edgeSize = 14 })
+    frame.title = label(frame, "GameFontNormalLarge", 16, -16); frame.title:SetText(title)
+    frame.close = button(frame, "Close", 90, function() frame:Hide() end); frame.close:SetPoint("BOTTOMRIGHT", -16, 14)
+    return frame
+end
+local function styleLiveWindow(frame)
+    local colors = GD:GetAppearanceColors()
+    frame:SetBackdropColor(colors.panel[1], colors.panel[2], colors.panel[3], 1)
+    frame:SetBackdropBorderColor(unpack(colors.accent)); frame.title:SetTextColor(unpack(colors.accent))
+    GD:StyleButton(frame.close)
+end
+function GD:ShowDKPAuctionResult(auction)
+    local frame = self.dkpAuctionResultWindow
+    if not frame then
+        frame = liveWindow("GuildDBDKPAuctionResult", "Auction Result", 460, 210)
+        frame:ClearAllPoints(); frame:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -30, -160)
+        frame.icon = frame:CreateTexture(nil, "ARTWORK"); frame.icon:SetSize(36, 36); frame.icon:SetPoint("TOPLEFT", 16, -48)
+        frame.hover = CreateFrame("Button", nil, frame); frame.hover:SetAllPoints(frame.icon)
+        itemTooltip(frame.hover, function() return "item:" .. frame.itemID end)
+        frame.item = label(frame, "GameFontNormal", 62, -48); frame.item:SetWidth(378); frame.item:SetHeight(36)
+        frame.result = label(frame, "GameFontHighlight", 16, -96); frame.result:SetWidth(424); frame.result:SetHeight(66)
+        frame:SetScript("OnUpdate", function(self)
+            if self.bucket ~= GD:GetDKPBucket() or not GD:IsDKPEnabled() then self:Hide(); return end
+            local auction = GD:GetDKPAuction(self.auctionID)
+            if auction then
+                self.result:SetText(GD:GetDKPAuctionStatus(auction) == "AWARDED" and (GD:DKPCharacterText(auction.data.winner) .. " won for " .. auction.data.cost .. " DKP (" .. auction.data.spec .. ").\nLoot delivery: " .. deliveryText(GD:GetDKPLootDelivery("loot:" .. auction.id)))
+                    or "Auction cancelled. No DKP charged.")
+            end
+            styleLiveWindow(self)
+        end)
+        self.dkpAuctionResultWindow = frame
+    end
+    local item, status = self:GetDKPItemAppearance(auction.data.item, auction.data.label), self:GetDKPAuctionStatus(auction)
+    frame.bucket, frame.itemID, frame.auctionID = self:GetDKPBucket(), auction.data.item, auction.id
+    frame.icon:SetTexture(item.icon); frame.item:SetText(item.name); frame.item:SetTextColor(item.r, item.g, item.b)
+    frame.result:SetText(status == "AWARDED" and (self:DKPCharacterText(auction.data.winner) .. " won for " .. auction.data.cost .. " DKP (" .. auction.data.spec .. ").\nLoot delivery: " .. deliveryText(self:GetDKPLootDelivery("loot:" .. auction.id)))
+        or "Auction cancelled. No DKP charged.")
+    frame.result:SetTextColor(unpack(self:GetAppearanceColors().text)); styleLiveWindow(frame); frame:Show()
+end
+function GD:ShowDKPReadiness()
+    if not self:IsDKPEnabled() or not self:CanConfigureDKP() then return end
+    local ok, message = self:CheckDKPReadiness()
+    if not ok and not self:GetDKPReadiness() then report(ok, message); return end
+    local frame = self.dkpReadinessWindow
+    if not frame then
+        frame = liveWindow("GuildDBDKPReadiness", "Raid Readiness", 540, 480)
+        frame.status = label(frame, "GameFontHighlightSmall", 16, -46); frame.status:SetWidth(504); frame.status:SetHeight(52)
+        frame.scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
+        frame.scroll:SetPoint("TOPLEFT", 16, -104); frame.scroll:SetPoint("BOTTOMRIGHT", -36, 52)
+        frame.content = CreateFrame("Frame", nil, frame.scroll); frame.content:SetSize(480, 400); frame.scroll:SetScrollChild(frame.content)
+        frame.report = label(frame.content, "GameFontHighlightSmall", 0, 0); frame.report:SetWidth(480)
+        frame.refresh = button(frame, "Check Again", 120, function() report(GD:CheckDKPReadiness()) end); frame.refresh:SetPoint("BOTTOMLEFT", 16, 14)
+        frame:SetScript("OnUpdate", function(self, elapsed)
+            if self.bucket ~= GD:GetDKPBucket() or not GD:IsDKPEnabled() or not GD:CanConfigureDKP() then self:Hide(); return end
+            self.elapsed = (self.elapsed or .25) + (elapsed or .25)
+            if self.elapsed < .25 then return end
+            self.elapsed = 0
+            local check = GD:GetDKPReadiness(); if not check then self:Hide(); return end
+            local lines, received, count = {}, 0, 0
+            local members = {}; for _, member in pairs(check.members) do members[#members + 1] = member end
+            table.sort(members, function(a, b) return a.name < b.name end)
+            local now = GetTime and GetTime() or GD:GetDKPTime()
+            for _, member in ipairs(members) do
+                count = count + 1
+                if member.received then received = received + 1 end
+                local status = member.received and ((member.enabled and "DKP enabled" or "|cffff7777DKP disabled|r") .. " | v" .. member.version
+                    .. (member.version ~= GD.version and " | |cffffcc66Different version|r" or ""))
+                    or (now - check.started > 10 and "No response (older addon, missing addon or delayed connection)" or "Waiting for response...")
+                lines[#lines + 1] = GD:DKPCharacterText(member.name) .. "\n" .. status .. "\n"
+            end
+            self.status:SetText(received .. "/" .. count .. " responses. Group snapshot at time of check.\nA response confirms addon version and DKP setting; it does not confirm balance sync.")
+            self.status:SetTextColor(unpack(GD:GetAppearanceColors().muted)); self.report:SetText(table.concat(lines, "\n"))
+            self.report:SetTextColor(unpack(GD:GetAppearanceColors().text)); self.content:SetHeight(math.max(300, (self.report:GetStringHeight() or 300) + 16))
+            self.refresh:SetEnabled(now - check.started >= 5); GD:StyleButton(self.refresh); GD:StyleScrollFrame(self.scroll); styleLiveWindow(self)
+        end)
+        self.dkpReadinessWindow = frame
+    end
+    frame.bucket = self:GetDKPBucket(); frame.elapsed = .25; styleLiveWindow(frame); frame:Show()
+    -- Populate immediately; the update handler keeps responses live.
+    local update = frame:GetScript("OnUpdate"); if update then update(frame, 0) end
+end
+function GD:RefreshDKPLiveControls()
+    local auction = self:IsDKPEnabled() and self:GetDKPActiveAuction()
+    local show = auction and self:GetDKPAuctionStatus(auction) == "OPEN" and self:GetDKPTime() < auction.data.ends
+        and self:CanBidDKPAuction(auction, self:PlayerName()) and not (popup and popup:IsShown())
+    local control = self.dkpAuctionLauncher
+    if not show then if control then control:Hide() end; return end
+    if not control then
+        control = button(UIParent, "Auction active - Open", 210, function(self)
+            local current = GD:GetDKPActiveAuction()
+            if current and current.id == self.auctionID then GD:ShowDKPAuctionPopup(current.id) end
+        end)
+        control:SetPoint("CENTER", UIParent, "CENTER", 0, 220); control:SetFrameStrata("DIALOG")
+        control:SetClampedToScreen(true); control:SetMovable(true); control:RegisterForDrag("LeftButton")
+        control:SetScript("OnDragStart", function(self) self:StartMoving() end)
+        control:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+        self.dkpAuctionLauncher = control
+    end
+    control.auctionID = auction.id
+    local connected = self:GetDKPAuctionConnection(auction)
+    control:SetText(connected and "Auction active - Open" or "Auction - Host unavailable")
+    self:StyleButton(control, "primary"); control:Show()
 end
 
 function GD:ShowDKPRaidSummary(raidID)
@@ -635,7 +748,6 @@ local function bidderColors()
     end
     return result
 end
-local popup, dismissed, popupBucket = nil, {}, nil
 local function savedPopupState(field)
     local bucket = GD:GetDKPBucket()
     bucket[field] = bucket[field] or {}
@@ -821,7 +933,7 @@ function GD:RefreshDKPAuctionPopup()
         popup = popup or buildPopup()
         if not popup.manual then popup.auctionID = active.id; presented[active.id] = true end
     end
-    if popup and not popup.manual and active and popup.auctionID == active.id and not inAuctionGroup then
+    if popup and not popup.manual and active and popup.auctionID == active.id and not self:CanBidDKPAuction(active, self:PlayerName()) then
         popup:Hide(); popup.auctionID = nil; return
     end
     if not popup or not popup.auctionID or (dismissed[popup.auctionID] and not popup.manual) then return end
@@ -892,9 +1004,17 @@ function GD:RefreshDKPAuctionPopup()
     for index = #bids + 1, #popup.bidRows do popup.bidRows[index]:Hide() end
     popup.emptyBids:SetShown(#bids == 0); popup.emptyBids:SetTextColor(unpack(colors.muted))
     self:StyleScrollFrame(popup.bidScroll)
+    local pendingBid = self:GetDKPPendingBid(r.id)
+    if pendingBid then self.dkpBidStatus = pendingBid.withdraw and "Sending withdrawal..." or "Sending bid..." end
     if self.dkpBidStatus then popup.feedback:SetText(self.dkpBidStatus) end
     local eligible, eligibilityReason = self:CanBidDKPAuction(r, self:PlayerName())
-    local bidding = status == "OPEN" and remaining > 0 and eligible
+    local connected, connectionReason = true, nil
+    if self.GetDKPAuctionConnection then connected, connectionReason = self:GetDKPAuctionConnection(r) end
+    local bidding = status == "OPEN" and remaining > 0 and eligible and not pendingBid and connected
+    if not connected and (status == "OPEN" or status == "REVIEW") then
+        popup.status:SetText("|cffff7777" .. connectionReason .. "|r")
+    end
+    if pendingBid then popup.quick:SetText("Sending bid...") end
     if status == "OPEN" and remaining > 0 and not eligible then popup.feedback:SetText(eligibilityReason or "You cannot bid in this auction.") end
     popup.canBid = bidding
     popup.bid:SetEnabled(bidding); popup.withdraw:SetEnabled(bidding and yourBid ~= nil); popup.amount:SetEnabled(bidding); popup.spec:SetEnabled(bidding)
@@ -945,7 +1065,7 @@ local function buildWorkspace(panel)
     local area = CreateFrame("Frame", nil, panel)
     area:SetPoint("TOPLEFT", 16, -168); area:SetPoint("BOTTOMRIGHT", -16, 42)
     area.actions, area.rows = {}, {}
-    for index = 1, 4 do
+    for index = 1, 6 do
         local b = button(area, "", 96, function(self) if self.action then self.action() end end)
         b:SetPoint("TOPLEFT", (index - 1) * 100, 0); area.actions[index] = b
     end
@@ -1004,6 +1124,7 @@ function GD:RefreshDKPWorkspace(panel)
         actions[#actions + 1] = { "Alerts", function() self:ShowDKPAlertSettings() end }
         if officer then actions[#actions + 1] = { "Queue (" .. #self:GetDKPAuctionQueue() .. ")", function() self:ShowDKPAuctionQueue() end } end
         if officer and not active and #self:GetDKPAuctionQueue() > 0 then actions[#actions + 1] = { "Start Next", function() report(self:StartNextDKPQueuedAuction()) end } end
+        if officer then actions[#actions + 1] = { "Readiness", function() self:ShowDKPReadiness() end } end
         if active then
             local leader, bids = self:GetDKPAuctionLeader(active)
             area.description:Hide(); area.live:Show(); area.live.auctionID = active.id
@@ -1029,6 +1150,9 @@ function GD:RefreshDKPWorkspace(panel)
             end
         end
         if officer and active and not isHost(active) then
+            actions[#actions + 1] = { "Recover", function()
+                confirm("Recover Auction", "Use this only after the host leaves or disconnects.\nAvailable 60 seconds after the deadline.\nThe old auction stops without charging DKP. The same item opens under your control for 60 seconds.\nAll players must bid again.", ownedBucket(function() return self:RecoverDKPAuction(active.id) end), "Recover")
+            end }
             actions[#actions + 1] = { "Stop Stale", function()
                 confirm("Stop Stale Auction", "Stop this auction if its host disconnected?\nAvailable 60 seconds after the bidding deadline.\nNo DKP is charged for a cancelled auction.", ownedBucket(function() return self:StopStaleDKPRecording(active.id, "auction") end), "Stop")
             end }
@@ -1166,4 +1290,10 @@ function GD:RefreshDKPWorkspace(panel)
     panel.footer:SetText(self:IsDKPSoloTesting() and "SOLO TEST: temporary data, no guild sync. /gd dkptest exits."
         or section == "Officer" and "Every correction is recorded in history. Keep a backup before raids." or "Every character has its own DKP balance. Items are distributed by the loot master.")
     return true
+end
+
+local refreshAuctionPopup = GD.RefreshDKPAuctionPopup
+function GD:RefreshDKPAuctionPopup(...)
+    refreshAuctionPopup(self, ...)
+    self:RefreshDKPLiveControls()
 end
