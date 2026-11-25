@@ -503,7 +503,7 @@ local finished=host.sent[#host.sent]
 local settlement=systemClient(2,'Member One');active=settlement
 deliver(settlement,finished,'Member One');assert(#settlement:GetDKPSystemRecords('DKU')==0)
 deliver(settlement,finished,'Officer One');deliver(settlement,finished,'Officer One')
-assert(settlement:GetDKPBalance('Leader One')==-300 and #settlement:GetDKPAwardHistory()==1)
+assert(settlement:GetDKPBalance('Leader One')==-300 and #settlement:GetDKPAwardHistory()==0)
 -- History fills missing credits without duplicating the purchase.
 active=host;local before=#host.sent;host.history[2]();host:SendDKPSystemsHistory();broadcast(host,before,{settlement},'Officer One')
 assert(settlement:GetDKPBalance('Leader One')==700 and settlement:GetDKPBalance('Member One')==200)
@@ -601,6 +601,17 @@ panel.section='Standings';host:RefreshDKP();assert(panel.section==nil and not pa
 panel.navigation.Officer.scripts.OnClick();host.rank=2;host:RefreshDKP()
 assert(panel.section==nil and not panel.workspace.shown and not panel.navigation.Officer.shown);host.rank=1
 panel.navigation.Loot.scripts.OnClick();assert(not panel.raidAward.shown and panel.summary:GetText():find('purchases',1,true))
+assert(panel.navigation.Loot.shown)
+host.rank=2;host:RefreshDKP()
+assert(not panel.navigation.Loot.shown and panel.section==nil and not panel.workspace.shown)
+panel.navigation.Loot.scripts.OnClick();assert(panel.section==nil)
+assert(#host:GetDKPAwardHistory(nil,'Loot')==0)
+for _,entry in ipairs(host:GetDKPAwardHistory()) do assert(not entry.loot) end
+local lootEntry
+for _,entry in pairs(host:GetDKPBucket().dkpAwards) do if entry.loot then lootEntry=entry;break end end
+assert(lootEntry);host.form=nil;host:ShowDKPEntry(lootEntry);assert(host.form==nil)
+host.rank=0;host:RefreshDKP();assert(panel.navigation.Loot.shown and #host:GetDKPAwardHistory(nil,'Loot')>0)
+host.rank=1;panel.navigation.Loot.scripts.OnClick()
 panel.workspace.scroll:SetVerticalScroll(150);panel.search:SetText('No such item');panel.search.scripts.OnTextChanged()
 assert(panel.clearSearch.shown and panel.workspace.scroll.scrollValue==0 and panel.workspace.empty:GetText():find('Clear the search',1,true))
 panel.clearSearch.scripts.OnClick();assert(panel.search:GetText()=='' and not panel.clearSearch.shown)
@@ -928,6 +939,11 @@ do
  for _,packet in ipairs(summary.sent) do if packet[1]=='DKT' then deliver(remote,packet,'Officer One') end end
  broadcast(summary,0,{remote},'Officer One');broadcast(summary,0,{remote},'Officer One')
  local synced=remote:GetDKPRaidSummary(raidID);assert(synced.earned==100 and #synced.loot==2 and #synced.attendees==3)
+ remote:ShowDKPRaidSummary(raidID)
+ assert(not remote.dkpRaidSummaryWindow.report:GetText():find('LOOT AWARDED',1,true))
+ assert(not remote.dkpRaidSummaryWindow.metrics:GetText():find('loot awards',1,true))
+ active=summary;summary.rank=2;summary.dkpRaidSummaryWindow.scripts.OnUpdate(summary.dkpRaidSummaryWindow)
+ assert(not summary.dkpRaidSummaryWindow.shown);summary.rank=1
  active=summary;local exported,data=summary:ExportDKPBackup();assert(exported)
  local backupClient=systemClient(0,'Leader One');active=backupClient;assert(backupClient:ImportDKPBackup(data))
  assert(#backupClient:GetDKPRaidSummary(raidID).loot==2)
@@ -980,7 +996,7 @@ do
  local deliveryRow
  for _,r in ipairs(panel.workspace.rows) do if r.shown and r.delivery.shown then deliveryRow=r end end
  assert(deliveryRow);deliveryRow.delivery.scripts.OnClick();c:RefreshDKP();assert(deliveryRow.detail:GetText():find('Delivered',1,true))
- c.rank=2;c:RefreshDKP();assert(not deliveryRow.delivery.shown);c.rank=1
+ c.rank=2;c:RefreshDKP();assert(not panel.workspace.shown and not panel.navigation.Loot.shown and panel.section==nil);c.rank=1
  broadcast(c,0,{peer},'Officer One');active=c
  assert(c:GetDKPSyncFingerprint()==peer:GetDKPSyncFingerprint())
  c:ShowDKPSyncStatus();assert(c.dkpSyncWindow.shown)
@@ -1199,7 +1215,7 @@ do
  broadcast(c,mark,{peer},'Officer One');assert(not peer:GetDKPActiveAuction() and not memberWindow.shown)
  assert(peer:GetDKPBalance('Member One')==90 and c:GetDKPBalance('Officer One')==100)
  active=c;c:TickDKPSystems();broadcast(c,0,{peer},'Officer One')
- assert(peer:GetDKPBalance('Member One')==90 and #peer:GetDKPAwardHistory(nil,'Loot')==1)
+ active=peer;assert(peer:GetDKPBalance('Member One')==90 and #peer:GetDKPAwardHistory(nil,'Loot')==0)
  -- Starting a new drop resolves a just-expired no-bid auction without waiting for the ticker.
  active=c;local _,_,empty=c:StartDKPAuction('19020',10,10,10);assert(empty)
  server=server+11;local _,_,nextAuction=c:StartDKPAuction('19021',10,10,10)

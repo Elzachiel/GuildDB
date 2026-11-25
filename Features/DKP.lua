@@ -799,14 +799,16 @@ function GD:GetDKPAwardHistory(query, category)
     if not self:IsDKPEnabled() then return {} end
     query = nameKey(query)
     local rows = {}
+    local officer = self:CanConfigureDKP()
     for _, record in pairs(self:GetDKPBucket().dkpAwards or {}) do
         local source = record.reverses and self:GetDKPBucket().dkpAwards[record.reverses]
+        local visible = officer or not (record.loot or source and source.loot)
         local matches = not category or category == "All"
             or category == "Earned" and record.amount > 0 and not record.reverses
             or category == "Spent" and record.amount < 0 and not record.reverses
             or category == "Loot" and (record.loot or source and source.loot)
             or category == "Corrections" and (record.reverses or record.amount < 0 and not record.loot)
-        if matches and record.amount ~= 0 and (query == "" or nameKey(record.member .. " " .. record.by .. " " .. record.reason):find(query, 1, true)) then rows[#rows + 1] = record end
+        if visible and matches and record.amount ~= 0 and (query == "" or nameKey(record.member .. " " .. record.by .. " " .. record.reason):find(query, 1, true)) then rows[#rows + 1] = record end
     end
     table.sort(rows, function(a, b) if a.ts ~= b.ts then return a.ts > b.ts end; return a.id > b.id end)
     return rows
@@ -908,10 +910,12 @@ local function buildStandings(frame)
     panel.historyFilter:SetSize(124, 26); panel.historyFilter:SetPoint("TOPLEFT", 16, -160)
     panel.historyFilter:SetScript("OnClick", function()
         local bucket = GD:GetDKPBucket()
-        GD.ShowInputForm("History Filter", {{label = "Show adjustments", options = {"All", "Earned", "Spent", "Loot", "Corrections"}, value = panel.historyCategory or "All"}}, function(values)
+        local options = GD:CanConfigureDKP() and {"All", "Earned", "Spent", "Loot", "Corrections"} or {"All", "Earned", "Spent", "Corrections"}
+        GD.ShowInputForm("History Filter", {{label = "Show adjustments", options = options, value = panel.historyCategory or "All"}}, function(values)
             if GD:GetDKPBucket() ~= bucket then return false, "Your guild changed. Reopen history." end
             local valid = {All=true, Earned=true, Spent=true, Loot=true, Corrections=true}
             if not valid[values[1]] then return false, "Choose a history filter." end
+            if values[1] == "Loot" and not GD:CanConfigureDKP() then return false, "Only officers and the GM can view loot history." end
             panel.historyCategory = values[1]; panel.scroll:SetVerticalScroll(0); GD:RefreshDKP(); return true
         end, "Apply")
     end)

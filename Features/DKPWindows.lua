@@ -321,25 +321,28 @@ function GD:ShowDKPRaidSummary(raidID)
         window.attendance:SetPoint("BOTTOMLEFT", 16, 14)
         window.refresh = button(window, "Refresh", 100, function() GD:ShowDKPRaidSummary(window.raid.id) end); window.refresh:SetPoint("BOTTOM", 0, 14)
         window.close = button(window, "Close", 100, function() window:Hide() end); window.close:SetPoint("BOTTOMRIGHT", -16, 14)
-        window:SetScript("OnUpdate", function(self) if self.bucket ~= GD:GetDKPBucket() or not GD:IsDKPEnabled() then self:Hide() end end)
+        window:SetScript("OnUpdate", function(self) if self.bucket ~= GD:GetDKPBucket() or not GD:IsDKPEnabled() or self.lootVisible ~= GD:CanConfigureDKP() then self:Hide() end end)
         self.dkpRaidSummaryWindow = window
     end
     if window.raid and window.raid.id ~= raidID then window.scroll:SetVerticalScroll(0) end
     window.raid, window.bucket = summary.raid, self:GetDKPBucket()
+    window.lootVisible = self:CanConfigureDKP()
     local colors = self:GetAppearanceColors()
     window:SetBackdropColor(colors.panel[1], colors.panel[2], colors.panel[3], 1); window:SetBackdropBorderColor(unpack(colors.accent))
     window.title:SetText(summary.raid.data.label); window.title:SetTextColor(unpack(colors.accent))
-    window.metrics:SetText(#summary.attendees .. " attendees  |  " .. #summary.bosses .. " bosses  |  " .. summary.earned .. " DKP earned\n" .. #summary.loot .. " loot awards  |  " .. summary.checkpoints .. " attendance checkpoints")
+    window.metrics:SetText(#summary.attendees .. " attendees  |  " .. #summary.bosses .. " bosses  |  " .. summary.earned .. " DKP earned\n" .. (window.lootVisible and (#summary.loot .. " loot awards  |  ") or "") .. summary.checkpoints .. " attendance checkpoints")
     local lines = { "ATTENDANCE / DKP EARNED" }
     for _, member in ipairs(summary.attendees) do lines[#lines + 1] = self:DKPCharacterText(member.name) .. " - " .. member.checkpoints .. "/" .. summary.checkpoints .. " checkpoints, " .. member.earned .. " DKP" end
     lines[#lines + 1] = "\nBOSSES KILLED"
     for _, boss in ipairs(summary.bosses) do lines[#lines + 1] = boss end
     if #summary.bosses == 0 then lines[#lines + 1] = "No bosses recorded yet." end
-    lines[#lines + 1] = "\nLOOT AWARDED"
-    for _, loot in ipairs(summary.loot) do
-        lines[#lines + 1] = self:GetDKPItemAppearance(loot.item, loot.label).name .. " - " .. self:DKPCharacterText(loot.member) .. ", " .. loot.cost .. " DKP (" .. loot.spec .. ") - " .. deliveryText(loot.delivery)
+    if window.lootVisible then
+        lines[#lines + 1] = "\nLOOT AWARDED"
+        for _, loot in ipairs(summary.loot) do
+            lines[#lines + 1] = self:GetDKPItemAppearance(loot.item, loot.label).name .. " - " .. self:DKPCharacterText(loot.member) .. ", " .. loot.cost .. " DKP (" .. loot.spec .. ") - " .. deliveryText(loot.delivery)
+        end
+        if #summary.loot == 0 then lines[#lines + 1] = "No loot linked to this raid." end
     end
-    if #summary.loot == 0 then lines[#lines + 1] = "No loot linked to this raid." end
     window.report:SetText(table.concat(lines, "\n")); window.report:SetTextColor(unpack(colors.text)); window.metrics:SetTextColor(unpack(colors.text))
     window.content:SetHeight(math.max(400, (window.report:GetStringHeight() or 400) + 16))
     for _, control in ipairs({ window.attendance, window.refresh, window.close }) do self:StyleButton(control) end
@@ -475,6 +478,8 @@ end
 
 function GD:ShowDKPEntry(record)
     if not record then return end
+    local source = record.reverses and self:GetDKPBucket().dkpAwards[record.reverses]
+    if (record.loot or source and source.loot) and not self:CanConfigureDKP() then return end
     local reversed = self:GetDKPBucket().dkpSystems["DKX:" .. record.id] ~= nil
     local summary = self:DKPCharacterText(record.member) .. "  " .. (record.amount > 0 and "+" or "") .. record.amount .. " DKP\n"
         .. date("%b %d, %Y %I:%M %p", record.ts) .. " - " .. self:DKPCharacterText(record.by) .. "\n" .. self:Display(record.reason)
@@ -929,7 +934,7 @@ local function buildWorkspace(panel)
     for index, section in ipairs({ "Standings", "Auctions", "Loot", "Raids", "Officer" }) do
         local view = section
         local control = button(panel, section, 76, function()
-            if view == "Officer" and not GD:CanConfigureDKP() then return end
+            if (view == "Officer" or view == "Loot") and not GD:CanConfigureDKP() then return end
             if view == "Standings" then panel.section = nil else panel.section = view end
             if panel.workspace then panel.workspace.scroll:SetVerticalScroll(0) end
             panel.historyMode = false; panel.search:SetText(""); GD:RefreshDKP()
@@ -971,7 +976,16 @@ function GD:RefreshDKPWorkspace(panel)
     if not panel.workspace then buildWorkspace(panel) end
     if panel.section == "Standings" then panel.section = nil end
     panel.navigation.Officer:SetShown(self:CanConfigureDKP())
-    if panel.section == "Officer" and not self:CanConfigureDKP() then panel.section = nil end
+    panel.navigation.Loot:SetShown(self:CanConfigureDKP())
+    if (panel.section == "Officer" or panel.section == "Loot") and not self:CanConfigureDKP() then panel.section = nil end
+    local position = 0
+    for _, section in ipairs({ "Standings", "Auctions", "Loot", "Raids", "Officer" }) do
+        local control = panel.navigation[section]
+        if control:IsShown() then
+            control:ClearAllPoints(); control:SetPoint("TOPLEFT", 16 + position * 80, -130)
+            position = position + 1
+        end
+    end
     for section, control in pairs(panel.navigation) do self:StyleButton(control, (panel.section or "Standings") == section and "primary" or nil) end
     local area = panel.workspace
     if not panel.section then
