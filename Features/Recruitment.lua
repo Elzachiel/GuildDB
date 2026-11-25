@@ -2,12 +2,37 @@
 local _, GD = ...
 GD:RegisterTab("Recruitment", function() return "" end)
 
-local CONTACT_DELAY, PLAYER_DELAY, SKIP_DELAY, DAILY_LIMIT = 10, 86400, 3600, 50
+local CONTACT_DELAY, PLAYER_DELAY, SKIP_DELAY, DAILY_LIMIT = 2, 86400, 3600, 50
 local statuses = { "All", "New", "Contacted", "Replied", "Invited", "Skipped", "Do Not Contact" }
 local function clean(value, limit)
     return tostring(value or ""):gsub("|", " "):gsub("[\r\n]", " "):gsub("^%s+", ""):gsub("%s+$", ""):sub(1, limit)
 end
 local function key(name) return clean(name, 100):lower() end
+local function contacted(record)
+    return record.lastWhisper or record.lastInvite or record.status == "Contacted" or record.status == "Replied" or record.status == "Invited"
+end
+local function classColor(record, fallback)
+    local class = record and record.class or ""
+    local token = class:upper():gsub("%s", "")
+    for file, name in pairs(LOCALIZED_CLASS_NAMES_MALE or {}) do if name == class then token = file; break end end
+    for file, name in pairs(LOCALIZED_CLASS_NAMES_FEMALE or {}) do if name == class then token = file; break end end
+    local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[token]
+    return color and { color.r, color.g, color.b } or fallback
+end
+local function statusColor(record, fallback)
+    if not record then return fallback end
+    if record.status == "Do Not Contact" then return { 1, 0.35, 0.35 } end
+    if record.status == "Replied" then return { 0.35, 0.85, 1 } end
+    if contacted(record) then return { 0.35, 1, 0.55 } end
+    return fallback
+end
+local function statusText(record)
+    local status = record.status or "New"
+    if contacted(record) then
+        return "[" .. status:upper() .. "] " .. (record.lastInvite and "Invite sent" or "Whisper sent")
+    end
+    return "[" .. status:upper() .. "]"
+end
 local function allowed() return GD:CanManage() and GD.bucket ~= nil end
 local function database()
     if not allowed() then return nil end
@@ -84,7 +109,9 @@ function GD:GetRecruitCandidates(status, text, whoQuery)
         total = total + 1
         local haystack = table.concat({ record.name, record.class or "", record.note or "" }, " "):lower()
         local inSearch = (not search and showSaved) or (search and not draft and search.state == "complete" and search.ids[id] and matchesLevel(search, record.level))
-        if inSearch and (not status or status == "All" or record.status == status) and haystack:find(text, 1, true) then
+        local contactView = status == "Contacted"
+        local matchesStatus = contactView and contacted(record) or (not contactView and (not status or status == "All" or record.status == status))
+        if (contactView or inSearch) and matchesStatus and haystack:find(text, 1, true) then
             records[#records + 1] = { id = id, record = record }
         end
     end
@@ -95,6 +122,7 @@ function GD:GetRecruitCandidates(status, text, whoQuery)
     elseif search and search.state == "pending" then empty = "Waiting for Who results..."
     elseif search and search.state == "timeout" then empty = "No Who reply. Retry or import results."
     elseif search then empty = "No candidates match this search and status." end
+    if status == "Contacted" then empty = "No contacted candidates yet. Whispers and invites appear here automatically." end
     return records, total, empty
 end
 
@@ -155,7 +183,6 @@ function GD:GetRecruitContactBlock(name, action)
     if record.status == "Do Not Contact" then return "Do Not Contact: restore this candidate before contacting them." end
     if joined(record.name) then return "That character is already in your guild." end
     if (record.skipUntil or 0) > time() then return "Skipped for another " .. math.ceil((record.skipUntil - time()) / 60) .. " minute(s)." end
-    if InCombatLockdown and InCombatLockdown() then return "Recruitment contacts are paused during combat." end
     local wait = (db.lastContact or 0) + CONTACT_DELAY - time()
     if wait > 0 then return "Wait " .. wait .. " seconds before another contact." end
     local previous
@@ -266,7 +293,6 @@ end
 function GD:PostRecruitAd(channel)
     local db = database()
     if not db then return false, "Only the GM and rank 1 officers can recruit." end
-    if InCombatLockdown and InCombatLockdown() then return false, "Recruitment ads are paused during combat." end
     if (db.lastAd or 0) + 300 > time() then return false, "Wait " .. ((db.lastAd or 0) + 300 - time()) .. " seconds before another ad." end
     channel = tonumber(channel)
     if not channel or channel < 1 or channel ~= math.floor(channel) then return false, "Enter a joined chat channel number, such as 2." end
@@ -514,7 +540,7 @@ local function build(frame)
     panel.policyBox:SetPoint("TOPLEFT", 0, -312)
     panel.policyBox:SetPoint("TOPRIGHT", 0, -312)
     panel.policyBox:SetHeight(158)
-    panel.policy = text(panel.policyBox, "10 seconds between contacts; 24 hours per player per action; 50 actions/day.\nSkip: 1 hour. Do Not Contact: until explicitly restored. Ads: 5 minutes.\nRecords and templates are private to this recruiter and guild.\nSave before sending. Expanded messages must fit 255 bytes.", 14, -64, "muted")
+    panel.policy = text(panel.policyBox, "2 seconds between contacts; 24 hours per player per action; 50 actions/day.\nSkip: 1 hour. Do Not Contact: until explicitly restored. Ads: 5 minutes.\nAds, whispers and guild invites can be submitted during combat.\nSave templates before sending. Expanded messages must fit 255 bytes.", 14, -64, "muted")
     panel.policy:SetPoint("TOPRIGHT", -14, -64)
     panel.policy:SetHeight(82)
     panel:SetScript("OnUpdate", function(self, elapsed)
@@ -621,10 +647,10 @@ function GD:RefreshRecruitment()
         row.id = entry.id
         local record = entry.record
         row.name:SetText(self:Display(record.name))
-        row.meta:SetText(self:Display((record.level or "?") .. " " .. (record.class or "") .. " - " .. record.status))
+        row.meta:SetText(self:Display(statusText(record) .. " - " .. (record.level or "?") .. " " .. (record.class or "")))
         local colors = self:GetAppearanceColors()
-        row.name:SetTextColor(unpack(colors.text))
-        row.meta:SetTextColor(unpack(colors.muted))
+        row.name:SetTextColor(unpack(classColor(record, colors.text)))
+        row.meta:SetTextColor(unpack(statusColor(record, colors.muted)))
         self:StyleButton(row, panel.selected == entry.id and "primary" or nil)
         row:Show()
     end
@@ -636,7 +662,8 @@ function GD:RefreshRecruitment()
         panel.loadedCandidate = panel.selected
         panel.note:SetText(record and record.note or "")
     end
-    panel.selectedText:SetText(record and self:Display(record.name .. " - " .. record.status) or "Select a candidate above.")
+    panel.selectedText:SetText(record and self:Display(record.name .. " - " .. statusText(record)) or "Select a candidate above.")
+    panel.selectedText:SetTextColor(unpack(classColor(record, self:GetAppearanceColors().text)))
     panel.reply:SetText(record and record.reply and ("Latest reply: " .. self:Display(record.reply)) or "Replies from contacted candidates appear here. Replies never trigger automatic invites.")
     updateContacts(panel)
 end
@@ -652,12 +679,84 @@ end
 function GD:StepRecruitPopout(delta)
     local panel = self.recruitPopout
     if not panel or not popoutAllowed() or panel.owner ~= popoutOwner() then return end
-    local records = self:GetRecruitCandidates("All", "", panel.query:GetText())
+    local records = self:GetRecruitCandidates(panel.filter or "All", "", panel.query:GetText())
     if #records == 0 then panel.selected = nil; self:RefreshRecruitPopout(); return end
     local index = 1
     for i, entry in ipairs(records) do if entry.id == panel.selected then index = i; break end end
     panel.selected = records[(index - 1 + delta) % #records + 1].id
     self:RefreshRecruitPopout()
+end
+
+local function refreshPopoutChoices(panel, records)
+    local menu = panel.candidateMenu
+    if not menu:IsShown() then return end
+    local colors = GD:GetAppearanceColors()
+    local count = math.min(6, #records)
+    menu.offset = math.max(0, math.min(menu.offset or 0, #records - count))
+    menu:SetWidth(panel.candidateButton:GetWidth())
+    menu:SetHeight(count * 40 + 28)
+    GD:StyleSurface(menu)
+    for i, row in ipairs(menu.rows) do
+        local entry = records[i + menu.offset]
+        row.id = entry and entry.id
+        row:SetShown(entry ~= nil)
+        if entry then
+            GD:StyleButton(row, panel.selected == entry.id and "primary" or nil)
+            row.name:SetText(GD:Display(entry.record.name .. " - " .. (entry.record.level or "?") .. " " .. (entry.record.class or "")))
+            row.name:SetTextColor(unpack(classColor(entry.record, colors.text)))
+            row.status:SetText(GD:Display(statusText(entry.record)))
+            row.status:SetTextColor(unpack(statusColor(entry.record, colors.muted)))
+        end
+    end
+    menu.hint:SetText((menu.offset + 1) .. "-" .. (menu.offset + count) .. " / " .. #records .. (#records > count and "  |  Scroll for more" or ""))
+    menu.hint:SetTextColor(unpack(colors.muted))
+    if #records == 0 then menu:Hide() end
+end
+
+local function layoutPopout(panel)
+    local width, height = panel:GetSize()
+    local compact = height < 480
+    local function place(control, x, y, w)
+        control:ClearAllPoints()
+        control:SetPoint("TOPLEFT", panel, "TOPLEFT", x, y)
+        if w then control:SetWidth(w) end
+    end
+    panel.query:SetWidth(width - 144)
+    place(panel.searchWho, width - 122, -60, 110)
+    place(panel.viewButton, 12, -94, width - 136)
+    place(panel.fullWindow, width - 116, -94, 104)
+    panel.viewMenu:SetWidth(width - 136)
+    panel.counter:SetWidth(width - 24)
+    place(panel.counter, 12, compact and -126 or -132)
+    for _, text in ipairs({ panel.meta, panel.preview, panel.reply }) do text:SetWidth(width - 24) end
+    local shift = compact and 20 or 0
+    place(panel.candidateButton, 12, compact and -144 or -158, width - 24)
+    panel.candidateMenu:SetWidth(width - 24)
+    place(panel.meta, 12, compact and -176 or -190)
+    place(panel.previewLabel, 12, -216 + shift)
+    local previewTop = 236 - shift
+    local available = height - previewTop - 158
+    local previewHeight = math.floor(available * 0.62)
+    place(panel.preview, 12, -previewTop)
+    panel.preview:SetHeight(previewHeight)
+    place(panel.reply, 12, -(previewTop + previewHeight + 6))
+    panel.reply:SetHeight(available - previewHeight - 6)
+    local third = (width - 48) / 3
+    for i, control in ipairs({ panel.whisper, panel.invite, panel.skip }) do
+        place(control, 12 + (i - 1) * (third + 12), -(height - 148), third)
+    end
+    local half = (width - 36) / 2
+    place(panel.dnc, 12, -(height - 114), half)
+    place(panel.restore, 24 + half, -(height - 114), half)
+    place(panel.status, 12, -(height - 72), width - 40)
+end
+
+local function savePopoutGeometry(panel)
+    if not popoutAllowed() or panel.owner ~= popoutOwner() then return end
+    local point, _, relativePoint, x, y = panel:GetPoint()
+    local db = database()
+    db.popoutPosition = { point = point, relativePoint = relativePoint, x = x, y = y }
+    db.popoutSize = { width = panel:GetWidth(), height = panel:GetHeight() }
 end
 
 local function buildPopout()
@@ -668,6 +767,12 @@ local function buildPopout()
     panel:SetFrameStrata("DIALOG")
     panel:SetClampedToScreen(true)
     panel:SetMovable(true)
+    panel:SetResizable(true)
+    if panel.SetResizeBounds then panel:SetResizeBounds(320, 440, 900, 1000)
+    else
+        panel:SetMinResize(320, 440)
+        panel:SetMaxResize(900, 1000)
+    end
     panel:EnableMouse(true)
     panel:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8", edgeFile = "Interface/Buttons/WHITE8X8", edgeSize = 1 })
     panel:Hide()
@@ -681,19 +786,17 @@ local function buildPopout()
     drag:SetScript("OnDragStart", function() panel:StartMoving() end)
     drag:SetScript("OnDragStop", function()
         panel:StopMovingOrSizing()
-        if not popoutAllowed() or panel.owner ~= popoutOwner() then return end
-        local point, _, relativePoint, x, y = panel:GetPoint()
-        database().popoutPosition = { point = point, relativePoint = relativePoint, x = x, y = y }
+        savePopoutGeometry(panel)
     end)
     panel.title = label(drag, "Recruiting", 12, -12, "GameFontNormal")
     panel.close = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     panel.close:SetPoint("TOPRIGHT", -6, -6)
     panel.close:SetScript("OnClick", function() panel:Hide() end)
     GD:StyleCloseButton(panel.close)
-    label(panel, "Who level or range", 12, -40)
+    panel.queryLabel = label(panel, "Who level or range", 12, -40)
     panel.query = input(panel, 12, -60, 236, 150)
-    local function action(text, x, y, width, callback)
-        local control = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    local function action(text, x, y, width, callback, parent)
+        local control = CreateFrame("Button", nil, parent or panel, "UIPanelButtonTemplate")
         control:SetPoint("TOPLEFT", x, y)
         control:SetSize(width, 26)
         control:SetText(text)
@@ -709,37 +812,138 @@ local function buildPopout()
     end
     panel.searchWho = action("Search Who", 258, -60, 110, function()
         panel.query:ClearFocus()
+        panel.filter = "New"
+        panel.viewMenu:Hide()
+        panel.candidateMenu:Hide()
         return GD:SearchRecruits(panel.query:GetText())
     end)
     panel.query:SetScript("OnEnterPressed", function() panel.searchWho:GetScript("OnClick")() end)
-    action("Saved list", 12, -94, 92, function()
-        if GD.recruitWhoPending then return false, "Wait for the current Who search to finish." end
-        return GD:ShowRecruitSavedCandidates()
+    panel.viewButton = action("All saved  v", 12, -94, 244, function()
+        panel.candidateMenu:Hide()
+        if panel.viewMenu:IsShown() then panel.viewMenu:Hide() else panel.viewMenu:Show() end
+        return true
     end)
-    action("Import Who", 112, -94, 92, function()
+    panel.viewMenu = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+    local views = panel.viewMenu
+    views:SetPoint("TOPLEFT", panel.viewButton, "BOTTOMLEFT", 0, -4)
+    views:SetHeight((#statuses + 1) * 28 + 8)
+    views:SetFrameStrata("TOOLTIP")
+    views:SetClampedToScreen(true)
+    views:EnableMouse(true)
+    views:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8", edgeFile = "Interface/Buttons/WHITE8X8", edgeSize = 1 })
+    views:Hide()
+    panel.viewOptions = {}
+    for i, status in ipairs(statuses) do
+        local option = action(status == "All" and "All saved" or status, 4, -4 - (i - 1) * 28, 176, function()
+            if GD.recruitWhoPending then return false, "Wait for the current Who search to finish." end
+            panel.filter = status
+            GD:ShowRecruitSavedCandidates()
+            panel.selected, panel.feedback = nil, nil
+            views:Hide()
+            return true
+        end, views)
+        option:SetPoint("TOPRIGHT", -4, -4 - (i - 1) * 28)
+        panel.viewOptions[i] = option
+    end
+    panel.importWho = action("Import Who results", 4, -4 - #statuses * 28, 176, function()
         if GD.recruitWhoPending then return false, "Wait for the current Who search to finish." end
         local search = searchContext(panel.query:GetText())
         if not search then return false, "Enter a level or ascending range." end
+        panel.filter = "New"
+        views:Hide()
         return GD:ImportRecruitWho(search)
+    end, views)
+    panel.importWho:SetPoint("TOPRIGHT", -4, -4 - #statuses * 28)
+    views:SetScript("OnUpdate", function()
+        if not panel:IsShown() or not popoutAllowed() or panel.owner ~= popoutOwner() then views:Hide(); return end
+        if IsMouseButtonDown and (IsMouseButtonDown("LeftButton") or IsMouseButtonDown("RightButton"))
+            and not views:IsMouseOver() and not panel.viewButton:IsMouseOver() then views:Hide() end
     end)
-    action("Full window", 212, -94, 156, function()
+    panel.fullWindow = action("Full UI", 212, -94, 156, function()
         GD.activeTab = "Recruitment"
         GD:Open()
         local main = GD.frame and GD.frame.recruitment
-        if main then main.query:SetText(panel.query:GetText()); main.selected = panel.selected; GD:RefreshUI() end
+        if main then main.query:SetText(panel.query:GetText()); main.selected = panel.selected; main.filter = panel.filter or "All"; GD:RefreshUI() end
         panel:Hide()
         return true
     end)
     panel.counter = label(panel, "", 12, -136)
     panel.counter:SetWidth(262)
-    panel.previous = action("<", 286, -128, 36, function() GD:StepRecruitPopout(-1); return true end)
-    panel.next = action(">", 332, -128, 36, function() GD:StepRecruitPopout(1); return true end)
-    panel.name = label(panel, "", 12, -166, "GameFontNormalLarge")
-    panel.name:SetWidth(356)
+    panel.candidateButton = action("", 12, -158, 356, function()
+        panel.viewMenu:Hide()
+        local menu = panel.candidateMenu
+        if menu:IsShown() then menu:Hide()
+        else
+            local records = GD:GetRecruitCandidates(panel.filter or "All", "", panel.query:GetText())
+            menu.offset = 0
+            for i, entry in ipairs(records) do
+                if entry.id == panel.selected then menu.offset = math.max(0, i - 3); break end
+            end
+            menu:Show()
+        end
+        return true
+    end)
+    panel.name = panel.candidateButton:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    panel.name:SetPoint("LEFT", 10, 0)
+    panel.name:SetPoint("RIGHT", -26, 0)
+    panel.name:SetJustifyH("LEFT")
     panel.name:SetWordWrap(false)
+    panel.candidateArrow = panel.candidateButton:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    panel.candidateArrow:SetPoint("RIGHT", -10, 0)
+    panel.candidateArrow:SetText("v")
+    panel.candidateMenu = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+    local menu = panel.candidateMenu
+    menu:SetPoint("TOPLEFT", panel.candidateButton, "BOTTOMLEFT", 0, -4)
+    menu:SetFrameStrata("TOOLTIP")
+    menu:SetClampedToScreen(true)
+    menu:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8", edgeFile = "Interface/Buttons/WHITE8X8", edgeSize = 1 })
+    menu:EnableMouse(true)
+    menu:EnableMouseWheel(true)
+    menu:Hide()
+    menu.rows = {}
+    local function wheel(_, delta)
+        menu.offset = (menu.offset or 0) - delta
+        GD:RefreshRecruitPopout()
+    end
+    menu:SetScript("OnMouseWheel", wheel)
+    for i = 1, 6 do
+        local row = CreateFrame("Button", nil, menu, "UIPanelButtonTemplate")
+        row:SetPoint("TOPLEFT", 4, -4 - (i - 1) * 40)
+        row:SetPoint("TOPRIGHT", -4, -4 - (i - 1) * 40)
+        row:SetHeight(38)
+        row.name = label(row, "", 8, -5, "GameFontNormal")
+        row.name:SetPoint("TOPRIGHT", -8, -5)
+        row.name:SetWordWrap(false)
+        row.status = label(row, "", 8, -22)
+        row.status:SetPoint("TOPRIGHT", -8, -22)
+        row.status:SetWordWrap(false)
+        row:EnableMouseWheel(true)
+        row:SetScript("OnMouseWheel", wheel)
+        row:SetScript("OnClick", function(control)
+            if not popoutAllowed() or panel.owner ~= popoutOwner() then panel:Hide(); return end
+            local records = GD:GetRecruitCandidates(panel.filter or "All", "", panel.query:GetText())
+            for _, entry in ipairs(records) do
+                if entry.id == control.id then panel.selected = entry.id; panel.feedback = nil; break end
+            end
+            menu:Hide()
+            GD:RefreshRecruitPopout()
+        end)
+        menu.rows[i] = row
+    end
+    menu.hint = menu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    menu.hint:SetPoint("BOTTOM", 0, 7)
+    menu:SetScript("OnUpdate", function()
+        if not panel:IsShown() or not popoutAllowed() or panel.owner ~= popoutOwner() then menu:Hide(); return end
+        if IsMouseButtonDown and (IsMouseButtonDown("LeftButton") or IsMouseButtonDown("RightButton"))
+            and not menu:IsMouseOver() and not panel.candidateButton:IsMouseOver() then menu:Hide() end
+    end)
+    menu:SetScript("OnHide", function()
+        for _, row in ipairs(menu.rows) do row.id = nil; row.name:SetText(""); row.status:SetText("") end
+    end)
     panel.meta = label(panel, "", 12, -190)
     panel.meta:SetWidth(356)
-    label(panel, "Whisper preview", 12, -216, "GameFontNormal")
+    panel.meta:SetWordWrap(false)
+    panel.previewLabel = label(panel, "Whisper preview", 12, -216, "GameFontNormal")
     panel.preview = label(panel, "", 12, -236)
     panel.preview:SetWidth(356)
     panel.preview:SetHeight(68)
@@ -764,12 +968,41 @@ local function buildPopout()
     panel.status:SetHeight(58)
     panel.status:SetJustifyV("TOP")
     panel.status:SetWordWrap(true)
+    panel.resize = CreateFrame("Button", nil, panel)
+    panel.resize:SetSize(20, 20)
+    panel.resize:SetPoint("BOTTOMRIGHT", -2, 2)
+    panel.resize:EnableMouse(true)
+    panel.resize.grip = panel.resize:CreateTexture(nil, "ARTWORK")
+    panel.resize.grip:SetAllPoints()
+    panel.resize.grip:SetTexture("Interface/ChatFrame/UI-ChatIM-SizeGrabber-Up")
+    panel.resize:SetScript("OnMouseDown", function(_, button)
+        if button == "LeftButton" then panel.resizing = true; panel:StartSizing("BOTTOMRIGHT") end
+    end)
+    panel.resize:SetScript("OnMouseUp", function(_, button)
+        if button == "LeftButton" then
+            panel:StopMovingOrSizing()
+            panel.resizing = nil
+            savePopoutGeometry(panel)
+        end
+    end)
+    panel.resize:SetScript("OnEnter", function(control)
+        GameTooltip:SetOwner(control, "ANCHOR_TOPLEFT")
+        GameTooltip:SetText("Drag to resize")
+        GameTooltip:Show()
+    end)
+    panel.resize:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    panel:SetScript("OnSizeChanged", function() layoutPopout(panel) end)
+    layoutPopout(panel)
     panel:SetScript("OnUpdate", function(_, elapsed)
         panel.elapsed = (panel.elapsed or 0) + elapsed
         if panel.elapsed >= 1 then panel.elapsed = 0; GD:RefreshRecruitPopout() end
     end)
     panel:SetScript("OnHide", function()
+        panel.viewMenu:Hide()
+        panel.candidateMenu:Hide()
         panel:StopMovingOrSizing()
+        if panel.resizing then savePopoutGeometry(panel); panel.resizing = nil end
+        GameTooltip:Hide()
         panel.query:ClearFocus()
         local mainShown = GD.frame and GD.frame:IsShown() and GD.activeTab == "Recruitment"
         if not mainShown then GD.recruitSearch, GD.recruitSavedView = nil, nil end
@@ -779,29 +1012,48 @@ local function buildPopout()
     return panel
 end
 
+function GD:RefreshRecruitPopoutAppearance()
+    local panel = self.recruitPopout
+    if not panel then return end
+    local colors = self:GetAppearanceColors()
+    self:StyleSurface(panel, "window")
+    self:StyleCloseButton(panel.close)
+    for _, control in ipairs(panel.buttons) do self:StyleButton(control, control == panel.whisper and "primary" or nil) end
+    self:StyleSurface(panel.viewMenu)
+    for i, option in ipairs(panel.viewOptions) do self:StyleButton(option, statuses[i] == (panel.filter or "All") and "primary" or nil) end
+    panel.title:SetTextColor(unpack(colors.accent))
+    panel.candidateArrow:SetTextColor(unpack(colors.accent))
+    panel.previewLabel:SetTextColor(unpack(colors.accent))
+    panel.queryLabel:SetTextColor(unpack(colors.muted))
+    panel.resize.grip:SetVertexColor(unpack(colors.accent))
+    local record = candidate(panel.selected)
+    panel.name:SetTextColor(unpack(classColor(record, colors.text)))
+    for _, text in ipairs({ panel.counter, panel.meta, panel.preview, panel.reply, panel.status }) do text:SetTextColor(unpack(colors.muted)) end
+    panel.meta:SetTextColor(unpack(statusColor(record, colors.muted)))
+    panel.query:SetBackdropColor(unpack(colors.panel))
+    panel.query:SetTextColor(unpack(colors.text))
+    panel.query:SetGuildDBFocusState(panel.query:HasFocus())
+    if panel.candidateMenu:IsShown() then
+        local records = self:GetRecruitCandidates(panel.filter or "All", "", panel.query:GetText())
+        refreshPopoutChoices(panel, records)
+    end
+end
+
 function GD:RefreshRecruitPopout()
     local panel = self.recruitPopout
     if not panel or not panel:IsShown() then return end
     if not popoutAllowed() or panel.owner ~= popoutOwner() then panel:Hide(); return end
     local db = database()
-    local records, _, empty = self:GetRecruitCandidates("All", "", panel.query:GetText())
+    local records, _, empty = self:GetRecruitCandidates(panel.filter or "All", "", panel.query:GetText())
     local index
     for i, entry in ipairs(records) do if entry.id == panel.selected then index = i; break end end
     if not index then index = #records > 0 and 1 or nil; panel.selected = index and records[index].id end
     local record = index and records[index].record
-    local colors = self:GetAppearanceColors()
-    self:StyleSurface(panel, "window")
-    self:StyleCloseButton(panel.close)
-    for _, control in ipairs(panel.buttons) do self:StyleButton(control, control == panel.whisper and "primary" or nil) end
-    panel.title:SetTextColor(unpack(colors.accent))
-    panel.name:SetTextColor(unpack(colors.text))
-    for _, text in ipairs({ panel.counter, panel.meta, panel.preview, panel.reply, panel.status }) do text:SetTextColor(unpack(colors.muted)) end
-    panel.query:SetBackdropColor(unpack(colors.panel))
-    panel.query:SetTextColor(unpack(colors.text))
-    panel.query:SetGuildDBFocusState(panel.query:HasFocus())
-    panel.counter:SetText((index or 0) .. " / " .. #records .. " candidates | " .. today(db) .. "/" .. DAILY_LIMIT .. " contacts today")
+    self:RefreshRecruitPopoutAppearance()
+    panel.counter:SetText((index or 0) .. " / " .. #records .. (panel.filter == "Contacted" and " contacts" or "") .. " | " .. today(db) .. "/" .. DAILY_LIMIT .. " today")
+    panel.viewButton:SetText(((panel.filter or "All") == "All" and "All saved" or panel.filter) .. "  v")
     panel.name:SetText(record and self:Display(record.name) or "No candidate selected")
-    panel.meta:SetText(record and self:Display((record.level or "?") .. " " .. (record.class or "") .. " - " .. record.status .. " - " .. (record.zone or "")) or empty)
+    panel.meta:SetText(record and self:Display(statusText(record) .. " - " .. (record.level or "?") .. " " .. (record.class or "")) or empty)
     panel.preview:SetText(self:Display(expand(db.message, record and record.name or "{name}")))
     panel.reply:SetText(record and record.reply and self:Display("Reply: " .. record.reply) or "Replies from contacted candidates appear here.")
     local whisper = self:GetRecruitContactBlock(panel.selected, "whisper")
@@ -811,8 +1063,7 @@ function GD:RefreshRecruitPopout()
     panel.skip:SetEnabled(record ~= nil and record.status ~= "Do Not Contact")
     panel.dnc:SetEnabled(record ~= nil and record.status ~= "Do Not Contact")
     panel.restore:SetEnabled(record ~= nil and record.status ~= "New")
-    panel.previous:SetEnabled(#records > 1)
-    panel.next:SetEnabled(#records > 1)
+    panel.candidateButton:SetEnabled(#records > 0)
     panel.searchWho:SetEnabled(self.recruitWhoPending == nil)
     panel.status:SetText((panel.feedback and (panel.feedbackUntil or 0) > time()) and panel.feedback
         or (record and ("Whisper: " .. (whisper or "Ready") .. "\nInvite: " .. (invite or "Ready")) or empty))
@@ -822,13 +1073,16 @@ function GD:ShowRecruitPopout()
     if not popoutAllowed() then return false, "Recruitment is available to enabled GM/rank 1 recruiters only." end
     local panel = self.recruitPopout or buildPopout()
     local owner, db = popoutOwner(), database()
-    if panel.owner ~= owner then panel.selected, panel.feedback = nil, nil end
+    if panel.owner ~= owner then panel.selected, panel.feedback, panel.filter = nil, nil, "All" end
     panel.owner = owner
     local main = self.frame and self.frame.recruitment
     local search = currentSearch()
     panel.query:SetText(search and search.query or (main and main.owner == owner and main.query:GetText()) or "50-60")
     if main and main.owner == owner then panel.selected = main.selected end
     if not search then self:ShowRecruitSavedCandidates() end
+    local size = db.popoutSize
+    panel:SetSize(math.max(320, math.min(900, tonumber(size and size.width) or 380)),
+        math.max(440, math.min(1000, tonumber(size and size.height) or 510)))
     local position = db.popoutPosition
     panel:ClearAllPoints()
     if position then panel:SetPoint(position.point, UIParent, position.relativePoint, position.x, position.y)
@@ -836,7 +1090,7 @@ function GD:ShowRecruitPopout()
     panel:Show()
     self:RefreshRecruitPopout()
     if self.frame then self.frame:Hide() end
-    return true, "Compact recruiting opened. Drag its title to move it."
+    return true, "Compact recruiting opened. Drag its title to move it or its bottom-right corner to resize."
 end
 
 GD:RegisterCommand("recruit", function(rest)

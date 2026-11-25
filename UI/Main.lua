@@ -180,6 +180,7 @@ local function applyTheme(frame)
     for scroll in pairs(themedScrollFrames) do GD:StyleScrollFrame(scroll) end
     for button in pairs(themedCloseButtons) do GD:StyleCloseButton(button) end
     if frame.recruitment and GD.RefreshRecruitmentAppearance then GD:RefreshRecruitmentAppearance() end
+    if GD.RefreshRecruitPopoutAppearance then GD:RefreshRecruitPopoutAppearance() end
     if frame.home and GD.RefreshHomeAppearance then GD:RefreshHomeAppearance() end
     if frame.guildInfo and GD.RefreshGuildInfoAppearance then GD:RefreshGuildInfoAppearance() end
     if frame.close then GD:StyleCloseButton(frame.close) end
