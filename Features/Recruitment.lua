@@ -50,6 +50,12 @@ local function refresh()
     if GD.frame and GD.frame:IsShown() and GD.activeTab == "Recruitment" then GD:RefreshUI() end
     if GD.recruitPopout and GD.recruitPopout:IsShown() then GD:RefreshRecruitPopout() end
 end
+local function searchFeedback(message)
+    local panel = GD.recruitPopout
+    if panel and panel:IsShown() then panel.feedback, panel.feedbackUntil = message, time() + 12 end
+    local main = GD.frame and GD.frame.recruitment
+    if main then main.status:SetText(message) end
+end
 local function candidate(name)
     local db = database()
     return db and db.candidates[key(name)], db
@@ -103,6 +109,7 @@ function GD:GetRecruitCandidates(status, text, whoQuery)
     local saved = self.recruitSavedView
     local showSaved = saved and saved.guild == self.guildKey and saved.owner == key(self:PlayerName())
     local draft = search and whoQuery ~= nil and clean(whoQuery, 150) ~= search.query
+    local requested = whoQuery ~= nil and searchContext(whoQuery) or nil
     local records, total = {}, 0
     text = tostring(text or ""):lower()
     for id, record in pairs(db.candidates) do
@@ -110,8 +117,15 @@ function GD:GetRecruitCandidates(status, text, whoQuery)
         local haystack = table.concat({ record.name, record.class or "", record.note or "" }, " "):lower()
         local inSearch = (not search and showSaved) or (search and not draft and search.state == "complete" and search.ids[id] and matchesLevel(search, record.level))
         local contactView = status == "Contacted"
-        local matchesStatus = contactView and contacted(record) or (not contactView and (not status or status == "All" or record.status == status))
-        if (contactView or inSearch) and matchesStatus and haystack:find(text, 1, true) then
+        local newView = status == "New"
+        local inRange = not requested or not requested.minimum or matchesLevel(requested, record.level)
+        local unguilded = record.guildKnown ~= false and (record.guild == nil or record.guild == "") and not joined(record.name)
+        local isNew = record.status == "New" and not contacted(record) and not joined(record.name)
+        local matchesStatus = (newView and isNew) or (contactView and contacted(record))
+            or (not newView and not contactView and (not status or status == "All" or record.status == status))
+        -- The New queue includes previously found, untouched candidates as well as
+        -- fresh Who results. A pending/empty Who reply must not hide that queue.
+        if unguilded and inRange and (newView or contactView or inSearch) and matchesStatus and haystack:find(text, 1, true) then
             records[#records + 1] = { id = id, record = record }
         end
     end
@@ -121,8 +135,12 @@ function GD:GetRecruitCandidates(status, text, whoQuery)
     elseif draft then empty = "Click Search Who to run this filter."
     elseif search and search.state == "pending" then empty = "Waiting for Who results..."
     elseif search and search.state == "timeout" then empty = "No Who reply. Retry or import results."
+    elseif search and search.state == "error" then empty = search.error or "Who results could not be imported."
     elseif search then empty = "No candidates match this search and status." end
     if status == "Contacted" then empty = "No contacted candidates yet. Whispers and invites appear here automatically." end
+    if status == "New" and not draft and (showSaved or (search and search.state == "complete")) then
+        empty = "No uncontacted, unguilded candidates match these levels. Use Search Who to refresh this range."
+    end
     return records, total, empty
 end
 
@@ -136,8 +154,10 @@ function GD:AddRecruitCandidate(name, class, level, zone)
     local record = db.candidates[id]
     if not record then
         local count = 0
-        for _ in pairs(db.candidates) do count = count + 1 end
-        if count >= 500 then return false, "Candidate limit reached (500). Existing do-not-contact records are preserved." end
+        for _, existing in pairs(db.candidates) do
+            if existing.status == "New" and not contacted(existing) then count = count + 1 end
+        end
+        if count >= 500 then return false, "New candidate queue is full (500). Contact or skip existing candidates first." end
         record = { name = name, status = "New", added = time() }
         db.candidates[id] = record
     end
@@ -180,6 +200,8 @@ function GD:GetRecruitContactBlock(name, action)
     local record, db = candidate(name)
     if not record then return "Select a candidate first." end
     if action ~= "whisper" and action ~= "invite" then return "Invalid contact action." end
+    if record.guild and record.guild ~= "" then return "That character is already in a guild." end
+    if record.guildKnown == false then return "Guild status is unavailable. Refresh Who results before contacting this candidate." end
     if record.status == "Do Not Contact" then return "Do Not Contact: restore this candidate before contacting them." end
     if joined(record.name) then return "That character is already in your guild." end
     if (record.skipUntil or 0) > time() then return "Skipped for another " .. math.ceil((record.skipUntil - time()) / 60) .. " minute(s)." end
@@ -232,25 +254,37 @@ function GD:SearchRecruits(query)
     -- Explicit equal bounds keep a single level exact on clients whose Who parser
     -- otherwise treats a bare number as the start of a broader range.
     local filter = search.minimum and (search.minimum .. "-" .. search.maximum) or search.query
-    local ok, result = pcall(send, filter)
+    search.sentFilter = filter
+    -- Some clients can dispatch cached Who results from inside SendWho itself.
+    -- Own the request before sending so its reply cannot be missed.
+    local previousSearch, previousSaved = self.recruitSearch, self.recruitSavedView
+    local pending = { guild = self.guildKey, owner = key(self:PlayerName()), search = search }
+    self.recruitSearch, self.recruitSavedView, self.recruitWhoPending = search, nil, pending
+    local ok, result
+    if C_FriendList and send == C_FriendList.SendWho then
+        local origin = Enum and Enum.SocialWhoOrigin and Enum.SocialWhoOrigin.Social or 1
+        ok, result = pcall(send, filter, origin)
+    else
+        ok, result = pcall(send, filter)
+    end
     if not ok or result == false then
+        if self.recruitWhoPending == pending then
+            self.recruitSearch, self.recruitSavedView, self.recruitWhoPending = previousSearch, previousSaved, nil
+        end
         if set then pcall(set, false) end
-        return false, "Who search could not start. Use the game's Who window and Import Who."
+        return false, "Who search could not start: " .. tostring(result) .. ". Use the game's Who window and Import Who."
     end
     db.lastSearch = time()
-    self.recruitSearch = search
-    self.recruitSavedView = nil
-    local pending = { guild = self.guildKey, owner = key(self:PlayerName()), search = search }
-    self.recruitWhoPending = pending
     if C_Timer and C_Timer.After then C_Timer.After(15, function()
         if GD.recruitWhoPending ~= pending then return end
         GD.recruitWhoPending = nil
         if set then pcall(set, false) end
         search.state = "timeout"
+        searchFeedback("Who did not reply. Try again after a few seconds, or use the game's Who window and Import Who results.")
         refresh()
     end) end
     refresh()
-    return true, "Searching Who: " .. search.query .. ". The list will show only this search's results."
+    return true, search.message or ("Searching Who: " .. filter .. ". Waiting for the server's results...")
 end
 
 function GD:ImportRecruitWho(search)
@@ -268,7 +302,8 @@ function GD:ImportRecruitWho(search)
     if not search then return false, "Enter a level or an ascending range, such as 22 or 50-60." end
     if search.guild ~= self.guildKey or search.owner ~= key(self:PlayerName()) then return false, "That search belongs to another recruiter or guild." end
     search.ids = {}
-    local added = 0
+    local added, new, unknown, rejected = 0, 0, 0, 0
+    local rejection
     for index = 1, math.min(total, 100) do
         local readable, first, guild, level, _, class, zone = pcall(info, index)
         if readable then
@@ -276,18 +311,43 @@ function GD:ImportRecruitWho(search)
             if type(first) == "table" then
                 name, guild, level, class, zone = first.fullName, first.fullGuildName, first.level, first.filename or first.classStr, first.area
             end
+            -- Update saved candidates too: a former recruit may have joined a guild.
+            local existing = type(name) == "string" and database().candidates[key(name)]
+            if existing then
+                existing.guildKnown = type(guild) == "string"
+                existing.guild = type(guild) == "string" and guild or nil
+                if tonumber(level) then existing.level = tonumber(level) end
+            end
+            if type(guild) ~= "string" then unknown = unknown + 1 end
             -- Unknown guild information is not evidence that a player is unguilded.
             if type(name) == "string" and guild == "" and matchesLevel(search, level) then
-                local saved = self:AddRecruitCandidate(name, class, level, zone)
-                if saved then search.ids[key(name)] = true; added = added + 1 end
+                local saved, message, record = self:AddRecruitCandidate(name, class, level, zone)
+                if saved then
+                    record.guild, record.guildKnown = "", true
+                    search.ids[key(name)] = true
+                    added = added + 1
+                    if record.status == "New" and not contacted(record) then new = new + 1 end
+                else rejected, rejection = rejected + 1, message end
             end
         end
     end
     search.state = "complete"
+    search.message = added .. " unguilded candidate(s), " .. new .. " uncontacted. Levels: " .. search.query .. "."
+    if rejected > 0 then search.message = search.message .. " " .. rejected .. " not saved: " .. (rejection or "Unknown error.") end
+    if unknown > 0 then search.message = search.message .. " Guild information unavailable for " .. unknown .. "." end
+    if total == 0 then search.message = search.message .. " Try again after a few seconds, or import results from the game's Who window."
+    elseif new == 0 and added > 0 then search.message = search.message .. " Check Contacted or All saved."
+    elseif new > 0 then search.message = search.message .. " Select a name below." end
     self.recruitSearch = search
     self.recruitSavedView = nil
+    searchFeedback(search.message)
+    local panel = self.recruitPopout
     refresh()
-    return true, added .. " unguilded candidate(s) in this search. Contact history and exclusions are preserved."
+    if panel and panel:IsShown() and panel.owner == tostring(self.guildKey) .. ":" .. key(self:PlayerName()) then
+        local records = self:GetRecruitCandidates(panel.filter or "All", "", panel.query:GetText())
+        if #records > 0 then panel.candidateMenu.offset = 0; panel.candidateMenu:Show(); refresh() end
+    end
+    return true, search.message
 end
 
 function GD:PostRecruitAd(channel)
@@ -315,8 +375,12 @@ GD:RegisterEventHandler("WHO_LIST_UPDATE", function()
     if set then pcall(set, false) end
     if pending.guild == GD.guildKey and pending.owner == key(GD:PlayerName()) and allowed()
         and GD.recruitSearch == pending.search then
-        local _, message = GD:ImportRecruitWho(pending.search)
-        if GD.frame and GD.frame.recruitment then GD.frame.recruitment.status:SetText(message) end
+        local ok, message = GD:ImportRecruitWho(pending.search)
+        if not ok then
+            pending.search.state, pending.search.error = "error", message
+            searchFeedback(message)
+            refresh()
+        end
     end
 end)
 GD:RegisterEventHandler("CHAT_MSG_WHISPER", function(_, message, sender)
@@ -374,7 +438,7 @@ local function build(frame)
     local panel = CreateFrame("Frame", nil, frame.detailPanel)
     panel:SetAllPoints()
     panel.buttons, panel.rows, panel.cards, panel.labels = {}, {}, {}, {}
-    panel.filter, panel.page = "All", "Candidates"
+    panel.filter, panel.page = "New", "Candidates"
     local function text(parent, value, x, y, kind, font)
         local widget = label(parent, value, x, y, font)
         panel.labels[#panel.labels + 1] = { widget = widget, kind = kind or "text" }
@@ -425,7 +489,14 @@ local function build(frame)
     panel.query = input(panel.findBox, 14, -64, 240, 150)
     panel.query:SetText("1-60")
     panel.query:SetScript("OnTextChanged", function() refresh() end)
-    button(panel, "Search Who", 264, -64, 106, function() return GD:SearchRecruits(panel.query:GetText()) end, panel.findBox)
+    button(panel, "Search Who", 264, -64, 106, function()
+        local previous = panel.filter
+        panel.filter = "New"
+        local ok, message = GD:SearchRecruits(panel.query:GetText())
+        if not ok then panel.filter = previous end
+        refresh()
+        return ok, message
+    end, panel.findBox)
     button(panel, "Import results", 380, -64, 116, function() return GD:ImportRecruitWho() end, panel.findBox)
     panel.name = input(panel.findBox, 14, -96, 240, 100)
     panel.addName = button(panel, "Add name", 264, -96, 106, function()
@@ -606,7 +677,7 @@ function GD:RefreshRecruitment()
     self:RefreshRecruitmentAppearance()
     local owner = self.guildKey .. ":" .. key(self:PlayerName())
     if panel.owner ~= owner then
-        panel.owner, panel.selected, panel.loadedCandidate, panel.filter = owner, nil, nil, "All"
+        panel.owner, panel.selected, panel.loadedCandidate, panel.filter = owner, nil, nil, "New"
         panel.message:SetText(db.message)
         panel.ad:SetText(db.ad)
         panel.note:SetText("")
@@ -812,12 +883,26 @@ local function buildPopout()
     end
     panel.searchWho = action("Search Who", 258, -60, 110, function()
         panel.query:ClearFocus()
-        panel.filter = "New"
         panel.viewMenu:Hide()
         panel.candidateMenu:Hide()
-        return GD:SearchRecruits(panel.query:GetText())
+        local previousFilter = panel.filter
+        panel.filter = "New"
+        local ok, message = GD:SearchRecruits(panel.query:GetText())
+        if not ok then panel.filter = previousFilter end
+        return ok, message
     end)
+    panel.searchWho:SetScript("OnEnter", function(control)
+        GameTooltip:SetOwner(control, "ANCHOR_TOPLEFT")
+        GameTooltip:SetText("Find uncontacted players")
+        GameTooltip:AddLine("Searches exactly the level or range you enter. Only unguilded candidates within those levels are shown; New excludes anyone already contacted.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    panel.searchWho:SetScript("OnLeave", function() GameTooltip:Hide() end)
     panel.query:SetScript("OnEnterPressed", function() panel.searchWho:GetScript("OnClick")() end)
+    panel.query:SetScript("OnTextChanged", function()
+        panel.candidateMenu:Hide()
+        GD:RefreshRecruitPopout()
+    end)
     panel.viewButton = action("All saved  v", 12, -94, 244, function()
         panel.candidateMenu:Hide()
         if panel.viewMenu:IsShown() then panel.viewMenu:Hide() else panel.viewMenu:Show() end
@@ -835,9 +920,11 @@ local function buildPopout()
     panel.viewOptions = {}
     for i, status in ipairs(statuses) do
         local option = action(status == "All" and "All saved" or status, 4, -4 - (i - 1) * 28, 176, function()
-            if GD.recruitWhoPending then return false, "Wait for the current Who search to finish." end
+            if GD.recruitWhoPending and status ~= "New" then return false, "Wait for the current Who search to finish." end
             panel.filter = status
-            GD:ShowRecruitSavedCandidates()
+            -- New filters the active Who results, including a search still in flight.
+            -- Switching the source here discards the pending reply before import.
+            if status ~= "New" or not currentSearch() then GD:ShowRecruitSavedCandidates() end
             panel.selected, panel.feedback = nil, nil
             views:Hide()
             return true
@@ -1052,7 +1139,10 @@ function GD:RefreshRecruitPopout()
     self:RefreshRecruitPopoutAppearance()
     panel.counter:SetText((index or 0) .. " / " .. #records .. (panel.filter == "Contacted" and " contacts" or "") .. " | " .. today(db) .. "/" .. DAILY_LIMIT .. " today")
     panel.viewButton:SetText(((panel.filter or "All") == "All" and "All saved" or panel.filter) .. "  v")
-    panel.name:SetText(record and self:Display(record.name) or "No candidate selected")
+    local search = currentSearch()
+    panel.name:SetText(record and self:Display(record.name)
+        or (self.recruitWhoPending and "Waiting for Who results..."
+        or (search and search.state == "complete" and "No matching candidates" or "Choose Search Who to find players")))
     panel.meta:SetText(record and self:Display(statusText(record) .. " - " .. (record.level or "?") .. " " .. (record.class or "")) or empty)
     panel.preview:SetText(self:Display(expand(db.message, record and record.name or "{name}")))
     panel.reply:SetText(record and record.reply and self:Display("Reply: " .. record.reply) or "Replies from contacted candidates appear here.")
@@ -1065,15 +1155,17 @@ function GD:RefreshRecruitPopout()
     panel.restore:SetEnabled(record ~= nil and record.status ~= "New")
     panel.candidateButton:SetEnabled(#records > 0)
     panel.searchWho:SetEnabled(self.recruitWhoPending == nil)
+    panel.searchWho:SetText(self.recruitWhoPending and "Searching..." or "Search Who")
     panel.status:SetText((panel.feedback and (panel.feedbackUntil or 0) > time()) and panel.feedback
-        or (record and ("Whisper: " .. (whisper or "Ready") .. "\nInvite: " .. (invite or "Ready")) or empty))
+        or (record and ("Whisper: " .. (whisper or "Ready") .. "\nInvite: " .. (invite or "Ready"))
+        or (search and search.state == "complete" and search.message) or empty))
 end
 
 function GD:ShowRecruitPopout()
     if not popoutAllowed() then return false, "Recruitment is available to enabled GM/rank 1 recruiters only." end
     local panel = self.recruitPopout or buildPopout()
     local owner, db = popoutOwner(), database()
-    if panel.owner ~= owner then panel.selected, panel.feedback, panel.filter = nil, nil, "All" end
+    if panel.owner ~= owner then panel.selected, panel.feedback, panel.filter = nil, nil, "New" end
     panel.owner = owner
     local main = self.frame and self.frame.recruitment
     local search = currentSearch()
