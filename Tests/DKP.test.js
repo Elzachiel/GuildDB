@@ -9,6 +9,7 @@ const {lua,lauxlib,lualib,to_luastring,to_jsstring}=dependency('fengari');
 const L=lauxlib.luaL_newstate();lualib.luaL_openlibs(L);
 const setup=`
 MASTER_LOOT_SOURCE=${JSON.stringify(sources['Features/DKPMasterLoot.lua'])}
+LIVE_TRANSPORT_SOURCE=${JSON.stringify('local _,GD=...; '+sources['Core/Runtime.lua'].slice(sources['Core/Runtime.lua'].indexOf('function GD:Encode'),sources['Core/Runtime.lua'].indexOf('function GD:NewRecord')))}
 unpack=table.unpack
 local function plainText(value) return (value:gsub('|c%x%x%x%x%x%x%x%x',''):gsub('|r','')) end
 local now=100000;time=function() return now end
@@ -1350,6 +1351,53 @@ do
  GetGuildRosterInfo,RAID_CLASS_COLORS,CUSTOM_CLASS_COLORS=oldRoster,oldColors,oldCustom
  event(c,'GUILD_ROSTER_UPDATE')
 end
+do
+ local q={sendQueue={},liveQueue={},historyQueue={}}
+ assert(load(LIVE_TRANSPORT_SOURCE))('GuildDB',q)
+ for i=1,30 do q:Enqueue('Background history '..i,true) end
+ q:Enqueue('V|0.2.65|Officer One-Realm|0',false,true)
+ q:Enqueue('DKJ|first|123|Officer|delta1',false,true)
+ q:Enqueue('DKJ|second|123|Officer|delta2',false,true)
+ local queue,cost=q:GetAddonSendQueue();assert(queue==q.liveQueue and cost==1 and #queue==2)
+ assert(queue[1]=='DKJ|first|123|Officer|delta1' and queue[2]=='DKJ|second|123|Officer|delta2')
+ table.remove(queue,1);table.remove(queue,1);queue,cost=q:GetAddonSendQueue();assert(queue==q.sendQueue and cost==3)
+ q:Enqueue('DKU|'..string.rep('x',600),false,true);assert(#q.liveQueue==4)
+ for i,packet in ipairs(q.liveQueue) do assert(#packet<=255 and tonumber(packet:match('^C|[^|]+|(%d+)|'))==i) end
+ -- Run actual short wire records through the real bid handlers with a sync backlog.
+ local priorRaid=raid;raid={'Officer One','Member One','Leader One'}
+ local host=systemClient(1,'Officer One');active=host
+ assert(host:GrantDKPStartingBalance(raid))
+ local _,_,auction=host:StartDKPAuction('19019',10,10,30);assert(auction)
+ local player=systemClient(2,'Member One');local viewer=systemClient(0,'Leader One')
+ broadcast(host,0,{player,viewer},'Officer One');local playerWindow
+ player:ShowDKPAuctionPopup(auction);for _,f in ipairs(created) do if f.frameName=='GuildDBDKPAuctionPopup' and f.auctionID==auction and f.manual then playerWindow=f end end
+ local wire={sendQueue={},liveQueue={},historyQueue={}};assert(load(LIVE_TRANSPORT_SOURCE))('GuildDB',wire)
+ for i=1,30 do wire:Enqueue('History entry '..i,true) end
+ local originalSend=host.SendRecord
+ host.SendRecord=function(self,...)
+  originalSend(self,...);wire:SendRecord(...)
+ end
+ local function flushLive()
+  while #wire.liveQueue>0 do
+   local queue,cost=wire:GetAddonSendQueue();assert(queue==wire.liveQueue and cost==1)
+   local payload=table.remove(queue,1);assert(not payload:match('^C|'),'Normal bid update should fit one wire message')
+   local kind,id,ts,author,content=payload:match('^([^|]+)|([^|]+)|([^|]+)|([^|]+)|(.*)$')
+   local packet={kind,wire:Decode(id),tonumber(ts),wire:Decode(author),wire:Decode(content)}
+   deliver(player,packet,'Officer One');deliver(viewer,packet,'Officer One')
+  end
+ end
+ active=host;assert(host:AcceptDKPBid(auction,'Officer One',10,'MS'));flushLive()
+ active=player;now=now+1;assert(player:SubmitDKPBid(auction,20,'MS'))
+ local request=player.sent[#player.sent];local sent=#host.sent;deliver(host,request,'Member One')
+ assert(#host.sent==sent+1 and host.sent[#host.sent][1]=='DKJ','Successful bids use one authoritative update, not a competing acknowledgement')
+ flushLive();assert(#player:GetDKPAuction(auction).data.bids==2 and #viewer:GetDKPAuction(auction).data.bids==2)
+ assert(player.dkpBidStatus=='Bid accepted.' and playerWindow.bidderHeader:GetText()=='BIDDERS (2)' and playerWindow.quickAmount==30)
+ active=host;assert(host:AcceptDKPBid(auction,'Officer One',30,'MS'));flushLive()
+ assert(playerWindow.quickAmount==40 and #wire.historyQueue==30)
+ assert(viewer:GetDKPAuctionLeader(viewer:GetDKPAuction(auction)).amount==30)
+ raid=priorRaid
+end
+print('Passed live bid transport: single-message accepted deltas, FIFO ahead of sync/presence, reserved capacity, ordered large fragments, two bidder names and next-bid amounts update together for bidder and observer')
 print('Passed DKP class styling: short/full names, custom class palette, unknown-name fallback, history names/officers, roster refresh and plain saved identity')
 print('Passed GM/officer unfinished-raid alerts: authenticated host departure/resume messages, combat deferral, no popup spam, stale notice rejection, safe stop without bonus, offline host/reload detection and permission/guild/member isolation')
 print('Passed optional Master Loot: unique boss slot/source/recipient, default off, replay/reload/import suppression, confirmed receipt status, remote Master Looter, role changes, missing APIs/combat/game failure and manual fallback without extra DKP charges')

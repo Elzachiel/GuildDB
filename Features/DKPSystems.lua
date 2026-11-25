@@ -283,6 +283,12 @@ local function receive(kind, recordID, ts, author, content, sender)
     GD:GetDKPBucket().dkpSystems[storageKey] = r
     if kind == "DKM" then GD:GetDKPBucket().dkpAccounts[recordID] = { main = r.data.main, ts = ts, by = author } end
     rebuild()
+    if kind == "DKJ" and not GD.dkpImporting then
+        local auction = GD:GetDKPAuction(r.data.auction)
+        if auction and GD:GetDKPActiveAuction() == auction and key(r.by) == key(auction.data.owner) and key(r.data.member) == key(own()) then
+            GD.dkpBidStatus = r.data.withdraw and "Bid withdrawn." or "Bid accepted."
+        end
+    end
     if kind == "DKU" and GD.ObserveDKPMasterLoot then
         local ok = pcall(GD.ObserveDKPMasterLoot, GD, r)
         if not ok then print("GuildDB: Automatic Master Loot is unavailable for this item. DKP is recorded; distribute it manually and mark delivery in Loot.") end
@@ -449,7 +455,9 @@ GD:RegisterDKPRecordHandler("DKR", function(auctionID, ts, author, content, send
     if bidThrottle[bucketKey] and now - bidThrottle[bucketKey] < 0.2 then return end
     bidThrottle[bucketKey] = now
     local ok, message = GD:AcceptDKPBid(auctionID, canonical, f[2], f[3], f[1] == "withdraw")
-    GD:SendDKPRecord("DKN", auctionID, GD:GetDKPTime(), own(), pack({ canonical, ok and "1" or "0", message or "Bid processed." }), true)
+    -- The authoritative bid delta confirms successful bids and updates every
+    -- bidder at once. Only rejections require a separate response packet.
+    if not ok then GD:SendDKPRecord("DKN", auctionID, GD:GetDKPTime(), own(), pack({ canonical, "0", message or "Bid rejected." }), true) end
 end, 120)
 GD:RegisterDKPRecordHandler("DKN", function(auctionID, ts, author, content, sender)
     local r = GD:GetDKPAuction(auctionID)

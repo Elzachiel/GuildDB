@@ -18,6 +18,7 @@ GD.eventHandlers = {}
 GD.commands = {}
 GD.fragments = {}
 GD.sendQueue = {}
+GD.liveQueue = {}
 GD.historyQueue = {}
 GD.nextSend = 0
 GD.sendTokens = 8
@@ -46,18 +47,30 @@ function GD:Decode(value)
 end
 
 function GD:Enqueue(payload, lowPriority, urgent)
+    local live = urgent and not lowPriority and payload:match("^DK[URJN]|")
+    if live then
+        self.liveQueue = self.liveQueue or {}
+        -- Short live auction records need no fragment envelope. All clients
+        -- already accept complete record payloads on the normal guild prefix.
+        if #payload <= 255 then self.liveQueue[#self.liveQueue + 1] = payload; return end
+    end
     local id = tostring(time()) .. tostring(math.random(1000, 999999))
     local size = 180
     local total = math.max(1, math.ceil(#payload / size))
-    local queue = lowPriority and GD.historyQueue or GD.sendQueue
+    local queue = live and self.liveQueue or lowPriority and GD.historyQueue or GD.sendQueue
     for i = 1, total do
         local chunk = table.concat({ "C", id, i, total, payload:sub((i - 1) * size + 1, i * size) }, "|")
-        if urgent then table.insert(queue, i, chunk) else queue[#queue + 1] = chunk end
+        if urgent and not live then table.insert(queue, i, chunk) else queue[#queue + 1] = chunk end
     end
 end
 
 function GD:SendRecord(kind, id, timestamp, author, content, urgent)
     self:Enqueue(table.concat({ kind, self:Encode(id), timestamp, self:Encode(author), self:Encode(content) }, "|"), self.historySyncing, urgent)
+end
+
+function GD:GetAddonSendQueue()
+    local live = self.liveQueue and #self.liveQueue > 0
+    return live and self.liveQueue or #self.sendQueue > 0 and self.sendQueue or self.historyQueue, live and 1 or 3
 end
 
 function GD:NewRecord(values)
@@ -585,11 +598,13 @@ frame:SetScript("OnUpdate", function(_, elapsed)
         GD:Enqueue("H|" .. GD.version, false, true)
         GD.nextPresence = now + 60
     end
-    local queue = #GD.sendQueue > 0 and GD.sendQueue or GD.historyQueue
+    local queue, minimumTokens = GD:GetAddonSendQueue()
     -- Some clients silently reject addon messages during combat/instance
     -- lockdown while returning nil (normally a successful send). Keep queued
     -- records until the API says messaging is available again.
-    if #queue > 0 and GD.sendTokens >= 1 and now >= GD.nextSend and not isChatMessagingLocked() then
+    -- Preserve two tokens for player bid traffic instead of letting background
+    -- history/presence consume the entire burst allowance.
+    if #queue > 0 and GD.sendTokens >= minimumTokens and now >= GD.nextSend and not isChatMessagingLocked() then
         if sendRaw(queue[1]) then
             table.remove(queue, 1)
             GD.sendTokens = GD.sendTokens - 1
