@@ -218,6 +218,65 @@ local function layoutPvPRow(row, width, rivals)
     for index, text in ipairs(columns) do layoutPvPColumn(text, index, row, width, 0, false, rivals) end
 end
 
+local function pvpGuildRoster(characterKey, guild)
+    local members, classes = {}, {}
+    if not GetNumGuildMembers or not GetGuildRosterInfo then return members, classes, false end
+    local function addMember(name, classFile)
+        if type(name) ~= "string" or name == "" then return false end
+        local key = characterKey(name)
+        members[key] = true
+        if classFile then classes[key] = classFile end
+        local bareName = name:match("^([^-]+)") or name
+        local bareKey = characterKey(bareName)
+        members[bareKey] = true
+        if classFile then classes[bareKey] = classFile end
+        if not name:find("-", 1, true) then members["bare:" .. bareKey] = true end
+        if not name:find("[%s%-]") then members["short:" .. key] = true end
+        -- Older PvP reports and Forever chat can use only the first part of a
+        -- character name. An abbreviated/ambiguous name is not proof of a leave.
+        local first = bareName:match("^(%S+)")
+        if first then members[characterKey(first)] = true end
+        if guild and guild.Display then
+            members[characterKey(guild:Display(bareName))] = true
+        end
+        return true
+    end
+    local count = tonumber(GetNumGuildMembers(true)) or 0
+    local complete = count > 0
+    for index = 1, count do
+        local name, _, _, _, _, _, _, _, _, _, classFile = GetGuildRosterInfo(index)
+        if not addMember(name, classFile) then complete = false end
+    end
+    -- Presence refreshes can run before the roster event has rebuilt the full
+    -- cached list. Keep known current/offline members unmarked during that gap.
+    for _, member in ipairs(guild and guild.roster or {}) do
+        addMember(member.name, member.classFile)
+    end
+    return members, classes, complete
+end
+
+local function pvpIsGuildMember(name, members, characterKey)
+    if members[characterKey(name)] then return true end
+    local first = tostring(name or ""):match("^([^%s%-]+)")
+    if first and members["short:" .. characterKey(first)] then return true end
+    local bareName = tostring(name or ""):match("^([^-]+)")
+    return bareName ~= nil and members["bare:" .. characterKey(bareName)] == true
+end
+
+local function updatePvPNameStrike(row, departed)
+    if not row.nameStrike then
+        row.nameStrike = row:CreateTexture(nil, "OVERLAY")
+        row.nameStrike:SetDrawLayer("OVERLAY", 7)
+        row.nameStrike:SetPoint("CENTER", row.player, "CENTER", 0, 0)
+    end
+    if departed then
+        local red, green, blue = row.player:GetTextColor()
+        row.nameStrike:SetColorTexture(red, green, blue, 0.9)
+        row.nameStrike:SetSize(math.max(1, math.min(row.player:GetStringWidth(), row.player:GetWidth())), 1)
+    end
+    row.nameStrike:SetShown(departed == true)
+end
+
 local function rosterText()
     if not GD.guildName then return "Join a guild to view its roster and GuildDB." end
     if not GD.roster or #GD.roster == 0 then return "Loading the guild roster..." end
@@ -823,7 +882,7 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose, se
                 input:SetTextColor(MUTED_GOLD[1], MUTED_GOLD[2], MUTED_GOLD[3])
                 if field.itemPreview and GD.CreateDKPItemPreview then
                     input:Hide()
-                    input.itemPreview = GD:CreateDKPItemPreview(dialog, field.itemPreview, field.itemName)
+                    input.itemPreview = GD:CreateDKPItemPreview(dialog, field.itemPreview, field.itemName, field.pricePreview)
                     input.itemPreview:SetPoint("TOPLEFT", 20, -offset - 16)
                 end
             end
@@ -2274,16 +2333,10 @@ function GD:RefreshUI()
             end
             return characterName
         end
-        local classByName = {}
         local function characterKey(name)
-            return (tostring(name or ""):match("^([^-]+)") or ""):lower():gsub("%s", "")
+            return tostring(name or ""):lower():gsub("%s", "")
         end
-        if GetNumGuildMembers and GetGuildRosterInfo then
-            for index = 1, GetNumGuildMembers() do
-                local name, _, _, _, _, _, _, _, _, _, classFile = GetGuildRosterInfo(index)
-                if name and classFile then classByName[characterKey(name)] = classFile end
-            end
-        end
+        local guildMembers, classByName, rosterComplete = pvpGuildRoster(characterKey, self)
         local boardWidth = math.max(1, frame.detailPanel:GetWidth() - 28)
         local labels = isBounty and { "#", "ENEMY", "DEATHS", "BONUS", "STATUS", "LAST ENCOUNTER" }
             or isRivals and { "#", "ENEMY", "KILLS", "DEATHS", "K/D", "LAST ENCOUNTER" }
@@ -2323,6 +2376,7 @@ function GD:RefreshUI()
             local classColor = not isRivals and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classByName[characterKey(score.name)]]
             if classColor then row.player:SetTextColor(classColor.r, classColor.g, classColor.b)
             else row.player:SetTextColor(CREAM[1], CREAM[2], CREAM[3]) end
+            updatePvPNameStrike(row, not isRivals and self.guildName ~= nil and rosterComplete and not pvpIsGuildMember(score.name, guildMembers, characterKey))
             row.points:SetText(tostring(isBounty and score.deaths or isRivals and score.kills or score.points or 0))
             row.points:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
             row.killCount:SetText(tostring(score.kills or 0))

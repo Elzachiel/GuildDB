@@ -38,7 +38,7 @@ function GD:ObserveDKPLiveRecord(record, sender)
         live.seen[auction.id] = clock()
     end
     local status = self:GetDKPAuctionStatus(auction)
-    if status == "OPEN" and self:GetDKPTime() < auction.data.ends and self:CanBidDKPAuction(auction, own()) then
+    if (status == "PAUSED" or status == "OPEN" and self:GetDKPTime() < auction.data.ends) and self:CanBidDKPAuction(auction, own()) then
         live.tracked[auction.id] = true
     elseif (status == "AWARDED" or status == "CANCELLED") and live.tracked[auction.id] and not live.results[auction.id] then
         live.results[auction.id] = true
@@ -87,7 +87,8 @@ function GD:RecoverDKPAuction(auctionID)
     if not grouped then return false, "Join the raid or party before recovering an auction." end
     if not originalGroup then return false, "Join the original auction's group before recovering it." end
     if key(recoveryOfficer) ~= key(own()) then return false, "Recovery officer: " .. tostring(recoveryOfficer) .. ". The GM takes priority, then the first officer by name, to prevent competing restarts." end
-    if self:GetDKPTime() < auction.data.ends + 60 then return false, "Recovery is available 60 seconds after the bidding deadline." end
+    local deadline = auction.data.status == "PAUSED" and auction.ts or auction.data.ends
+    if self:GetDKPTime() < deadline + 60 then return false, "Recovery is available 60 seconds after the deadline or pause." end
     local ok, message = self:StopStaleDKPRecording(auctionID, "auction", true)
     if not ok then return false, message end
     local started, reason, newID = self:StartDKPAuction(auction.data.item, auction.data.minimum, auction.data.increment, 60)
@@ -108,6 +109,98 @@ function GD:CheckDKPReadiness()
     return true, "Raid readiness check sent."
 end
 function GD:GetDKPReadiness() return state().readiness end
+function GD:GetDKPAuctionResponses(auction)
+    local result = { bid = 0, passed = 0, waiting = 0, members = {} }
+    if not auction then return result end
+    local bids, seen = {}, {}
+    for _, bid in ipairs(auction.data.bids) do bids[key(bid.member)] = true end
+    for _, member in ipairs(auction.data.participants) do
+        local canonical = self:GetDKPGuildMember(member) or member
+        if not seen[key(canonical)] then
+            seen[key(canonical)] = true
+            local response = bids[key(canonical)] and "bid" or (auction.data.passed or {})[key(canonical)] and "passed" or "waiting"
+            result[response] = result[response] + 1
+            result.members[#result.members + 1] = { name = canonical, response = response }
+        end
+    end
+    return result
+end
+function GD:GetDKPPendingDeliveryCount()
+    if not self:IsDKPEnabled() or not self:CanConfigureDKP() then return 0 end
+    local count = 0
+    for _, award in pairs(self:GetDKPBucket().dkpAwards or {}) do
+        if award.loot and award.amount < 0 and self:GetDKPLootDelivery(award.id) == "Pending" then count = count + 1 end
+    end
+    return count
+end
+function GD:CheckDKPCountdownSound()
+    local auction = self:IsDKPEnabled() and self:GetDKPActiveAuction()
+    if not auction or self:GetDKPAuctionStatus(auction) ~= "OPEN" or not self:CanBidDKPAuction(auction, own()) then return end
+    local live, remaining = state(), auction.data.ends - self:GetDKPTime()
+    local countdown = live.countdown
+    if not countdown or countdown.id ~= auction.id then
+        live.countdown = { id = auction.id, previous = remaining, fired = {} }; return
+    end
+    local threshold
+    for _, value in ipairs({10, 5, 3}) do
+        if remaining > 0 and remaining <= value and countdown.previous > value and not countdown.fired[value] then
+            countdown.fired[value] = true; threshold = value
+        end
+    end
+    countdown.previous = remaining
+    if threshold and self:GetSetting("dkpCountdownSound") and self:GetDKPAuctionConnection(auction) and PlaySound then
+        PlaySound(SOUNDKIT and SOUNDKIT.RAID_WARNING or 8959, "Master")
+        return threshold
+    end
+end
+function GD:GetDKPPersonalRaidRecap(raidID)
+    local summary = self:GetDKPRaidSummary(raidID)
+    if not summary then return end
+    local recap = { earned = 0, spent = 0, loot = {} }
+    for _, member in ipairs(summary.attendees) do if key(member.name) == key(own()) then recap.earned = member.earned end end
+    for _, loot in ipairs(summary.loot) do
+        if key(loot.member) == key(own()) and not loot.refunded then
+            recap.spent = recap.spent + loot.cost; recap.loot[#recap.loot + 1] = loot
+        end
+    end
+    return recap
+end
+local function plain(value)
+    return tostring(value or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|H.-|h(.-)|h", "%1"):gsub("[%c]", " ")
+end
+function GD:BuildDKPRaidReport(raidID)
+    if not self:IsDKPEnabled() or not self:CanConfigureDKP() then return nil, "Only officers and the GM can export raid reports." end
+    local summary = self:GetDKPRaidSummary(raidID)
+    if not summary then return nil, "Raid not found." end
+    local lines = { "GuildDB Raid Report: " .. plain(summary.raid.data.label),
+        "Started: " .. date("%b %d, %Y %I:%M %p", summary.raid.data.started),
+        "Host: " .. plain(summary.raid.data.owner),
+        #summary.attendees .. " attendees | " .. #summary.bosses .. " bosses | " .. summary.earned .. " DKP earned", "", "ATTENDANCE / AWARDS / SPENDING" }
+    local spending, total = {}, 0
+    for _, loot in ipairs(summary.loot) do
+        if not loot.refunded then spending[key(loot.member)] = (spending[key(loot.member)] or 0) + loot.cost; total = total + loot.cost end
+    end
+    local listed = {}
+    for _, member in ipairs(summary.attendees) do
+        listed[key(member.name)] = true
+        lines[#lines + 1] = plain(member.name) .. ": " .. member.checkpoints .. "/" .. summary.checkpoints .. " checkpoints; earned " .. member.earned .. "; spent " .. (spending[key(member.name)] or 0) .. " DKP"
+    end
+    for _, loot in ipairs(summary.loot) do
+        if not listed[key(loot.member)] then
+            listed[key(loot.member)] = true
+            lines[#lines + 1] = plain(loot.member) .. ": no recorded attendance; spent " .. (spending[key(loot.member)] or 0) .. " DKP"
+        end
+    end
+    lines[#lines + 1] = ""; lines[#lines + 1] = "BOSSES"
+    for _, boss in ipairs(summary.bosses) do lines[#lines + 1] = plain(boss) end
+    lines[#lines + 1] = ""; lines[#lines + 1] = "LOOT"
+    for _, loot in ipairs(summary.loot) do
+        local item = self:GetDKPItemAppearance(loot.item, loot.label)
+        lines[#lines + 1] = plain(item.name) .. " -> " .. plain(loot.member) .. ": " .. loot.cost .. " DKP (" .. loot.spec .. "), " .. loot.delivery .. (loot.refunded and " (net cost 0)" or "")
+    end
+    lines[#lines + 1] = "Net DKP spent: " .. total
+    return table.concat(lines, "\n")
+end
 GD:RegisterDKPRecordHandler("DKRC", function(recordID, ts, author, content, sender)
     local canonical, rank = GD:GetDKPGuildMember(sender)
     if not GD:GetDKPBucket() or not canonical or not rank or rank > 1 or key(canonical) ~= key(author)

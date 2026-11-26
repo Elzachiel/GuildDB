@@ -589,30 +589,32 @@ active=player;assert(not player:ImportDKPBackup(backup));assert(not player:Recor
 active=host;host.frame={detailPanel=widget('Frame')}
 for _,name in ipairs({'detailScroll','detailTitle','detailMeta','detailRule','detailBody','footer'}) do host.frame[name]=widget('Frame') end
 host.activeTab='DKP';host:RefreshDKP();local panel=host.frame.dkp
-for _,section in ipairs({'Auctions','Loot','Raids','Officer','Standings'}) do
+for _,section in ipairs({'Auctions','Raids','Officer','Standings'}) do
  panel.navigation[section].scripts.OnClick()
  if section=='Standings' then
   assert(panel.section==nil and not panel.workspace.shown and panel.scroll.shown)
   assert(panel.nameHeader.shown and panel.pointsHeader.shown)
  else assert(panel.section==section and panel.workspace.shown and not panel.scroll.shown) end
 end
-panel.navigation.Officer.scripts.OnClick();assert(panel.workspace.actions[2]:GetText()=='Backup' and panel.workspace.actions[3]:GetText()=='Restore' and panel.workspace.actions[4]:GetText()=='Master Loot')
+panel.navigation.Officer.scripts.OnClick();assert(not panel.navigation.Loot and panel.workspace.actions[2]:GetText()=='Record Loot' and panel.workspace.actions[3]:GetText()=='Adjustments' and panel.workspace.actions[4]:GetText()=='Master Loot')
+panel.workspace.actions[3].action();assert(panel.officerView=='Adjustments' and panel.workspace.actions[3]:GetText()=='Loot History')
+panel.workspace.actions[3].action();assert(panel.officerView=='Loot' and panel.summary:GetText():find('purchases',1,true))
 panel.navigation.Standings.scripts.OnClick();assert(not panel.workspace.shown and panel.scroll.shown)
 panel.section='Standings';host:RefreshDKP();assert(panel.section==nil and not panel.workspace.shown)
 panel.navigation.Officer.scripts.OnClick();host.rank=2;host:RefreshDKP()
 assert(panel.section==nil and not panel.workspace.shown and not panel.navigation.Officer.shown);host.rank=1
-panel.navigation.Loot.scripts.OnClick();assert(not panel.raidAward.shown and panel.summary:GetText():find('purchases',1,true))
-assert(panel.navigation.Loot.shown)
+panel.navigation.Officer.scripts.OnClick();assert(not panel.raidAward.shown and panel.summary:GetText():find('purchases',1,true))
+assert(not panel.navigation.Loot)
 host.rank=2;host:RefreshDKP()
-assert(not panel.navigation.Loot.shown and panel.section==nil and not panel.workspace.shown)
-panel.navigation.Loot.scripts.OnClick();assert(panel.section==nil)
+assert(not panel.navigation.Officer.shown and panel.section==nil and not panel.workspace.shown)
+panel.navigation.Officer.scripts.OnClick();assert(panel.section==nil)
 assert(#host:GetDKPAwardHistory(nil,'Loot')==0)
 for _,entry in ipairs(host:GetDKPAwardHistory()) do assert(not entry.loot) end
 local lootEntry
 for _,entry in pairs(host:GetDKPBucket().dkpAwards) do if entry.loot then lootEntry=entry;break end end
 assert(lootEntry);host.form=nil;host:ShowDKPEntry(lootEntry);assert(host.form==nil)
-host.rank=0;host:RefreshDKP();assert(panel.navigation.Loot.shown and #host:GetDKPAwardHistory(nil,'Loot')>0)
-host.rank=1;panel.navigation.Loot.scripts.OnClick()
+host.rank=0;host:RefreshDKP();assert(panel.navigation.Officer.shown and #host:GetDKPAwardHistory(nil,'Loot')>0)
+host.rank=1;panel.navigation.Officer.scripts.OnClick()
 panel.workspace.scroll:SetVerticalScroll(150);panel.search:SetText('No such item');panel.search.scripts.OnTextChanged()
 assert(panel.clearSearch.shown and panel.workspace.scroll.scrollValue==0 and panel.workspace.empty:GetText():find('Clear the search',1,true))
 panel.clearSearch.scripts.OnClick();assert(panel.search:GetText()=='' and not panel.clearSearch.shown)
@@ -633,7 +635,7 @@ assert(not bidWindow.stop.shown and not bidWindow.cancel.shown and not bidWindow
 assert(not bidWindow.stop.enabled and not bidWindow.cancel.enabled and not bidWindow.award.enabled and not bidWindow.remove.enabled)
 assert(not panel.navigation.Officer.shown and not panel.raidAward.shown)
 panel.navigation.Officer.scripts.OnClick();assert(panel.section~= 'Officer')
-for _,view in ipairs({'Auctions','Loot','Raids'}) do
+for _,view in ipairs({'Auctions','Raids'}) do
  panel.navigation[view].scripts.OnClick()
  for _,control in ipairs(panel.workspace.actions) do
   if control.shown then assert(control:GetText()=='Bid Window' or control:GetText()=='Alerts','Officer action visible to member') end
@@ -940,7 +942,18 @@ do
  for _,packet in ipairs(summary.sent) do if packet[1]=='DKT' then deliver(remote,packet,'Officer One') end end
  broadcast(summary,0,{remote},'Officer One');broadcast(summary,0,{remote},'Officer One')
  local synced=remote:GetDKPRaidSummary(raidID);assert(synced.earned==100 and #synced.loot==2 and #synced.attendees==3)
+ do local function verifyRecap()
+ local personal=remote:GetDKPPersonalRaidRecap(raidID);assert(personal.earned==40 and personal.spent==250 and #personal.loot==1)
+ assert(not remote:BuildDKPRaidReport(raidID) and not remote:ShowDKPRaidExport(raidID))
+ active=summary;local ownRecap=summary:GetDKPPersonalRaidRecap(raidID);assert(ownRecap.earned==50 and ownRecap.spent==0 and #ownRecap.loot==0)
+ local report=summary:BuildDKPRaidReport(raidID);assert(report:find('Net DKP spent: 250',1,true) and report:find('Refunded',1,true) and not report:find('|cff',1,true))
+ assert(summary:ShowDKPRaidExport(raidID));local export=summary.dkpRaidExportWindow
+ assert(export.shown and export.text:GetText()==report);export.select.scripts.OnClick();export.text.scripts.OnEscapePressed(export.text);assert(not export.shown)
+ summary:ShowDKPRaidExport(raidID);summary.rank=2;export.scripts.OnUpdate(export);assert(not export.shown and export.text:GetText()=='');summary.rank=1
+ end;verifyRecap() end
+ active=remote
  remote:ShowDKPRaidSummary(raidID)
+ assert(remote.dkpRaidSummaryWindow.report:GetText():find('You earned 40 DKP, spent 250 DKP',1,true) and not remote.dkpRaidSummaryWindow.export)
  assert(not remote.dkpRaidSummaryWindow.report:GetText():find('LOOT AWARDED',1,true))
  assert(not remote.dkpRaidSummaryWindow.metrics:GetText():find('loot awards',1,true))
  active=summary;summary.rank=2;summary.dkpRaidSummaryWindow.scripts.OnUpdate(summary.dkpRaidSummaryWindow)
@@ -997,7 +1010,7 @@ do
  local deliveryRow
  for _,r in ipairs(panel.workspace.rows) do if r.shown and r.delivery.shown then deliveryRow=r end end
  assert(deliveryRow);deliveryRow.delivery.scripts.OnClick();c:RefreshDKP();assert(deliveryRow.detail:GetText():find('Delivered',1,true))
- c.rank=2;c:RefreshDKP();assert(not panel.workspace.shown and not panel.navigation.Loot.shown and panel.section==nil);c.rank=1
+ c.rank=2;c:RefreshDKP();assert(not panel.workspace.shown and not panel.navigation.Officer.shown and panel.section==nil);c.rank=1
  broadcast(c,0,{peer},'Officer One');active=c
  assert(c:GetDKPSyncFingerprint()==peer:GetDKPSyncFingerprint())
  c:ShowDKPSyncStatus();assert(c.dkpSyncWindow.shown)
@@ -1427,6 +1440,104 @@ do
  assert(viewer:GetDKPAuctionLeader(viewer:GetDKPAuction(auction)).amount==30)
  raid=priorRaid
 end
+do
+ local priorRaid=raid;raid={'Officer One','Member One'}
+ local host=systemClient(1,'Officer One');local player=systemClient(2,'Member One')
+ local wire={sendQueue={},liveQueue={},historyQueue={}};assert(load(LIVE_TRANSPORT_SOURCE))('GuildDB',wire)
+ for i=1,30 do wire:Enqueue('History backlog '..i,true);wire:Enqueue('Ordinary traffic '..i,false) end
+ host.SendRecord=function(self,...) table.insert(self.sent,{...});wire:SendRecord(...) end
+ player.activeTab='DKP';player.frame={detailPanel=widget()}
+ for _,name in ipairs({'detailScroll','detailTitle','detailMeta','detailRule','detailBody','footer'}) do player.frame[name]=widget() end
+ player.RefreshUI=function(self) self:RefreshDKP() end
+ active=player;player:RefreshDKP()
+ local function flushLive()
+  local fragments={};local packets={}
+  while #wire.liveQueue>0 do
+   local queue,cost=wire:GetAddonSendQueue();assert(queue==wire.liveQueue and cost==1)
+   local payload=table.remove(queue,1)
+   if payload:match('^C|') then
+    local id,index,total,body=payload:match('^C|([^|]+)|(%d+)|(%d+)|(.*)$');index,total=tonumber(index),tonumber(total)
+    fragments[id]=fragments[id] or {};fragments[id][index]=body
+    if #fragments[id]<total then payload=nil else payload=table.concat(fragments[id]) end
+   end
+   if payload then
+    local kind,id,ts,author,content=payload:match('^([^|]+)|([^|]+)|([^|]+)|([^|]+)|(.*)$')
+    local packet={kind,wire:Decode(id),tonumber(ts),wire:Decode(author),wire:Decode(content)}
+    packets[#packets+1]=packet;deliver(player,packet,'Officer One')
+   end
+  end
+  return packets
+ end
+ active=host;assert(host:AwardDKP('Member One',25,'Live award'));assert(host.sent[#host.sent][6] and #wire.liveQueue==1)
+ local packets=flushLive();assert(player:GetDKPBalance('Member One')==25 and player.frame.dkp.summary:GetText():find('Your DKP: 25',1,true))
+ deliver(player,packets[1],'Officer One');assert(player:GetDKPBalance('Member One')==25)
+ active=host;assert(host:DeductDKP('Member One',5,'Correction'));flushLive();assert(player:GetDKPBalance('Member One')==20)
+ active=host;assert(host:AwardDKP('Member One',7,string.rep('|',160)));assert(#wire.liveQueue>1);flushLive();assert(player:GetDKPBalance('Member One')==27)
+ active=host;assert(host:GrantDKPStartingBalance({'Member One'}));flushLive();assert(player:GetDKPBalance('Member One')==1027)
+ active=host;local _,_,auction=host:StartDKPAuction('19019',10,10,60);flushLive();active=player;player:ShowDKPAuctionPopup(auction)
+ local window=auctionPopup(auction);assert(window.available:GetText():find('1027 DKP',1,true))
+ active=host;assert(host:AwardDKP('Member One',13,'Funds during auction'));flushLive()
+ assert(player:GetDKPBalance('Member One')==1040 and window.available:GetText():find('1040 DKP',1,true))
+ active=host;assert(host:AwardRaidDKP({'Member One'},10,'Raid adjustment'));flushLive();assert(player:GetDKPBalance('Member One')==1050)
+ assert(#wire.historyQueue==30 and #wire.sendQueue==30)
+ -- History replies must stay off the live queue, even if marked urgent elsewhere.
+ wire:Enqueue('DKA|historical|123|Officer|old',true,true);assert(#wire.liveQueue==0 and #wire.historyQueue==31)
+ raid=priorRaid
+end
+do
+ local oldRaid=raid;raid={'Officer One','Leader One','Member One'}
+ local h=systemClient(1,'Officer One');active=h;assert(h:AwardDKP('Member One',500,'Comfort tests'))
+ local _,_,auction=h:StartDKPAuction('19019',10,10,60);assert(auction)
+ assert(h:AcceptDKPBid(auction,'Member One',20,'MS'));assert(h:AcceptDKPBid(auction,'Leader One',0,'MS',true,true))
+ local p=systemClient(2,'Member One');broadcast(h,0,{p},'Officer One');local w=auctionPopup(auction)
+ active=h;now=now+7;local mark=#h.sent;assert(h:SetDKPAuctionPaused(auction,true));local paused=h.sent[#h.sent]
+ local frozen=h:GetDKPAuctionRemaining(h:GetDKPAuction(auction));assert(frozen==53)
+ broadcast(h,mark,{p},'Officer One');active=p
+ assert(w.shown and not w.quick.enabled and not w.pass.enabled and not w.pause.shown and w.timer.value==53 and w.timer.maximum==60)
+ assert(not p:SubmitDKPBid(auction,30,'MS') and not p:SetDKPAuctionPaused(auction,false))
+ active=h;assert(not h:AcceptDKPBid(auction,'Member One',30,'MS') and not h:CloseDKPAuction(auction) and not h:FinishDKPAuction(auction))
+ assert(not h:StartDKPAuction('19020',10,10,30) and h:GetDKPAvailable('Member One')==480)
+ now=now+400;h:TickDKPSystems();active=p;p:TickDKPSystems()
+ assert(h:GetDKPActiveAuction().data.status=='PAUSED' and p:GetDKPAuctionRemaining(p:GetDKPAuction(auction))==53 and w.timer.value==53)
+ local resumed=systemClient(1,'Officer One',h.bucket);active=resumed;resumed:TickDKPSystems()
+ assert(resumed:GetDKPAuctionRemaining(resumed:GetDKPAuction(auction))==53 and resumed:GetDKPAuctionResponses(resumed:GetDKPAuction(auction)).passed==1)
+ resumed:ShowDKPAuctionPopup(auction);local hostWindow=auctionPopup(auction)
+ assert(hostWindow.pause:GetText()=='Resume' and hostWindow.pause.shown and not hostWindow.stop.shown and hostWindow.timer.maximum==60)
+ mark=#resumed.sent;hostWindow.pause.scripts.OnClick();assert(resumed:GetDKPAuction(auction).data.ends==now+53)
+ broadcast(resumed,mark,{p},'Officer One');deliver(p,paused,'Officer One');active=p
+ assert(p:GetDKPAuction(auction).data.status=='OPEN' and w.quick.enabled and not w.pauseNotice and w.timer.maximum==60)
+ assert(p:GetDKPAuctionResponses(p:GetDKPAuction(auction)).passed==1)
+ now=now+54;active=resumed;mark=#resumed.sent;resumed:TickDKPSystems();broadcast(resumed,mark,{p},'Officer One')
+ assert(p.dkpAuctionResultWindow.youWon and p.dkpAuctionResultWindow.title:GetText()=='You won!' and p.dkpAuctionResultWindow.result:GetText():find('You won for 20',1,true))
+ assert(not resumed.dkpAuctionResultWindow.youWon and resumed.dkpAuctionResultWindow.title:GetText()=='Auction Result')
+ active=resumed;assert(resumed:GetDKPPendingDeliveryCount()==1 and p:GetDKPPendingDeliveryCount()==0)
+ assert(resumed:SetDKPLootDelivery('loot:'..auction,true));assert(resumed:GetDKPPendingDeliveryCount()==0)
+ assert(resumed:SetDKPLootDelivery('loot:'..auction,false));assert(resumed:GetDKPPendingDeliveryCount()==1)
+ assert(resumed:ReverseDKPRecord('loot:'..auction,'Test return'));assert(resumed:GetDKPPendingDeliveryCount()==0)
+ assert(resumed:RecordDKPLoot('Member One','19020',10,'MS'));assert(resumed:GetDKPPendingDeliveryCount()==1)
+ resumed.activeTab='DKP';resumed.frame={detailPanel=widget()}
+ for _,name in ipairs({'detailScroll','detailTitle','detailMeta','detailRule','detailBody','footer'}) do resumed.frame[name]=widget() end
+ resumed:RefreshDKP();local panel=resumed.frame.dkp
+ for _,section in ipairs({'Standings','Auctions','Raids','Officer'}) do
+  panel.navigation[section].scripts.OnClick();panel.search:SetText('No matches');panel.search.scripts.OnTextChanged()
+  assert(panel.clearSearch.shown and panel.clearSearch:GetText()=='Clear')
+  panel.clearSearch.scripts.OnClick();assert(panel.search:GetText()=='')
+ end
+ assert(panel.summary:GetText():find('1 pending deliveries',1,true))
+ panel.search:SetText('No matches');panel.search.scripts.OnTextChanged();assert(panel.summary:GetText():find('1 pending deliveries',1,true));panel.clearSearch.scripts.OnClick()
+ assert(resumed:AddDKPQueuedAuction('19019',250,10,45));assert(resumed:AddDKPQueuedAuction('19020',150,10,30))
+ panel.navigation.Auctions.scripts.OnClick();assert(panel.workspace.nextItem.shown and panel.workspace.nextItem.link=='item:19019')
+ assert(resumed:ChangeDKPQueuedAuction(resumed:GetDKPAuctionQueue()[2].id,-1));resumed:RefreshDKP()
+ assert(panel.workspace.nextItem.link=='item:19020' and panel.workspace.nextItem.text:GetText():find('150 DKP minimum',1,true))
+ resumed:ShowDKPAuctionQueue();local resetCalls=0
+ for _,frame in ipairs({resumed.dkpQueueWindow,resumed.dkpAuctionResultWindow}) do
+  frame.SetPoint=function(_,point,relative,relativePoint,x,y) assert(point=='CENTER' and relativePoint=='CENTER' and x==0 and y==0);resetCalls=resetCalls+1 end
+ end
+ resumed:ShowDKPAlertSettings();assert(resumed.form.fields[5].value==false);assert(resumed.form.callback({true,false,false,false,true}));assert(resetCalls==2)
+ raid=oldRaid
+end
+print('Passed DKP comfort features: pause/resume freezes and persists time/bids/passes across clients/reload, stale snapshots rejected, expiry resumes once, winner emphasis, pending delivery/refund counts, clear searches, queue preview reordering and center reset')
+print('Passed live balance sync: awards/deductions/grants/raid adjustments ahead of background traffic, long encoded reasons/fragments, replay deduplication, standings and open bidding balances, history priority isolation')
 print('Passed live bid transport: single-message accepted deltas, FIFO ahead of sync/presence, reserved capacity, ordered large fragments, two bidder names and next-bid amounts update together for bidder and observer')
 do
  local oldRaid,oldUptime=raid,GetTime
@@ -1489,6 +1600,54 @@ do
  active=gm;gm:RefreshDKPAuctionPopup();assert(not gm.dkpAuctionLauncher or not gm.dkpAuctionLauncher.shown)
  raid,GetTime=oldRaid,oldUptime
 end
+do
+ local oldRaid,oldSound,oldKit=raid,PlaySound,SOUNDKIT
+ raid={'Officer One','Leader One','Member One'}
+ local h=systemClient(1,'Officer One');active=h
+ assert(h:AwardDKP('Member One',500,'Pass test'));assert(h:AwardDKP('Officer One',500,'Pass test'))
+ local _,_,auction=h:StartDKPAuction('19019',10,10,60)
+ local p=systemClient(2,'Member One');broadcast(h,0,{p},'Officer One');active=p
+ local w=auctionPopup(auction);assert(w.pass.enabled and not w.responses.shown)
+ w.pass.scripts.OnClick();local request=p.sent[#p.sent];assert(p.dkpPendingBid.pass and w.feedback:GetText()=='Sending pass...')
+ local mark=#h.sent;deliver(h,request,'Member One');broadcast(h,mark,{p},'Officer One')
+ assert(not p.dkpPendingBid and not w.pass.enabled and w.pass:GetText()=='Passed')
+ active=h;local responses=h:GetDKPAuctionResponses(h:GetDKPAuction(auction));assert(responses.bid==0 and responses.passed==1 and responses.waiting==2)
+ assert(h:AcceptDKPBid(auction,'Officer One',10,'MS'));broadcast(h,mark,{p},'Officer One')
+ active=p;now=now+1;assert(p:SubmitDKPBid(auction,20,'MS'));request=p.sent[#p.sent];mark=#h.sent
+ deliver(h,request,'Leader One');assert(#h.sent==mark)
+ deliver(h,request,'Member One');broadcast(h,mark,{p},'Officer One')
+ active=h;responses=h:GetDKPAuctionResponses(h:GetDKPAuction(auction));assert(responses.bid==2 and responses.passed==0 and responses.waiting==1)
+ active=p;now=now+1;w.pass.scripts.OnClick();assert(p.form.title=='Pass on Item' and not p.dkpPendingBid)
+ assert(p.form.callback({}));request=p.sent[#p.sent];mark=#h.sent;deliver(h,request,'Member One');broadcast(h,mark,{p},'Officer One')
+ active=h;h:OnDKPLedgerChanged();responses=h:GetDKPAuctionResponses(h:GetDKPAuction(auction));assert(responses.bid==1 and responses.passed==1 and responses.waiting==1)
+ local reloaded=systemClient(1,'Officer One',h.bucket);active=reloaded;reloaded:OnDKPLedgerChanged();assert(reloaded:GetDKPAuctionResponses(reloaded:GetDKPAuction(auction)).passed==1)
+ active=h;h:ShowDKPAuctionPopup(auction);local hostWindow
+ for _,candidate in ipairs(created) do if candidate.auctionID==auction and candidate.responses and candidate.responses.shown then hostWindow=candidate end end
+ assert(hostWindow.responses.shown and hostWindow.responses:GetText()=='1 bid / 1 passed / 1 waiting')
+ local sounds=0;PlaySound=function() sounds=sounds+1 end;SOUNDKIT={RAID_WARNING=123};h:SetSetting('dkpCountdownSound',true)
+ local ends=h:GetDKPAuction(auction).data.ends
+ now=ends-11;h:CheckDKPCountdownSound();now=ends-10;assert(h:CheckDKPCountdownSound()==10 and sounds==1);h:CheckDKPCountdownSound();assert(sounds==1)
+ now=ends-5;assert(h:CheckDKPCountdownSound()==5 and sounds==2)
+ assert(h:AcceptDKPBid(auction,'Officer One',20,'MS'));local extended=h:GetDKPAuction(auction).data.ends;assert(extended>ends)
+ now=extended-3;assert(h:CheckDKPCountdownSound()==3 and sounds==3);h:CheckDKPCountdownSound();assert(sounds==3)
+ assert(h:CancelDKPAuction(auction));assert(not h:CheckDKPCountdownSound() and sounds==3)
+ h:SetSetting('dkpCountdownSound',false)
+ local _,_,quiet=h:StartDKPAuction('19020',10,10,30);local quietEnd=h:GetDKPAuction(quiet).data.ends;now=quietEnd-10;h:CheckDKPCountdownSound();assert(sounds==3)
+ assert(h:CancelDKPAuction(quiet))
+ -- Price preview and comparison call the native tooltip path without bidding.
+ local oldTooltip,oldCompare,oldShop1,oldShop2=GameTooltip,GameTooltip_ShowCompareItem,ShoppingTooltip1,ShoppingTooltip2
+ GameTooltip=widget('Tooltip');GameTooltip.SetHyperlink=function(self,link) self.link=link end
+ ShoppingTooltip1=widget();ShoppingTooltip2=widget();ShoppingTooltip1:Show();ShoppingTooltip2:Show()
+ local compared=0;GameTooltip_ShowCompareItem=function(tooltip) assert(tooltip==GameTooltip);compared=compared+1 end
+ local oldPrice=h.GetDKPStartingBid;h.GetDKPStartingBid=function() return 250 end
+ h:ShowDKPStartAuction('19019',true);assert(h.form.fields[1].pricePreview and h.form.fields[2].label:find('250 DKP',1,true) and #h:GetDKPAuctionQueue()==0)
+ local preview=h:CreateDKPItemPreview(widget(),'19019','Test gear',true);assert(preview.rarity:GetText():find('Guild minimum: 250 DKP',1,true))
+ preview.scripts.OnEnter(preview);assert(compared==1);preview.scripts.OnLeave();assert(not ShoppingTooltip1.shown and not ShoppingTooltip2.shown)
+ h.GetDKPStartingBid=oldPrice
+ GameTooltip,GameTooltip_ShowCompareItem,ShoppingTooltip1,ShoppingTooltip2=oldTooltip,oldCompare,oldShop1,oldShop2
+ raid,PlaySound,SOUNDKIT=oldRaid,oldSound,oldKit
+end
+print('Passed pass/rejoin and original participant response counts, host-authoritative sync/spoof/replay, 10/5/3 optional sounds with soft-close deduplication, queue price previews, native gear comparison, personal recap/refunds and officer-only copy export')
 print('Passed live tools: reopen, heartbeat spoof/stale/recovery, readiness replies and permissions, results once, officer recovery/rebid and delayed old award without duplicate charges')
 print('Passed DKP class styling: short/full names, custom class palette, unknown-name fallback, history names/officers, roster refresh and plain saved identity')
 print('Passed GM/officer unfinished-raid alerts: authenticated host departure/resume messages, combat deferral, no popup spam, stale notice rejection, safe stop without bonus, offline host/reload detection and permission/guild/member isolation')

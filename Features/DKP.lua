@@ -166,6 +166,7 @@ local function refresh()
     if GD.dkpImporting then return end
     if not GD:IsDKPEnabled() and GD.activeTab == "DKP" then GD.activeTab = "Home" end
     if GD.RefreshUI then GD:RefreshUI() end
+    if GD.RefreshDKPAuctionPopup then GD:RefreshDKPAuctionPopup() end
 end
 
 function GD:SetDKPEnabled(enabled)
@@ -349,7 +350,7 @@ local function adjustDKP(self, member, amount, reason, deduction)
     local record = { id = id, ts = GD:GetDKPTime(), by = author, member = canonical, amount = points, reason = note }
     if not applyAward(record) then return false, "The award could not be applied." end
     self:GetDKPBucket().dkpAwardSequence = sequence
-    self:SendDKPRecord(deduction and "DKD" or "DKA", id, record.ts, author, awardContent(record))
+    self:SendDKPRecord(deduction and "DKD" or "DKA", id, record.ts, author, awardContent(record), true)
     return true, math.abs(points) .. (deduction and " DKP taken from " or " DKP awarded to ") .. self:Display(canonical) .. ".", id
 end
 
@@ -397,7 +398,7 @@ function GD:GrantDKPStartingBalance(members)
     end
     if #records == 0 then return false, "All selected members already received their starting grant." end
     for _, record in ipairs(records) do applyAward(record, true) end
-    for _, record in ipairs(records) do self:SendDKPRecord("DKA", record.id, record.ts, record.by, awardContent(record)) end
+    for _, record in ipairs(records) do self:SendDKPRecord("DKA", record.id, record.ts, record.by, awardContent(record), true) end
     refresh()
     return true, "Granted 1,000 starting DKP to " .. #records .. " members. Already granted: " .. skipped .. "."
 end
@@ -672,7 +673,7 @@ function GD:AwardRaidDKP(members, amount, reason)
     end
     for _, record in ipairs(records) do applyAward(record, true) end
     self:GetDKPBucket().dkpAwardSequence = sequence
-    for _, record in ipairs(records) do self:SendDKPRecord("DKA", record.id, record.ts, record.by, awardContent(record)) end
+    for _, record in ipairs(records) do self:SendDKPRecord("DKA", record.id, record.ts, record.by, awardContent(record), true) end
     refresh()
     return true, points .. " DKP awarded to " .. #records .. " raid members."
 end
@@ -928,13 +929,13 @@ local function buildStandings(frame)
     panel.searchLabel:SetText("Search name or class")
     panel.search = CreateFrame("EditBox", nil, panel, "BackdropTemplate")
     panel.search:SetPoint("TOPLEFT", 16, -94)
-    panel.search:SetPoint("TOPRIGHT", -52, -94)
+    panel.search:SetPoint("TOPRIGHT", -80, -94)
     panel.search:SetHeight(26)
     panel.search:SetAutoFocus(false)
     panel.search:SetMaxLetters(100)
     GD:StyleEditBox(panel.search)
     panel.clearSearch = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-    panel.clearSearch:SetSize(28, 26); panel.clearSearch:SetPoint("TOPRIGHT", -16, -93); panel.clearSearch:SetText("X")
+    panel.clearSearch:SetSize(56, 26); panel.clearSearch:SetPoint("TOPRIGHT", -16, -93); panel.clearSearch:SetText("Clear")
     panel.clearSearch:SetScript("OnClick", function() panel.search:SetText(""); panel.search:ClearFocus(); GD:RefreshDKP() end)
     panel.search:SetScript("OnEscapePressed", function(input) input:ClearFocus(); frame:Hide(); if GD.CloseWindowsOnEscape then GD:CloseWindowsOnEscape() end end)
     panel.search:SetScript("OnTextChanged", function()

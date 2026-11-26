@@ -107,14 +107,21 @@ end
 
 local schemas = {}
 schemas.DKU = function(f)
-    -- revision, owner, item, label, minimum, increment, end, status, bids,
-    -- winner, cost, spec, eligible characters, opened time
-    if #f ~= 14 or not integer(f[1], 1, 1000000) or not clean(f[2], 100) or f[2] == ""
+    -- revision, owner, item, label, minimum, increment, deadline (or frozen
+    -- seconds while PAUSED), status, bids, winner, cost, spec, participants,
+    -- opened time, optional passed characters and original progress-bar duration.
+    -- Older snapshots without these optional fields still load.
+    if (#f ~= 14 and #f ~= 15 and #f ~= 16) or not integer(f[1], 1, 1000000) or not clean(f[2], 100) or f[2] == ""
         or not integer(f[3], 1, 2147483647) or not clean(f[4], 100) or not integer(f[5], 1, 1000000)
         or not integer(f[6], 1, 1000000) or not integer(f[7], 1, 9007199254740991)
-        or not ({ OPEN = true, REVIEW = true, AWARDED = true, CANCELLED = true })[f[8]]
+        or not ({ OPEN = true, PAUSED = true, REVIEW = true, AWARDED = true, CANCELLED = true })[f[8]]
         or not clean(f[10], 100) or not integer(f[11], 0, 1000000)
         or not ({ MS = true, OS = true, [""] = true })[f[12]] or not names(f[13]) or not integer(f[14], 1, 9007199254740991) then return end
+    if f[8] == "PAUSED" and tonumber(f[7]) > 300 then return end
+    if f[16] and not integer(f[16], 1, 300) then return end
+    local passed = {}
+    local passNames = names(f[15] or ""); if not passNames then return end
+    for _, member in ipairs(passNames) do passed[key(member)] = true end
     local candidates, seen = {}, {}
     if f[9] ~= "" then
         for _, encoded in ipairs(split(f[9])) do
@@ -127,7 +134,8 @@ schemas.DKU = function(f)
     end
     if #candidates > 40 or (f[8] == "AWARDED" and (f[10] == "" or tonumber(f[11]) < tonumber(f[5]) or f[12] == "")) then return end
     return { revision = tonumber(f[1]), owner = f[2], item = f[3], label = f[4], minimum = tonumber(f[5]), increment = tonumber(f[6]), ends = tonumber(f[7]), status = f[8], bids = candidates,
-        winner = f[10], cost = tonumber(f[11]), spec = f[12], participants = names(f[13]), opened = tonumber(f[14]) }
+        winner = f[10], cost = tonumber(f[11]), spec = f[12], participants = names(f[13]), opened = tonumber(f[14]), passed = passed,
+        duration = tonumber(f[16]) or math.max(1, math.min(300, tonumber(f[7]) - tonumber(f[14]))) }
 end
 schemas.DKS = function(f)
     if #f ~= 7 or not integer(f[1], 1, 1000000) or not clean(f[2], 100) or f[2] == "" or not clean(f[3], 100) or f[3] == ""
@@ -137,8 +145,8 @@ end
 schemas.DKJ = function(f)
     if #f ~= 8 or not clean(f[1], 80) or not integer(f[2], 2, 1000000) or not clean(f[3], 100) or f[3] == ""
         or not integer(f[4], 0, 1000000) or not ({ MS = true, OS = true })[f[5]]
-        or not integer(f[6], 1, 1000000) or not integer(f[7], 1, 9007199254740991) or (f[8] ~= "0" and f[8] ~= "1") then return end
-    return { auction = f[1], revision = tonumber(f[2]), member = f[3], amount = tonumber(f[4]), spec = f[5], order = tonumber(f[6]), ends = tonumber(f[7]), withdraw = f[8] == "1" }
+        or not integer(f[6], 1, 1000000) or not integer(f[7], 1, 9007199254740991) or (f[8] ~= "0" and f[8] ~= "1" and f[8] ~= "2") then return end
+    return { auction = f[1], revision = tonumber(f[2]), member = f[3], amount = tonumber(f[4]), spec = f[5], order = tonumber(f[6]), ends = tonumber(f[7]), withdraw = f[8] ~= "0", pass = f[8] == "2" }
 end
 schemas.DKV = function(f)
     if #f ~= 5 or not clean(f[1], 80) or f[1] == "" or not ({ boss = true, ontime = true, finish = true })[f[2]]
@@ -193,6 +201,7 @@ local function rebuild()
                 local bids = {}
                 for _, bid in ipairs(a.bids) do if key(GD:GetDKPAccount(bid.member)) ~= key(GD:GetDKPAccount(d.member)) then bids[#bids + 1] = bid end end
                 if not d.withdraw then bids[#bids + 1] = { member = d.member, amount = d.amount, spec = d.spec, order = d.order } end
+                a.passed[key(d.member)] = d.pass and true or nil
                 a.bids, a.revision, a.ends = bids, d.revision, d.ends
             end
         end
@@ -290,10 +299,10 @@ local function receive(kind, recordID, ts, author, content, sender)
         local auction = GD:GetDKPAuction(r.data.auction)
         if auction and GD:GetDKPActiveAuction() == auction and key(r.by) == key(auction.data.owner) and key(r.data.member) == key(own()) then
             local request = GD:GetDKPPendingBid(auction.id)
-            if not request or r.data.revision > request.revision and r.data.withdraw == request.withdraw
+            if not request or r.data.revision > request.revision and r.data.withdraw == request.withdraw and r.data.pass == request.pass
                 and (request.withdraw or r.data.amount == request.amount and r.data.spec == request.spec) then
                 GD.dkpPendingBid = nil
-                GD.dkpBidStatus = r.data.withdraw and "Bid withdrawn." or "Bid accepted."
+                GD.dkpBidStatus = r.data.pass and "Passed. You can still bid before bidding closes." or r.data.withdraw and "Bid withdrawn." or "Bid accepted."
             end
         end
     end
@@ -313,7 +322,7 @@ local function publish(kind, recordID, fields)
     local content, author = pack(fields), own()
     if not validate(kind, recordID, ts, author, content) then return false, "The DKP record is invalid or too large." end
     receive(kind, recordID, ts, author, content, author)
-    GD:SendDKPRecord(kind, recordID, ts, author, content, kind == "DKJ" or kind == "DKU")
+    GD:SendDKPRecord(kind, recordID, ts, author, content, true)
     return true
 end
 
@@ -328,7 +337,7 @@ function GD:GetDKPActiveAuction()
     local result
     for _, r in ipairs(records("DKU")) do
         local status = self:GetDKPAuctionStatus(r)
-        if status == "OPEN" or status == "REVIEW" then
+        if status == "OPEN" or status == "PAUSED" or status == "REVIEW" then
             if not result or r.data.opened < result.data.opened or (r.data.opened == result.data.opened and r.id < result.id) then result = r end
         end
     end
@@ -359,7 +368,7 @@ function GD:GetDKPAvailable(name, exceptAuction)
     local available, account = self:GetDKPBalance(name), key(self:GetDKPAccount(name))
     for _, r in ipairs(records("DKU")) do
         local status = self:GetDKPAuctionStatus(r)
-        if r.id ~= exceptAuction and (status == "OPEN" or status == "REVIEW") then
+        if r.id ~= exceptAuction and (status == "OPEN" or status == "PAUSED" or status == "REVIEW") then
             local bid = self:GetDKPAuctionLeader(r)
             if bid and key(self:GetDKPAccount(bid.member)) == account then available = available - bid.amount end
         end
@@ -369,7 +378,8 @@ end
 local function auctionFields(a)
     local bids = {}
     for _, bid in ipairs(a.bids) do bids[#bids + 1] = pack({ bid.member, bid.amount, bid.spec, bid.order }) end
-    return { a.revision, a.owner, a.item, a.label, a.minimum, a.increment, a.ends, a.status, pack(bids), a.winner, a.cost, a.spec, pack(a.participants), a.opened }
+    local passed = {}; for member in pairs(a.passed or {}) do passed[#passed + 1] = member end; table.sort(passed)
+    return { a.revision, a.owner, a.item, a.label, a.minimum, a.increment, a.ends, a.status, pack(bids), a.winner, a.cost, a.spec, pack(a.participants), a.opened, pack(passed), a.duration }
 end
 local function copy(value)
     if type(value) ~= "table" then return value end
@@ -413,10 +423,12 @@ function GD:CanBidDKPAuction(r, name)
     for _, member in ipairs(r.data.participants) do if key(member) == key(canonical) then return true end end
     return false, "You were not in the group when this auction started. Ask the host to restart it."
 end
-function GD:AcceptDKPBid(auctionID, member, amount, spec, withdraw)
+function GD:AcceptDKPBid(auctionID, member, amount, spec, withdraw, pass)
+    if pass then withdraw = true end
     local r = self:GetDKPAuction(auctionID)
     if not r then return false, "Auction not found." end
     if self:GetDKPActiveAuction() ~= r then return false, "Another auction is being resolved first." end
+    if r.data.status == "PAUSED" then return false, "Bidding is paused by the host." end
     if r.data.status ~= "OPEN" or GD:GetDKPTime() >= r.data.ends then return false, "Bidding has closed." end
     local eligible, eligibilityReason = self:CanBidDKPAuction(r, member)
     if not eligible then return false, eligibilityReason end
@@ -434,8 +446,8 @@ function GD:AcceptDKPBid(auctionID, member, amount, spec, withdraw)
     local ends = r.data.ends
     if not withdraw and ends - GD:GetDKPTime() < 10 then ends = GD:GetDKPTime() + 10 end
     local revision = r.data.revision + 1
-    local success, message = publish("DKJ", auctionID .. ":" .. revision, { auctionID, revision, canonical, withdraw and 0 or amount, spec or "MS", order + 1, ends, withdraw and "1" or "0" })
-    return success, message or (withdraw and "Bid withdrawn." or "Bid accepted.")
+    local success, message = publish("DKJ", auctionID .. ":" .. revision, { auctionID, revision, canonical, withdraw and 0 or amount, spec or "MS", order + 1, ends, pass and "2" or withdraw and "1" or "0" })
+    return success, message or (pass and "Passed. You can still bid before bidding closes." or withdraw and "Bid withdrawn." or "Bid accepted.")
 end
 function GD:GetDKPPendingBid(auctionID)
     local request = self.dkpPendingBid
@@ -453,7 +465,22 @@ function GD:GetDKPPendingBid(auctionID)
     end
     if not auctionID or request.auction == auctionID then return request end
 end
-function GD:SubmitDKPBid(auctionID, amount, spec, withdraw)
+function GD:GetDKPAuctionRemaining(auction)
+    if not auction then return 0 end
+    return auction.data.status == "PAUSED" and auction.data.ends or math.max(0, auction.data.ends - self:GetDKPTime())
+end
+function GD:SetDKPAuctionPaused(auctionID, paused)
+    local auction = self:GetDKPAuction(auctionID)
+    if not auction or type(paused) ~= "boolean" or self:GetDKPActiveAuction() ~= auction then return false, "Select the active auction." end
+    if paused and (auction.data.status ~= "OPEN" or self:GetDKPTime() >= auction.data.ends) then return false, "Only an open auction can be paused before its deadline." end
+    if not paused and auction.data.status ~= "PAUSED" then return false, "This auction is not paused." end
+    return changeAuction(auction, function(a)
+        a.ends = paused and math.max(1, a.ends - self:GetDKPTime()) or self:GetDKPTime() + a.ends
+        a.status = paused and "PAUSED" or "OPEN"; return true
+    end)
+end
+function GD:SubmitDKPBid(auctionID, amount, spec, withdraw, pass)
+    if pass then withdraw = true end
     local r = self:GetDKPAuction(auctionID)
     local eligible, eligibilityReason = self:CanBidDKPAuction(r, own())
     if not eligible then return false, eligibilityReason end
@@ -462,16 +489,17 @@ function GD:SubmitDKPBid(auctionID, amount, spec, withdraw)
         if not connected then return false, reason end
     end
     if self:GetDKPPendingBid() then return false, "Sending bid... Waiting for the host." end
-    if key(r.data.owner) == key(own()) then return self:AcceptDKPBid(auctionID, own(), amount, spec, withdraw) end
+    if key(r.data.owner) == key(own()) then return self:AcceptDKPBid(auctionID, own(), amount, spec, withdraw, pass) end
+    if r.data.status == "PAUSED" then return false, "Bidding is paused by the host." end
     if r.data.status ~= "OPEN" or GD:GetDKPTime() >= r.data.ends then return false, "Bidding has closed." end
     if not withdraw and (not integer(amount, r.data.minimum, 1000000) or tonumber(amount) > self:GetDKPAvailable(own(), auctionID)) then return false, "Enter a bid within your available DKP and the item's minimum." end
     local now = GetTime and GetTime() or GD:GetDKPTime()
     if self.dkpLastBidRequest and now - self.dkpLastBidRequest < 0.5 then return false, "Wait a moment before sending another bid." end
     self.dkpLastBidRequest = now
     self.dkpPendingBid = { bucket = self:GetDKPBucket(), auction = auctionID, sent = now,
-        amount = tonumber(amount), spec = spec or "MS", withdraw = withdraw == true, revision = r.data.revision }
-    self.dkpBidStatus = withdraw and "Sending withdrawal..." or "Sending bid..."
-    self:SendDKPRecord("DKR", auctionID, GD:GetDKPTime(), own(), pack({ withdraw and "withdraw" or "bid", tostring(amount or 0), spec or "MS" }), true)
+        amount = tonumber(amount), spec = spec or "MS", withdraw = withdraw == true, pass = pass == true, revision = r.data.revision }
+    self.dkpBidStatus = pass and "Sending pass..." or withdraw and "Sending withdrawal..." or "Sending bid..."
+    self:SendDKPRecord("DKR", auctionID, GD:GetDKPTime(), own(), pack({ pass and "pass" or withdraw and "withdraw" or "bid", tostring(amount or 0), spec or "MS" }), true)
     if self.RefreshDKPAuctionPopup then self:RefreshDKPAuctionPopup() end
     return true, self.dkpBidStatus
 end
@@ -481,12 +509,12 @@ GD:RegisterDKPRecordHandler("DKR", function(auctionID, ts, author, content, send
     local r, canonical = GD:GetDKPAuction(auctionID), GD:GetDKPGuildMember(sender)
     if not r or key(r.data.owner) ~= key(own()) or not canonical or key(canonical) ~= key(author) then return end
     local f = split(content)
-    if #f ~= 3 or (f[1] ~= "bid" and f[1] ~= "withdraw") then return end
+    if #f ~= 3 or (f[1] ~= "bid" and f[1] ~= "withdraw" and f[1] ~= "pass") then return end
     local bucketKey = tostring(GD:GetDKPBucket()) .. ":" .. key(canonical)
     local now = GetTime and GetTime() or GD:GetDKPTime()
     if bidThrottle[bucketKey] and now - bidThrottle[bucketKey] < 0.2 then return end
     bidThrottle[bucketKey] = now
-    local ok, message = GD:AcceptDKPBid(auctionID, canonical, f[2], f[3], f[1] == "withdraw")
+    local ok, message = GD:AcceptDKPBid(auctionID, canonical, f[2], f[3], f[1] ~= "bid", f[1] == "pass")
     -- The authoritative bid delta confirms successful bids and updates every
     -- bidder at once. Only rejections require a separate response packet.
     if not ok then GD:SendDKPRecord("DKN", auctionID, GD:GetDKPTime(), own(), pack({ canonical, "0", message or "Bid rejected." }), true) end
@@ -504,6 +532,7 @@ end, 400)
 function GD:CloseDKPAuction(auctionID)
     local r = self:GetDKPAuction(auctionID)
     if not r then return false, "Auction not found." end
+    if r.data.status == "PAUSED" then return false, "Resume bidding before ending this auction, or cancel it." end
     return changeAuction(r, function(a) a.status = "REVIEW"; return true end)
 end
 function GD:CancelDKPAuction(auctionID)
@@ -677,7 +706,7 @@ function GD:GetDKPRaidSummary(raidID)
     end
     for _, link in ipairs(records("DKT")) do
         local loot = awards[link.data.loot]
-        if link.data.raid == raidID and loot and loot.loot and key(loot.by) == key(link.by) then
+        if link.data.raid == raidID and loot and loot.loot and loot.amount ~= 0 and key(loot.by) == key(link.by) then
             summary.loot[#summary.loot + 1] = { item = loot.item, label = loot.label, member = loot.member, cost = math.abs(loot.amount),
                 spec = loot.spec, refunded = get("DKX", loot.id) ~= nil, delivery = self:GetDKPLootDelivery(loot.id) }
         end
@@ -708,7 +737,8 @@ function GD:StopStaleDKPRecording(recordID, scope, recovery)
     if not r or get("DKZ", recordID) then return false, "This recording has already stopped or is missing." end
     if scope == "auction" then
         if self:GetDKPAuctionStatus(r) == "AWARDED" or r.data.status == "CANCELLED" then return false, "The auction has already finished." end
-        if GD:GetDKPTime() < r.data.ends + 60 then return false, "Wait until 60 seconds after the bidding deadline before stopping another host's auction." end
+        local deadline = r.data.status == "PAUSED" and r.ts or r.data.ends
+        if GD:GetDKPTime() < deadline + 60 then return false, "Wait until 60 seconds after the deadline or pause before stopping another host's auction." end
     elseif r.data.ended > 0 then return false, "This raid recording has finished." end
     return publish("DKZ", recordID, { recovery and scope == "auction" and "recovery" or scope, "Stopped by " .. own() })
 end

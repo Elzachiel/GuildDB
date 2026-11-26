@@ -85,10 +85,15 @@ end
 local function itemTooltip(control, getLink)
     control:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:SetHyperlink(getLink()); GameTooltip:Show()
+        if GameTooltip_ShowCompareItem then GameTooltip_ShowCompareItem(GameTooltip) end
     end)
-    control:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    control:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+        if ShoppingTooltip1 then ShoppingTooltip1:Hide() end
+        if ShoppingTooltip2 then ShoppingTooltip2:Hide() end
+    end)
 end
-function GD:CreateDKPItemPreview(parent, item, fallback)
+function GD:CreateDKPItemPreview(parent, item, fallback, showPrice)
     local preview = CreateFrame("Button", nil, parent, "BackdropTemplate")
     preview:SetSize(370, 46)
     preview:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8", edgeFile = "Interface/Buttons/WHITE8X8", edgeSize = 1 })
@@ -98,7 +103,9 @@ function GD:CreateDKPItemPreview(parent, item, fallback)
     local function refresh()
         local info = GD:GetDKPItemAppearance(item, fallback)
         preview.link = info.link; preview.name:SetText(info.name); preview.name:SetTextColor(info.r, info.g, info.b)
-        preview.rarity:SetText(info.rarity); preview.rarity:SetTextColor(info.r, info.g, info.b); preview.icon:SetTexture(info.icon)
+        local price = showPrice and GD:GetDKPStartingBid(item)
+        preview.rarity:SetText(info.rarity .. (showPrice and (price and (" | Guild minimum: " .. price .. " DKP") or " | Guild price unavailable") or ""))
+        preview.rarity:SetTextColor(info.r, info.g, info.b); preview.icon:SetTexture(info.icon)
         preview:SetBackdropColor(unpack(GD:GetAppearanceColors().panel)); preview:SetBackdropBorderColor(info.r, info.g, info.b, 1)
     end
     itemTooltip(preview, function() return preview.link end)
@@ -116,8 +123,8 @@ function GD:ShowDKPStartAuction(itemLink, queueMode)
         if not item then return false, "Enter an item link or numeric ID." end
         local price = self:GetDKPStartingBid(values[1])
         self.ShowInputForm(queueMode and "Queue DKP Item" or "Start DKP Auction", {
-            { label = "Item", value = item, readOnly = true, itemPreview = item, itemName = name },
-            { label = price and "Starting bid (guild price prefilled)" or "Starting bid (item type not cached; enter a price)", value = tostring(price or 10), max = 7 },
+            { label = "Item", value = item, readOnly = true, itemPreview = item, itemName = name, pricePreview = queueMode == true },
+            { label = price and ("Starting bid (configured: " .. price .. " DKP)") or "Starting bid (no configured price yet; review the fallback)", value = tostring(price or 10), max = 7 },
             { label = "Minimum bid increase", value = "10", max = 7 },
             { label = "Bidding duration in seconds (10-300)", value = "45", max = 3 },
         }, ownedBucket(function(v)
@@ -261,9 +268,13 @@ function GD:ShowDKPAlertSettings()
         { label = "Open bidding popups automatically", checkbox = true, value = self:GetDKPBucket().dkpAuctionPopups ~= false },
         { label = "Play a sound when outbid", checkbox = true, value = self:GetSetting("dkpOutbidSound") },
         { label = "Flash the screen border when outbid", checkbox = true, value = self:GetSetting("dkpOutbidFlash") },
+        { label = "Countdown sounds at 10, 5 and 3 seconds", checkbox = true, value = self:GetSetting("dkpCountdownSound") },
+        { label = "Reset DKP window positions to center on Save", checkbox = true, value = false },
     }, ownedBucket(function(values)
         self:GetDKPBucket().dkpAuctionPopups = values[1] == true
         self:SetSetting("dkpOutbidSound", values[2] == true); self:SetSetting("dkpOutbidFlash", values[3] == true)
+        self:SetSetting("dkpCountdownSound", values[4] == true)
+        if values[5] == true then self:ResetDKPWindowPositions() end
         self:RefreshDKPAuctionPopup(); return true, "Your auction alert preferences were saved."
     end), "Save")
 end
@@ -320,11 +331,61 @@ local function styleLiveWindow(frame)
     frame:SetBackdropBorderColor(unpack(colors.accent)); frame.title:SetTextColor(unpack(colors.accent))
     GD:StyleButton(frame.close)
 end
+function GD:ResetDKPWindowPositions()
+    local frames = { popup }
+    for _, name in ipairs({ "dkpQueueWindow", "dkpRaidSummaryWindow", "dkpSyncWindow", "dkpAuctionResultWindow", "dkpReadinessWindow", "dkpRaidExportWindow", "dkpAuctionLauncher" }) do
+        if self[name] then frames[#frames + 1] = self[name] end
+    end
+    for _, frame in pairs(frames) do
+        frame:StopMovingOrSizing(); frame:ClearAllPoints(); frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+    end
+end
+local function renderAuctionResult(frame, auction)
+    local awarded = GD:GetDKPAuctionStatus(auction) == "AWARDED"
+    local won = awarded and key(GD:GetDKPGuildMember(GD:PlayerName())) == key(auction.data.winner)
+    frame.title:SetText(won and "You won!" or "Auction Result")
+    frame.result:SetText(awarded and ((won and "You won for " or GD:DKPCharacterText(auction.data.winner) .. " won for ") .. auction.data.cost .. " DKP (" .. auction.data.spec .. ").\nLoot delivery: " .. deliveryText(GD:GetDKPLootDelivery("loot:" .. auction.id))) or "Auction cancelled. No DKP charged.")
+    frame.result:SetTextColor(unpack(GD:GetAppearanceColors().text)); styleLiveWindow(frame)
+    if won then frame.title:SetTextColor(1, .82, 0); frame:SetBackdropBorderColor(1, .82, 0, 1) end
+    frame.youWon = won
+end
+function GD:ShowDKPRaidExport(raidID)
+    local text, message = self:BuildDKPRaidReport(raidID)
+    if not text then return report(false, message) end
+    local frame = self.dkpRaidExportWindow
+    if not frame then
+        frame = liveWindow("GuildDBDKPRaidExport", "Copy Raid Report", 600, 460)
+        frame.help = label(frame, "GameFontHighlightSmall", 16, -46); frame.help:SetText("Click Select All, then Ctrl+C. Paste into Discord; long reports may need several messages.")
+        frame.help:SetWidth(560); frame.help:SetHeight(36)
+        frame.scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
+        frame.scroll:SetPoint("TOPLEFT", 16, -90); frame.scroll:SetPoint("BOTTOMRIGHT", -36, 52)
+        frame.text = CreateFrame("EditBox", nil, frame.scroll, "BackdropTemplate")
+        frame.text:SetMultiLine(true); frame.text:SetAutoFocus(false); frame.text:SetWidth(540); frame.text:SetMaxLetters(0)
+        GD:StyleEditBox(frame.text, true); frame.scroll:SetScrollChild(frame.text)
+        frame.measure = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall"); frame.measure:SetWidth(540); frame.measure:Hide()
+        frame.text:SetScript("OnEscapePressed", function(self) self:ClearFocus(); frame:Hide() end)
+        frame.text:SetScript("OnTextChanged", function(self)
+            frame.measure:SetText(self:GetText()); self:SetHeight(math.max(300, (frame.measure:GetStringHeight() or 300) + 20))
+        end)
+        frame.select = button(frame, "Select All", 110, function() frame.text:SetFocus(); frame.text:HighlightText() end)
+        frame.select:SetPoint("BOTTOMLEFT", 16, 14)
+        frame:SetScript("OnHide", function(self) self.text:ClearFocus() end)
+        frame:SetScript("OnUpdate", function(self)
+            if self.bucket ~= GD:GetDKPBucket() or not GD:IsDKPEnabled() or not GD:CanConfigureDKP() then self.text:SetText(""); self:Hide(); return end
+            styleLiveWindow(self); GD:StyleButton(self.select); GD:StyleScrollFrame(self.scroll)
+        end)
+        self.dkpRaidExportWindow = frame
+    end
+    frame.bucket = self:GetDKPBucket(); frame.text:SetText(text); frame.measure:SetText(text); frame.text:SetHeight(math.max(300, (frame.measure:GetStringHeight() or 300) + 20))
+    frame.scroll:SetVerticalScroll(0); styleLiveWindow(frame); frame:Show()
+    frame.text:SetFocus(); frame.text:HighlightText()
+    return true
+end
 function GD:ShowDKPAuctionResult(auction)
     local frame = self.dkpAuctionResultWindow
     if not frame then
         frame = liveWindow("GuildDBDKPAuctionResult", "Auction Result", 460, 210)
-        frame:ClearAllPoints(); frame:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -30, -160)
+        frame:ClearAllPoints(); frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
         frame.icon = frame:CreateTexture(nil, "ARTWORK"); frame.icon:SetSize(36, 36); frame.icon:SetPoint("TOPLEFT", 16, -48)
         frame.hover = CreateFrame("Button", nil, frame); frame.hover:SetAllPoints(frame.icon)
         itemTooltip(frame.hover, function() return "item:" .. frame.itemID end)
@@ -333,20 +394,14 @@ function GD:ShowDKPAuctionResult(auction)
         frame:SetScript("OnUpdate", function(self)
             if self.bucket ~= GD:GetDKPBucket() or not GD:IsDKPEnabled() then self:Hide(); return end
             local auction = GD:GetDKPAuction(self.auctionID)
-            if auction then
-                self.result:SetText(GD:GetDKPAuctionStatus(auction) == "AWARDED" and (GD:DKPCharacterText(auction.data.winner) .. " won for " .. auction.data.cost .. " DKP (" .. auction.data.spec .. ").\nLoot delivery: " .. deliveryText(GD:GetDKPLootDelivery("loot:" .. auction.id)))
-                    or "Auction cancelled. No DKP charged.")
-            end
-            styleLiveWindow(self)
+            if auction then renderAuctionResult(self, auction) end
         end)
         self.dkpAuctionResultWindow = frame
     end
     local item, status = self:GetDKPItemAppearance(auction.data.item, auction.data.label), self:GetDKPAuctionStatus(auction)
     frame.bucket, frame.itemID, frame.auctionID = self:GetDKPBucket(), auction.data.item, auction.id
     frame.icon:SetTexture(item.icon); frame.item:SetText(item.name); frame.item:SetTextColor(item.r, item.g, item.b)
-    frame.result:SetText(status == "AWARDED" and (self:DKPCharacterText(auction.data.winner) .. " won for " .. auction.data.cost .. " DKP (" .. auction.data.spec .. ").\nLoot delivery: " .. deliveryText(self:GetDKPLootDelivery("loot:" .. auction.id)))
-        or "Auction cancelled. No DKP charged.")
-    frame.result:SetTextColor(unpack(self:GetAppearanceColors().text)); styleLiveWindow(frame); frame:Show()
+    renderAuctionResult(frame, auction); frame:Show()
 end
 function GD:ShowDKPReadiness()
     if not self:IsDKPEnabled() or not self:CanConfigureDKP() then return end
@@ -392,7 +447,7 @@ function GD:ShowDKPReadiness()
 end
 function GD:RefreshDKPLiveControls()
     local auction = self:IsDKPEnabled() and self:GetDKPActiveAuction()
-    local show = auction and self:GetDKPAuctionStatus(auction) == "OPEN" and self:GetDKPTime() < auction.data.ends
+    local show = auction and (self:GetDKPAuctionStatus(auction) == "PAUSED" or self:GetDKPAuctionStatus(auction) == "OPEN" and self:GetDKPTime() < auction.data.ends)
         and self:CanBidDKPAuction(auction, self:PlayerName()) and not (popup and popup:IsShown())
     local control = self.dkpAuctionLauncher
     if not show then if control then control:Hide() end; return end
@@ -409,7 +464,7 @@ function GD:RefreshDKPLiveControls()
     end
     control.auctionID = auction.id
     local connected = self:GetDKPAuctionConnection(auction)
-    control:SetText(connected and "Auction active - Open" or "Auction - Host unavailable")
+    control:SetText(connected and (auction.data.status == "PAUSED" and "Auction paused - Open" or "Auction active - Open") or "Auction - Host unavailable")
     self:StyleButton(control, "primary"); control:Show()
 end
 
@@ -430,9 +485,9 @@ function GD:ShowDKPRaidSummary(raidID)
         window.scroll:SetPoint("TOPLEFT", 16, -96); window.scroll:SetPoint("BOTTOMRIGHT", -36, 52)
         window.content = CreateFrame("Frame", nil, window.scroll); window.content:SetWidth(500); window.content:SetHeight(400); window.scroll:SetScrollChild(window.content)
         window.report = label(window.content, "GameFontHighlightSmall", 0, 0); window.report:SetWidth(500)
-        window.attendance = button(window, "Checkpoints", 130, function() GD:ShowDKPRaidAttendance(window.raid) end)
+        window.attendance = button(window, "Checkpoints", 110, function() GD:ShowDKPRaidAttendance(window.raid) end)
         window.attendance:SetPoint("BOTTOMLEFT", 16, 14)
-        window.refresh = button(window, "Refresh", 100, function() GD:ShowDKPRaidSummary(window.raid.id) end); window.refresh:SetPoint("BOTTOM", 0, 14)
+        window.refresh = button(window, "Refresh", 90, function() GD:ShowDKPRaidSummary(window.raid.id) end); window.refresh:SetPoint("BOTTOM", 0, 14)
         window.close = button(window, "Close", 100, function() window:Hide() end); window.close:SetPoint("BOTTOMRIGHT", -16, 14)
         window:SetScript("OnUpdate", function(self) if self.bucket ~= GD:GetDKPBucket() or not GD:IsDKPEnabled() or self.lootVisible ~= GD:CanConfigureDKP() then self:Hide() end end)
         self.dkpRaidSummaryWindow = window
@@ -444,7 +499,10 @@ function GD:ShowDKPRaidSummary(raidID)
     window:SetBackdropColor(colors.panel[1], colors.panel[2], colors.panel[3], 1); window:SetBackdropBorderColor(unpack(colors.accent))
     window.title:SetText(summary.raid.data.label); window.title:SetTextColor(unpack(colors.accent))
     window.metrics:SetText(#summary.attendees .. " attendees  |  " .. #summary.bosses .. " bosses  |  " .. summary.earned .. " DKP earned\n" .. (window.lootVisible and (#summary.loot .. " loot awards  |  ") or "") .. summary.checkpoints .. " attendance checkpoints")
-    local lines = { "ATTENDANCE / DKP EARNED" }
+    local recap = self:GetDKPPersonalRaidRecap(raidID)
+    local lines = { "YOUR RAID RECAP", "You earned " .. recap.earned .. " DKP, spent " .. recap.spent .. " DKP, and won " .. #recap.loot .. " item(s)." }
+    for _, loot in ipairs(recap.loot) do lines[#lines + 1] = self:GetDKPItemAppearance(loot.item, loot.label).name .. " - " .. loot.cost .. " DKP" end
+    lines[#lines + 1] = "\nATTENDANCE / DKP EARNED"
     for _, member in ipairs(summary.attendees) do lines[#lines + 1] = self:DKPCharacterText(member.name) .. " - " .. member.checkpoints .. "/" .. summary.checkpoints .. " checkpoints, " .. member.earned .. " DKP" end
     lines[#lines + 1] = "\nBOSSES KILLED"
     for _, boss in ipairs(summary.bosses) do lines[#lines + 1] = boss end
@@ -722,10 +780,10 @@ end
 local function updateTimer(bar, record)
     if not record then return end
     local a, colors = record.data, GD:GetAppearanceColors()
-    local remaining = math.max(0, a.ends - GD:GetDKPTime())
+    local remaining = GD:GetDKPAuctionRemaining(record)
     local status = GD:GetDKPAuctionStatus(record)
     local clock = GetTime and GetTime()
-    if clock and remaining > 0 then
+    if clock and remaining > 0 and status ~= "PAUSED" then
         if bar.clockID ~= record.id or bar.clockEnds ~= a.ends or not bar.clockExpires
             or math.abs(bar.clockExpires - clock - remaining) > 1.2 then
             bar.clockID, bar.clockEnds, bar.clockExpires = record.id, a.ends, clock + remaining
@@ -733,11 +791,12 @@ local function updateTimer(bar, record)
         remaining = math.max(0, bar.clockExpires - clock)
     elseif not clock then bar.clockExpires = nil end
     local seconds = math.ceil(remaining)
-    bar:SetMinMaxValues(0, math.max(1, a.ends - a.opened))
-    bar:SetValue(status == "OPEN" and remaining or 0)
-    bar:SetStatusBarColor(unpack(remaining <= 10 and { 0.9, 0.25, 0.18 } or colors.accent))
+    bar:SetMinMaxValues(0, math.max(1, a.duration or 1, remaining))
+    bar:SetValue((status == "OPEN" or status == "PAUSED") and remaining or 0)
+    bar:SetStatusBarColor(unpack(status == "PAUSED" and {1, .65, .15} or remaining <= 10 and { 0.9, 0.25, 0.18 } or colors.accent))
     bar.background:SetColorTexture(unpack(colors.alternate))
     bar.text:SetText(status == "OPEN" and (string.format("%d:%02d remaining", math.floor(seconds / 60), seconds % 60))
+        or status == "PAUSED" and (string.format("Paused - %d:%02d remaining", math.floor(seconds / 60), seconds % 60))
         or status == "REVIEW" and "Bidding closed - awaiting winner confirmation" or status)
 end
 local function bidderColors()
@@ -855,8 +914,21 @@ local function buildPopup()
         local _, message = GD:SubmitDKPBid(frame.auctionID, 0, frame.specValue, true); frame.feedback:SetText(message or "")
     end)
     frame.withdraw:SetPoint("BOTTOMLEFT", 16, 12)
+    frame.pass = button(frame, "Pass", 100, function()
+        local auctionID = frame.auctionID
+        local function pass()
+            local ok, message = GD:SubmitDKPBid(auctionID, 0, "MS", true, true)
+            frame.feedback:SetText(message or ""); return ok, message
+        end
+        local auction, hasBid = GD:GetDKPAuction(auctionID), false
+        for _, bid in ipairs(auction and auction.data.bids or {}) do if key(bid.member) == key(GD:GetDKPGuildMember(GD:PlayerName())) then hasBid = true end end
+        if hasBid then confirm("Pass on Item", "Passing removes your current bid. You can bid again before bidding closes.", ownedBucket(pass), "Pass") else pass() end
+    end)
+    frame.pass:SetPoint("LEFT", frame.withdraw, "RIGHT", 8, 0)
     frame.bidderHeader = label(frame, "GameFontNormalSmall", 16, -296)
     frame.bidderHeader:SetText("BIDDERS")
+    frame.responses = label(frame, "GameFontHighlightSmall", 0, 0)
+    frame.responses:ClearAllPoints(); frame.responses:SetPoint("TOPRIGHT", -16, -296)
     frame.bidderColumns = label(frame, "GameFontHighlightSmall", 16, -314)
     frame.bidderColumns:SetText("Rank / Character")
     frame.specHeader = label(frame, "GameFontHighlightSmall", 0, 0)
@@ -876,6 +948,11 @@ local function buildPopup()
     frame.officerControls:Hide()
     frame.officerTitle = label(frame.officerControls, "GameFontNormalSmall", 10, -8)
     frame.officerTitle:SetText("OFFICER CONTROLS")
+    frame.pause = button(frame.officerControls, "Pause", 110, function()
+        local auction = GD:GetDKPAuction(frame.auctionID)
+        if auction then report(GD:SetDKPAuctionPaused(auction.id, auction.data.status ~= "PAUSED")) end
+    end)
+    frame.pause:SetHeight(20); frame.pause:SetPoint("TOPRIGHT", -10, -3)
     frame.stop = button(frame.officerControls, "End auction", 140, function() report(GD:FinishDKPAuction(frame.auctionID)) end)
     frame.stop:SetPoint("BOTTOMLEFT", 10, 10)
     frame.award = button(frame.officerControls, "Confirm winner", 140, function()
@@ -918,6 +995,7 @@ end
 function GD:RefreshDKPAuctionPopup()
     if not self:IsDKPEnabled() then self.dkpOutbidState = nil; if popup then popup:Hide() end; return end
     self:CheckDKPOutbidAlert()
+    self:CheckDKPCountdownSound()
     if popupBucket ~= self:GetDKPBucket() then
         popupBucket, dismissed = self:GetDKPBucket(), savedDismissals()
         if popup then popup:Hide(); popup.manual = false; popup.auctionID = nil end
@@ -953,7 +1031,7 @@ function GD:RefreshDKPAuctionPopup()
     popup.title:SetText(self:IsDKPSoloTesting() and "SOLO TEST - DKP Auction" or "DKP Auction")
     local itemInfo = self:GetDKPItemAppearance(a.item, a.label)
     popup.item:SetText(itemInfo.name); popup.icon:SetTexture(itemInfo.icon)
-    local remaining = math.max(0, a.ends - GD:GetDKPTime())
+    local remaining = self:GetDKPAuctionRemaining(r)
     local status = self:GetDKPAuctionStatus(r)
     popup.status:SetText("Minimum " .. a.minimum .. " | Increase " .. a.increment .. " | Host: " .. self:DKPCharacterText(a.owner))
     updateTimer(popup.timer, r)
@@ -979,6 +1057,9 @@ function GD:RefreshDKPAuctionPopup()
     popup.quickAmount = nextBid + popup.quickOffset * a.increment
     popup.quick:SetText((yourBid and yourBid == leading and yourBid.spec == popup.specValue and "Raise to " or "Bid ") .. popup.quickAmount .. " DKP")
     popup.bidderHeader:SetText("BIDDERS (" .. #bids .. ")")
+    local responses = self:GetDKPAuctionResponses(r)
+    popup.responses:SetText(responses.bid .. " bid / " .. responses.passed .. " passed / " .. responses.waiting .. " waiting")
+    popup.responses:SetShown(self:CanConfigureDKP()); popup.responses:SetTextColor(unpack(colors.muted))
     local classColors, own = bidderColors(), key(self:GetDKPGuildMember(self:PlayerName()))
     local width = math.max(100, popup.bidScroll:GetWidth())
     popup.bidContent:SetWidth(width); popup.bidContent:SetHeight(math.max(1, #bids * 28))
@@ -1005,25 +1086,33 @@ function GD:RefreshDKPAuctionPopup()
     popup.emptyBids:SetShown(#bids == 0); popup.emptyBids:SetTextColor(unpack(colors.muted))
     self:StyleScrollFrame(popup.bidScroll)
     local pendingBid = self:GetDKPPendingBid(r.id)
-    if pendingBid then self.dkpBidStatus = pendingBid.withdraw and "Sending withdrawal..." or "Sending bid..." end
+    if pendingBid then self.dkpBidStatus = pendingBid.pass and "Sending pass..." or pendingBid.withdraw and "Sending withdrawal..." or "Sending bid..." end
     if self.dkpBidStatus then popup.feedback:SetText(self.dkpBidStatus) end
     local eligible, eligibilityReason = self:CanBidDKPAuction(r, self:PlayerName())
     local connected, connectionReason = true, nil
     if self.GetDKPAuctionConnection then connected, connectionReason = self:GetDKPAuctionConnection(r) end
     local bidding = status == "OPEN" and remaining > 0 and eligible and not pendingBid and connected
-    if not connected and (status == "OPEN" or status == "REVIEW") then
+    if not connected and (status == "OPEN" or status == "PAUSED" or status == "REVIEW") then
         popup.status:SetText("|cffff7777" .. connectionReason .. "|r")
     end
     if pendingBid then popup.quick:SetText("Sending bid...") end
     if status == "OPEN" and remaining > 0 and not eligible then popup.feedback:SetText(eligibilityReason or "You cannot bid in this auction.") end
     popup.canBid = bidding
     popup.bid:SetEnabled(bidding); popup.withdraw:SetEnabled(bidding and yourBid ~= nil); popup.amount:SetEnabled(bidding); popup.spec:SetEnabled(bidding)
+    popup.pass:SetEnabled(bidding and not (a.passed or {})[key(self:GetDKPGuildMember(self:PlayerName()))])
+    popup.pass:SetText((a.passed or {})[key(self:GetDKPGuildMember(self:PlayerName()))] and "Passed" or "Pass")
+    self:StyleButton(popup.pass)
     popup.quick:SetEnabled(bidding and popup.quickAmount <= maximum)
     popup.allIn:SetEnabled(bidding and available >= nextBid and available <= 1000000)
     popup.minus:SetEnabled(bidding and popup.quickOffset > 0)
     popup.plus:SetEnabled(bidding and popup.quickAmount + a.increment <= maximum)
     popup.spec:SetText(popup.specValue == "MS" and "Main spec" or "Off spec")
-    local host, live = isHost(r), status == "OPEN" or status == "REVIEW"
+    if status == "PAUSED" then
+        popup.feedback:SetText("Auction paused by the host. Bids and timer are frozen."); popup.pauseNotice = true
+    elseif popup.pauseNotice then
+        popup.pauseNotice = nil; popup.feedback:SetText(self.dkpBidStatus or "Bidding resumed.")
+    end
+    local host, live = isHost(r), status == "OPEN" or status == "PAUSED" or status == "REVIEW"
     local showOfficer = host and live
     popup.officerControls:SetShown(showOfficer)
     popup.officerTitle:SetShown(showOfficer)
@@ -1034,6 +1123,8 @@ function GD:RefreshDKPAuctionPopup()
     popup.stop:SetEnabled(showOfficer and status == "OPEN")
     popup.award:SetEnabled(showOfficer and status == "REVIEW" and leading ~= nil)
     popup.cancel:SetEnabled(showOfficer); popup.remove:SetEnabled(showOfficer and #bids > 0)
+    popup.remove:SetEnabled(showOfficer and status ~= "PAUSED" and #bids > 0)
+    popup.pause:SetShown(host and (status == "OPEN" or status == "PAUSED")); popup.pause:SetText(status == "PAUSED" and "Resume" or "Pause"); self:StyleButton(popup.pause)
     popup.withdraw:ClearAllPoints(); popup.withdraw:SetPoint("BOTTOMLEFT", 16, showOfficer and 86 or 12)
     popup.bidScroll:ClearAllPoints(); popup.bidScroll:SetPoint("TOPLEFT", 16, -334); popup.bidScroll:SetPoint("BOTTOMRIGHT", -36, showOfficer and 154 or 80)
     popup.feedback:ClearAllPoints(); popup.feedback:SetPoint("BOTTOMLEFT", 16, showOfficer and 118 or 46); popup.feedback:SetPoint("BOTTOMRIGHT", -16, showOfficer and 118 or 46); popup.feedback:SetHeight(28)
@@ -1051,10 +1142,10 @@ end
 
 local function buildWorkspace(panel)
     panel.navigation = {}
-    for index, section in ipairs({ "Standings", "Auctions", "Loot", "Raids", "Officer" }) do
+    for index, section in ipairs({ "Standings", "Auctions", "Raids", "Officer" }) do
         local view = section
         local control = button(panel, section, 76, function()
-            if (view == "Officer" or view == "Loot") and not GD:CanConfigureDKP() then return end
+            if view == "Officer" and not GD:CanConfigureDKP() then return end
             if view == "Standings" then panel.section = nil else panel.section = view end
             if panel.workspace then panel.workspace.scroll:SetVerticalScroll(0) end
             panel.historyMode = false; panel.search:SetText(""); GD:RefreshDKP()
@@ -1085,6 +1176,14 @@ local function buildWorkspace(panel)
         if self.elapsed >= 0.1 then self.elapsed = 0; updateTimer(self.timer, GD:GetDKPAuction(self.auctionID)) end
     end)
     area.live:Hide()
+    area.nextItem = CreateFrame("Button", nil, area, "BackdropTemplate")
+    area.nextItem:SetHeight(44); area.nextItem:SetPoint("TOPRIGHT", 0, -90)
+    area.nextItem:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8", edgeFile = "Interface/Buttons/WHITE8X8", edgeSize = 1 })
+    area.nextItem.icon = area.nextItem:CreateTexture(nil, "ARTWORK"); area.nextItem.icon:SetSize(30, 30); area.nextItem.icon:SetPoint("LEFT", 6, 0)
+    area.nextItem.text = label(area.nextItem, "GameFontHighlightSmall", 44, -7); area.nextItem.text:SetPoint("TOPRIGHT", -8, -7); area.nextItem.text:SetHeight(32)
+    area.nextItem:SetScript("OnClick", function() GD:ShowDKPAuctionQueue() end)
+    itemTooltip(area.nextItem, function() return area.nextItem.link or "" end)
+    area.nextItem:Hide()
     area.scroll = CreateFrame("ScrollFrame", nil, area, "UIPanelScrollFrameTemplate")
     area.scroll:SetPoint("TOPLEFT", 0, -90); area.scroll:SetPoint("BOTTOMRIGHT", -20, 0)
     area.content = CreateFrame("Frame", nil, area.scroll); area.content:SetSize(400, 200); area.scroll:SetScrollChild(area.content)
@@ -1095,11 +1194,11 @@ local function matching(query, value) return query == "" or key(value):find(quer
 function GD:RefreshDKPWorkspace(panel)
     if not panel.workspace then buildWorkspace(panel) end
     if panel.section == "Standings" then panel.section = nil end
+    if panel.section == "Loot" then panel.section = "Officer"; panel.officerView = "Loot" end
     panel.navigation.Officer:SetShown(self:CanConfigureDKP())
-    panel.navigation.Loot:SetShown(self:CanConfigureDKP())
-    if (panel.section == "Officer" or panel.section == "Loot") and not self:CanConfigureDKP() then panel.section = nil end
+    if panel.section == "Officer" and not self:CanConfigureDKP() then panel.section = nil end
     local position = 0
-    for _, section in ipairs({ "Standings", "Auctions", "Loot", "Raids", "Officer" }) do
+    for _, section in ipairs({ "Standings", "Auctions", "Raids", "Officer" }) do
         local control = panel.navigation[section]
         if control:IsShown() then
             control:ClearAllPoints(); control:SetPoint("TOPLEFT", 16 + position * 80, -130)
@@ -1115,7 +1214,20 @@ function GD:RefreshDKPWorkspace(panel)
     panel.nameHeader:Hide(); panel.pointsHeader:Hide(); panel.scroll:Hide(); area:Show()
     local colors, query, rows, actions = self:GetAppearanceColors(), key(panel.search:GetText()), {}, {}
     local officer, section = self:CanConfigureDKP(), panel.section
-    area.live:Hide(); area.description:Show()
+    local officerLoot = section == "Officer" and panel.officerView ~= "Adjustments"
+    if section == "Officer" then
+        actions = {
+            { "Starting DKP", function() self:ShowDKPStartingGrantForm() end },
+            { "Record Loot", function() self:ShowDKPRecordLoot() end },
+            { officerLoot and "Adjustments" or "Loot History", function()
+                if not self:CanConfigureDKP() then return end
+                panel.officerView = officerLoot and "Adjustments" or "Loot"
+                panel.search:SetText(""); area.scroll:SetVerticalScroll(0); self:RefreshDKP()
+            end },
+            { "Master Loot", function() self:ShowDKPMasterLootSettings() end },
+        }
+    end
+    area.live:Hide(); area.nextItem:Hide(); area.description:Show()
     area.scroll:ClearAllPoints(); area.scroll:SetPoint("TOPLEFT", 0, -90); area.scroll:SetPoint("BOTTOMRIGHT", -20, 0)
     panel.title:SetText((self:IsDKPSoloTesting() and "SOLO TEST - DKP " or "DKP ") .. section); panel.searchLabel:SetText("Search " .. section:lower())
     if section == "Auctions" then
@@ -1163,15 +1275,15 @@ function GD:RefreshDKPWorkspace(panel)
             local leader = self:GetDKPAuctionLeader(r)
             local itemInfo = self:GetDKPItemAppearance(a.item, a.label)
             if (not active or r.id ~= active.id) and matching(query, itemInfo.name .. " " .. a.label .. " " .. a.owner .. " " .. a.status .. " " .. a.winner) then
-                local statusLabels = { OPEN = "Bidding open", REVIEW = "Awaiting award", AWARDED = "Awarded", CANCELLED = "Cancelled" }
+                local statusLabels = { OPEN = "Bidding open", PAUSED = "Paused", REVIEW = "Awaiting award", AWARDED = "Awarded", CANCELLED = "Cancelled" }
                 local status = self:GetDKPAuctionStatus(r)
                 rows[#rows + 1] = { title = itemInfo.name .. " - " .. (statusLabels[status] or status), itemInfo = itemInfo,
                     color = { itemInfo.r, itemInfo.g, itemInfo.b }, detail = "Host: " .. self:DKPCharacterText(a.owner) .. " | Minimum " .. a.minimum .. " DKP\n"
                     .. (a.status == "AWARDED" and (self:DKPCharacterText(a.winner) .. " paid " .. a.cost .. " DKP") or leadingText(leader)), action = function() self:ShowDKPAuctionPopup(current.id) end, button = "Open" }
             end
         end
-    elseif section == "Loot" then
-        if officer then actions[#actions + 1] = { "Record Loot", function() self:ShowDKPRecordLoot() end } end
+    elseif officerLoot then
+        panel.title:SetText("DKP Officer - Loot History"); panel.searchLabel:SetText("Search loot history")
         area.description:SetText("Purchases and auction winners share this loot ledger. Reversals retain the original purchase and record a refund separately.")
         for _, r in ipairs(self:GetDKPAwardHistory(query)) do
             if r.loot then
@@ -1220,9 +1332,7 @@ function GD:RefreshDKPWorkspace(panel)
             end
         end
     elseif section == "Officer" then
-        actions = { { "Starting DKP", function() self:ShowDKPStartingGrantForm() end },
-            { "Backup", function() self:ShowDKPBackup() end }, { "Restore", function() self:ShowDKPRestore() end },
-            { "Master Loot", function() self:ShowDKPMasterLootSettings() end } }
+        panel.title:SetText("DKP Officer - Adjustments"); panel.searchLabel:SetText("Search adjustments")
         area.description:SetText("GM and rank-1 officer tools. Select a history entry to reverse it with a reason. Every character, including alts, has its own DKP and starting grant.")
         for _, r in ipairs(self:GetDKPAwardHistory(query)) do
             local entry = r
@@ -1235,10 +1345,23 @@ function GD:RefreshDKPWorkspace(panel)
         control.action = action and action[2] or nil
         if action then control:SetText(action[1]); self:StyleButton(control, index == 1 and "primary" or nil) end
     end
-    local counts = { Loot = "purchases", Raids = "raids", Officer = "adjustments" }
+    local counts = { Raids = "raids", Officer = officerLoot and "purchases" or "adjustments" }
     local summary = section == "Auctions" and (#self:GetDKPSystemRecords("DKU") .. " auctions saved")
         or (#rows .. " " .. (counts[section] or "entries"))
     panel.summary:SetText("Your DKP: " .. self:GetDKPBalance(self:PlayerName()) .. "  |  " .. summary)
+    if section == "Officer" then panel.summary:SetText(panel.summary:GetText() .. "  |  " .. self:GetDKPPendingDeliveryCount() .. " pending deliveries") end
+    if section == "Auctions" and officer then
+        local entry = self:GetDKPAuctionQueue()[1]
+        if entry then
+            local info = self:GetDKPItemAppearance(entry.item, entry.label)
+            local nextItem = area.nextItem
+            nextItem:ClearAllPoints(); nextItem:SetPoint("TOPLEFT", 0, self:GetDKPActiveAuction() and -146 or -90); nextItem:SetPoint("TOPRIGHT", 0, self:GetDKPActiveAuction() and -146 or -90)
+            nextItem.icon:SetTexture(info.icon); nextItem.link = info.link
+            nextItem.text:SetText("Next in your queue: " .. info.name .. "\n" .. entry.minimum .. " DKP minimum | " .. entry.duration .. " sec")
+            nextItem.text:SetTextColor(info.r, info.g, info.b); nextItem:SetBackdropColor(unpack(colors.alternate)); nextItem:SetBackdropBorderColor(unpack(colors.muted)); nextItem:Show()
+            area.scroll:ClearAllPoints(); area.scroll:SetPoint("TOPLEFT", 0, self:GetDKPActiveAuction() and -202 or -144); area.scroll:SetPoint("BOTTOMRIGHT", -20, 0)
+        end
+    end
     area.description:SetWidth(math.max(100, area:GetWidth())); area.description:SetTextColor(unpack(colors.muted))
     local width, totalHeight = math.max(100, area.scroll:GetWidth()), 0
     for _, value in ipairs(rows) do totalHeight = totalHeight + (value.height or 82) end
@@ -1279,7 +1402,7 @@ function GD:RefreshDKPWorkspace(panel)
     for index = #rows + 1, #area.rows do area.rows[index]:Hide() end
     local emptyText = { Auctions = "No auctions yet. Officers can start one above or Alt + right-click an item.",
         Loot = "No loot purchases recorded yet.", Raids = "No raids recorded yet. Start a raid or choose Solo Test to try it alone.",
-        Officer = "No DKP adjustments recorded yet." }
+        Officer = officerLoot and "No loot purchases recorded yet." or "No DKP adjustments recorded yet." }
     if not officer then emptyText.Auctions = "No auctions have been started yet."; emptyText.Raids = "No raids have been recorded by your officers yet." end
     area.empty:SetWidth(math.max(100, width - 16)); area.empty:SetHeight(52)
     area.empty:SetText(query ~= "" and "No matches. Clear the search to see all entries."
@@ -1288,7 +1411,7 @@ function GD:RefreshDKPWorkspace(panel)
     area.empty:SetShown(#rows == 0)
     self:StyleScrollFrame(area.scroll)
     panel.footer:SetText(self:IsDKPSoloTesting() and "SOLO TEST: temporary data, no guild sync. /gd dkptest exits."
-        or section == "Officer" and "Every correction is recorded in history. Keep a backup before raids." or "Every character has its own DKP balance. Items are distributed by the loot master.")
+        or section == "Officer" and "Loot purchases, delivery and corrections are managed by officers and the GM." or "Every character has its own DKP balance. Items are distributed by the loot master.")
     return true
 end
 

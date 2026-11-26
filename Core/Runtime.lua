@@ -2,7 +2,7 @@
 local ADDON, GD = ...
 _G.GuildDB = GD
 
-GD.version = "0.2.65"
+GD.version = "0.2.66"
 -- New-member tracking begins with this release; keep this anchor on later bumps.
 GD.recentJoinsVersion = "0.1.88"
 GD.recentJoinsStart = 1795285809
@@ -47,10 +47,10 @@ function GD:Decode(value)
 end
 
 function GD:Enqueue(payload, lowPriority, urgent)
-    local live = urgent and not lowPriority and payload:match("^DK[URJNH]|")
+    local live = urgent and not lowPriority and payload:match("^DK[A-Z]+|")
     if live then
         self.liveQueue = self.liveQueue or {}
-        -- Short live auction records need no fragment envelope. All clients
+        -- Short live DKP records need no fragment envelope. All clients
         -- already accept complete record payloads on the normal guild prefix.
         if #payload <= 255 then self.liveQueue[#self.liveQueue + 1] = payload; return end
     end
