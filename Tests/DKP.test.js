@@ -589,6 +589,13 @@ active=player;assert(not player:ImportDKPBackup(backup));assert(not player:Recor
 active=host;host.frame={detailPanel=widget('Frame')}
 for _,name in ipairs({'detailScroll','detailTitle','detailMeta','detailRule','detailBody','footer'}) do host.frame[name]=widget('Frame') end
 host.activeTab='DKP';host:RefreshDKP();local panel=host.frame.dkp
+assert(panel.navigation.History==panel.history and panel.navigation.Standings:GetText()=='Standings')
+panel.navigation.History.scripts.OnClick();assert(panel.historyMode and panel.section==nil and panel.historyFilter.shown and not panel.workspace.shown)
+panel.navigation.History.scripts.OnClick();assert(panel.historyMode and panel.history:GetText()=='History')
+panel.navigation.Standings.scripts.OnClick();assert(not panel.historyMode and not panel.historyFilter.shown and panel.title:GetText()=='DKP Standings')
+panel.navigation.History.scripts.OnClick();host.rank=2;host:RefreshDKP()
+assert(not panel.navigation.History.shown and not panel.historyMode and not panel.historyFilter.shown and panel.title:GetText()=='DKP Standings')
+panel.navigation.History.scripts.OnClick();assert(not panel.historyMode);host.rank=1;host:RefreshDKP();assert(panel.navigation.History.shown)
 for _,section in ipairs({'Auctions','Raids','Officer','Standings'}) do
  panel.navigation[section].scripts.OnClick()
  if section=='Standings' then
@@ -596,8 +603,8 @@ for _,section in ipairs({'Auctions','Raids','Officer','Standings'}) do
   assert(panel.nameHeader.shown and panel.pointsHeader.shown)
  else assert(panel.section==section and panel.workspace.shown and not panel.scroll.shown) end
 end
-panel.navigation.Officer.scripts.OnClick();assert(not panel.navigation.Loot and panel.workspace.actions[2]:GetText()=='Record Loot' and panel.workspace.actions[3]:GetText()=='Adjustments' and panel.workspace.actions[4]:GetText()=='Master Loot')
-panel.workspace.actions[3].action();assert(panel.officerView=='Adjustments' and panel.workspace.actions[3]:GetText()=='Loot History')
+panel.navigation.Officer.scripts.OnClick();assert(not panel.navigation.Loot and panel.workspace.actions[2]:GetText()=='Adjustments' and panel.workspace.actions[3]:GetText()=='Loot History' and panel.workspace.actions[4]:GetText()=='Master Loot')
+panel.workspace.actions[2].action();assert(panel.officerView=='Adjustments' and panel.workspace.actions[3]:GetText()=='Loot History')
 panel.workspace.actions[3].action();assert(panel.officerView=='Loot' and panel.summary:GetText():find('purchases',1,true))
 panel.navigation.Standings.scripts.OnClick();assert(not panel.workspace.shown and panel.scroll.shown)
 panel.section='Standings';host:RefreshDKP();assert(panel.section==nil and not panel.workspace.shown)
@@ -1003,9 +1010,20 @@ do
  active=c;c.activeTab='DKP';c.frame={detailPanel=widget()}
  for _,name in ipairs({'detailScroll','detailTitle','detailMeta','detailRule','detailBody','footer'}) do c.frame[name]=widget() end
  c:RefreshDKP();local panel=c.frame.dkp;panel.history.scripts.OnClick();assert(panel.historyFilter.shown)
- panel.historyFilter.scripts.OnClick();assert(c.form.callback({'Corrections'}));assert(panel.historyCategory=='Corrections')
+ panel.historyFilter.scripts.OnClick();assert(panel.historyMenu.shown and panel.historyMenu.options.Corrections:GetText()=='Corrections')
+ panel.historyMenu.options.Corrections.scripts.OnClick();assert(panel.historyCategory=='Corrections' and not panel.historyMenu.shown)
+ panel.historyFilter.scripts.OnClick();panel.historyMenu.scripts.OnClick();assert(not panel.historyMenu.shown)
+ panel.historyFilter.scripts.OnClick();c.rank=2;c:RefreshDKP();assert(not panel.historyMenu.shown and not panel.historyMode and not panel.history.shown)
+ panel.historyMenu.options.All.scripts.OnClick();assert(panel.historyCategory=='All');c.rank=1;c:RefreshDKP()
  panel.section='Loot';panel.historyMode=false;c:RefreshDKP()
  assert(panel.workspace.rows[1].detail:GetText():find('Refunded',1,true) and not panel.workspace.rows[1].delivery.shown)
+ panel.workspace.filters[2].scripts.OnClick(panel.workspace.filters[2]);assert(panel.deliveryFilter=='Pending' and panel.workspace.empty.shown)
+ panel.workspace.filters[4].scripts.OnClick(panel.workspace.filters[4]);assert(panel.deliveryFilter=='Refunded' and panel.workspace.rows[1].shown and not panel.workspace.empty.shown)
+ assert(panel.workspace.rows[1].amount:GetText():find('DKP',1,true))
+ panel.workspace.actions[2].action();panel.workspace.filters[4].scripts.OnClick(panel.workspace.filters[4]);assert(panel.adjustmentFilter=='Corrections')
+ for _,row in ipairs(panel.workspace.rows) do if row.shown then assert(row.detail:GetText():find('CORRECTION',1,true) or row.amount:GetText():sub(1,1)=='-') end end
+ panel.workspace.actions[3].action();assert(panel.deliveryFilter=='Refunded')
+ panel.workspace.filters[1].scripts.OnClick(panel.workspace.filters[1]);assert(panel.deliveryFilter=='All')
  assert(c:RecordDKPLoot('Member One','19020',50,'OS'));c:RefreshDKP()
  local deliveryRow
  for _,r in ipairs(panel.workspace.rows) do if r.shown and r.delivery.shown then deliveryRow=r end end

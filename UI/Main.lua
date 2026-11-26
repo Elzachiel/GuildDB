@@ -715,7 +715,10 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose, se
     local name = "GuildDBActionDialog" .. dialogCounter
     local dialog = CreateFrame("Frame", name, UIParent, "BackdropTemplate")
     local contentHeight = 0
-    for _, field in ipairs(fields) do contentHeight = contentHeight + (field.itemPreview and 76 or field.checklist and 236 or field.multiline and 116 or 56) end
+    local function fieldSpace(field)
+        return field.itemPreview and 76 or field.checklist and 236 or field.displayHeight and field.displayHeight + 32 or field.multiline and 116 or 56
+    end
+    for _, field in ipairs(fields) do contentHeight = contentHeight + fieldSpace(field) end
     dialog:SetSize(410, 96 + contentHeight)
     dialog:SetPoint("CENTER")
     dialog:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -724,6 +727,10 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose, se
     dialog:SetClampedToScreen(true)
     dialog:SetBackdrop({ bgFile = "Interface/Tooltips/UI-Tooltip-Background", edgeFile = "Interface/Tooltips/UI-Tooltip-Border", tile = true, tileSize = 16, edgeSize = 16, insets = { left = 4, right = 4, top = 4, bottom = 4 } })
     GD:StyleSurface(dialog, "window")
+    if fields[1] and fields[1].displayHeight then
+        local colors = GD:GetAppearanceColors()
+        dialog:SetBackdropColor(colors.panel[1], colors.panel[2], colors.panel[3], 1)
+    end
     dialog:SetBackdropBorderColor(GOLD[1], GOLD[2], GOLD[3], 0.9)
     dialog.title = dialog:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     dialog.title:SetPoint("TOPLEFT", 18, -14)
@@ -737,7 +744,8 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose, se
         label:SetPoint("TOPLEFT", 18, -offset)
         label:SetText(field.label)
         setTextColor(label, CREAM)
-        local height = field.multiline and 84 or 24
+        if field.emphasis then label:SetFontObject("GameFontNormal"); label:SetTextColor(1, .75, .25) end
+        local height = field.displayHeight or (field.multiline and 84 or 24)
         local input
         if field.checklist then
             input = CreateFrame("Frame", nil, dialog)
@@ -880,6 +888,15 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose, se
             if field.readOnly then
                 input:SetEnabled(false)
                 input:SetTextColor(MUTED_GOLD[1], MUTED_GOLD[2], MUTED_GOLD[3])
+                if field.displayHeight then
+                    local colors = GD:GetAppearanceColors()
+                    input:SetBackdropColor(colors.alternate[1], colors.alternate[2], colors.alternate[3], 1)
+                    input:SetTextColor(unpack(colors.text))
+                end
+                if field.emphasis then
+                    input:SetFontObject("GameFontNormalLarge"); input:SetTextColor(1, .83, .4)
+                    input:SetBackdropColor(.16, .10, .025, 1); input:SetBackdropBorderColor(1, .65, .15, 1)
+                end
                 if field.itemPreview and GD.CreateDKPItemPreview then
                     input:Hide()
                     input.itemPreview = GD:CreateDKPItemPreview(dialog, field.itemPreview, field.itemName, field.pricePreview)
@@ -899,7 +916,7 @@ local function showInputForm(title, fields, onAccept, acceptLabel, hideClose, se
             end
         end
         dialog.inputs[i] = input
-        offset = offset + (field.itemPreview and 76 or field.checklist and 236 or field.multiline and 116 or 56)
+        offset = offset + fieldSpace(field)
     end
     if not hideClose then
         local close = CreateFrame("Button", nil, dialog, "UIPanelButtonTemplate")

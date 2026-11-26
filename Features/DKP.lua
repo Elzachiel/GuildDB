@@ -893,12 +893,13 @@ local function buildStandings(frame)
     panel.history:SetText("History")
     panel.startingBids = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     panel.startingBids:SetSize(110, 26)
-    panel.startingBids:SetPoint("TOPRIGHT", -124, -12)
+    panel.startingBids:SetPoint("TOPRIGHT", -16, -12)
     panel.startingBids:SetText("Prices / Rules")
     panel.startingBids:SetScript("OnClick", function() GD:ShowDKPStartingBids() end)
     panel.history:SetScript("OnClick", function()
+        if not GD:CanConfigureDKP() then return end
         panel.section = nil
-        panel.historyMode = not panel.historyMode
+        panel.historyMode = true
         panel.search:SetText("")
         panel.scroll:SetVerticalScroll(0)
         GD:RefreshDKP()
@@ -910,15 +911,36 @@ local function buildStandings(frame)
     panel.historyFilter = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     panel.historyFilter:SetSize(124, 26); panel.historyFilter:SetPoint("TOPLEFT", 16, -160)
     panel.historyFilter:SetScript("OnClick", function()
-        local bucket = GD:GetDKPBucket()
-        local options = GD:CanConfigureDKP() and {"All", "Earned", "Spent", "Loot", "Corrections"} or {"All", "Earned", "Spent", "Corrections"}
-        GD.ShowInputForm("History Filter", {{label = "Show adjustments", options = options, value = panel.historyCategory or "All"}}, function(values)
-            if GD:GetDKPBucket() ~= bucket then return false, "Your guild changed. Reopen history." end
-            local valid = {All=true, Earned=true, Spent=true, Loot=true, Corrections=true}
-            if not valid[values[1]] then return false, "Choose a history filter." end
-            if values[1] == "Loot" and not GD:CanConfigureDKP() then return false, "Only officers and the GM can view loot history." end
-            panel.historyCategory = values[1]; panel.scroll:SetVerticalScroll(0); GD:RefreshDKP(); return true
-        end, "Apply")
+        if not GD:CanConfigureDKP() or not panel.historyMode then return end
+        if not panel.historyMenu then
+            local dismiss = CreateFrame("Button", nil, panel)
+            dismiss:SetAllPoints(UIParent); dismiss:SetFrameStrata("DIALOG"); dismiss:SetFrameLevel(panel:GetFrameLevel() + 20)
+            dismiss:SetScript("OnClick", function() dismiss:Hide() end)
+            local menu = CreateFrame("Frame", nil, dismiss, "BackdropTemplate")
+            menu:SetSize(150, 148); menu:SetPoint("TOPLEFT", panel.historyFilter, "BOTTOMLEFT", 0, -2)
+            menu:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8", edgeFile = "Interface/Buttons/WHITE8X8", edgeSize = 1 })
+            menu:EnableMouse(true); dismiss.menu, dismiss.options = menu, {}
+            for index, category in ipairs({"All", "Earned", "Spent", "Loot", "Corrections"}) do
+                local choice = category
+                local control = CreateFrame("Button", nil, menu, "UIPanelButtonTemplate")
+                control:SetSize(142, 26); control:SetPoint("TOPLEFT", 4, -4 - (index - 1) * 28); control:SetText(choice)
+                control:SetScript("OnClick", function()
+                    dismiss:Hide()
+                    if not GD:CanConfigureDKP() or not panel.historyMode or dismiss.bucket ~= GD:GetDKPBucket() then return end
+                    panel.historyCategory = choice; panel.scroll:SetVerticalScroll(0); GD:RefreshDKP()
+                end)
+                dismiss.options[category] = control
+            end
+            panel.historyMenu = dismiss; dismiss:Hide()
+            panel.historyFilter:HookScript("OnHide", function() dismiss:Hide() end)
+            panel:HookScript("OnHide", function() dismiss:Hide() end)
+        end
+        local popup, colors = panel.historyMenu, GD:GetAppearanceColors()
+        popup.bucket = GD:GetDKPBucket()
+        popup.menu:SetBackdropColor(colors.panel[1], colors.panel[2], colors.panel[3], 1)
+        popup.menu:SetBackdropBorderColor(unpack(colors.accent))
+        for category, control in pairs(popup.options) do GD:StyleButton(control, category == (panel.historyCategory or "All") and "primary" or nil) end
+        popup:SetShown(not popup:IsShown())
     end)
     panel.raidAward = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     panel.raidAward:SetSize(100, 26)
@@ -978,10 +1000,16 @@ function GD:RefreshDKP()
         panel.bucket = self:GetDKPBucket()
         panel.historyMode = false
         panel.historyCategory = "All"
+        panel.deliveryFilter, panel.adjustmentFilter = "All", "All"
         panel.section = nil
         panel.search:SetText("")
         panel.scroll:SetVerticalScroll(0)
     end
+    if panel.historyMode and not self:CanConfigureDKP() then
+        panel.historyMode = false; panel.historyCategory = "All"; panel.section = nil
+        panel.search:SetText(""); panel.scroll:SetVerticalScroll(0)
+    end
+    if panel.historyMenu and (not panel.historyMode or not self:CanConfigureDKP() or panel.historyMenu.bucket ~= self:GetDKPBucket()) then panel.historyMenu:Hide() end
     local rows, total
     if panel.historyMode then rows = self:GetDKPAwardHistory(panel.search:GetText(), panel.historyCategory); total = #self:GetDKPAwardHistory(nil, panel.historyCategory)
     else rows, total = self:GetDKPStandings(panel.search:GetText()) end
@@ -995,11 +1023,12 @@ function GD:RefreshDKP()
     panel.title:SetWidth(math.max(100, frame.detailPanel:GetWidth() - 258))
     panel.startingBids:Show()
     self:StyleButton(panel.startingBids)
-    panel.history:SetText(panel.historyMode and "Standings" or "History")
+    panel.history:SetText("History")
+    panel.history:SetShown(self:CanConfigureDKP())
     self:StyleButton(panel.history, panel.historyMode and "primary" or nil)
     panel.searchLabel:SetText(panel.historyMode and "Search member, officer or reason" or "Search name or class")
     panel.historyFilter:SetShown(panel.historyMode and not panel.section)
-    panel.historyFilter:SetText(panel.historyCategory or "All"); self:StyleButton(panel.historyFilter)
+    panel.historyFilter:SetText((panel.historyCategory or "All") .. " v"); self:StyleButton(panel.historyFilter)
     panel.nameHeader:ClearAllPoints(); panel.nameHeader:SetPoint("TOPLEFT", panel.historyMode and 152 or 24, -170)
     panel.nameHeader:SetText(panel.historyMode and "Adjustment details" or "Guild member")
     panel.summary:SetText(#rows .. " / " .. total .. (panel.historyMode and " adjustments" or " members") .. "  |  Your DKP: " .. self:GetDKPBalance(self:PlayerName()))
@@ -1073,7 +1102,7 @@ function GD:RefreshDKP()
         row.meta:SetHeight(panel.historyMode and 34 or 14)
         row.name:SetText(self:Display(panel.historyMode and member.member or member.name))
         row.name:SetTextColor(color and color.r or colors.text[1], color and color.g or colors.text[2], color and color.b or colors.text[3])
-        row.meta:SetText(panel.historyMode and ("By " .. self:DKPCharacterText(member.by) .. " - " .. date("%b %d, %I:%M %p", member.ts) .. "\n" .. self:Display(member.reason))
+        row.meta:SetText(panel.historyMode and (self:Display(member.reason) .. "\n" .. date("%b %d, %I:%M %p", member.ts) .. " | By " .. self:DKPCharacterText(member.by))
             or (self:Display(member.class) .. (member.online and " - Online" or " - Offline")))
         row.meta:SetTextColor(unpack(colors.muted))
         row.points:ClearAllPoints()

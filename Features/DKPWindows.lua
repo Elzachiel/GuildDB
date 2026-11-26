@@ -386,11 +386,11 @@ function GD:ShowDKPAuctionResult(auction)
     if not frame then
         frame = liveWindow("GuildDBDKPAuctionResult", "Auction Result", 460, 210)
         frame:ClearAllPoints(); frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-        frame.icon = frame:CreateTexture(nil, "ARTWORK"); frame.icon:SetSize(36, 36); frame.icon:SetPoint("TOPLEFT", 16, -48)
+        frame.icon = frame:CreateTexture(nil, "ARTWORK"); frame.icon:SetSize(44, 44); frame.icon:SetPoint("TOPLEFT", 16, -46)
         frame.hover = CreateFrame("Button", nil, frame); frame.hover:SetAllPoints(frame.icon)
         itemTooltip(frame.hover, function() return "item:" .. frame.itemID end)
-        frame.item = label(frame, "GameFontNormal", 62, -48); frame.item:SetWidth(378); frame.item:SetHeight(36)
-        frame.result = label(frame, "GameFontHighlight", 16, -96); frame.result:SetWidth(424); frame.result:SetHeight(66)
+        frame.item = label(frame, "GameFontNormalLarge", 72, -46); frame.item:SetWidth(368); frame.item:SetHeight(44)
+        frame.result = label(frame, "GameFontNormalLarge", 16, -102); frame.result:SetWidth(424); frame.result:SetHeight(64); frame.result:SetWordWrap(true)
         frame:SetScript("OnUpdate", function(self)
             if self.bucket ~= GD:GetDKPBucket() or not GD:IsDKPEnabled() then self:Hide(); return end
             local auction = GD:GetDKPAuction(self.auctionID)
@@ -702,15 +702,15 @@ function GD:ShowDKPEndRaidConfirmation(raid, stop, reason, reminder)
         auctions[#auctions + 1] = auction.data.label .. " [" .. self:GetDKPAuctionStatus(auction) .. "]"
     end
     for index, loot in ipairs(checklist.pending) do
-        if index > 5 then pending[#pending + 1] = "More pending items are listed in Officer > Loot History."; break end
-        pending[#pending + 1] = loot.label .. " -> " .. loot.member .. " (" .. loot.cost .. " DKP)"
+        if index > 3 then pending[#pending + 1] = "More pending items: Officer > Loot History."; break end
+        pending[#pending + 1] = "PENDING: " .. loot.label .. "\n" .. self:DKPCharacterText(loot.member) .. " | " .. loot.cost .. " DKP"
     end
     local used = false
     self.ShowInputForm(reminder and "DKP Raid Still Recording" or stop and "Stop Raid Recording" or "End DKP Raid", {
-        {label = "Recording", value = raid.data.label .. "\nHost: " .. self:DKPCharacterText(raid.data.owner) .. (reason and ("\n" .. reason) or ""), readOnly = true, multiline = true, max = 600},
-        {label = "Active guild auctions: " .. #checklist.auctions, value = #auctions > 0 and table.concat(auctions, "\n") or "None.", readOnly = true, multiline = true, max = 1500},
-        {label = "Undelivered loot in this recording: " .. #checklist.pending, value = #pending > 0 and table.concat(pending, "\n") or "None.", readOnly = true, multiline = true, max = 1500},
-        {label = "Before finishing", value = "Ending recording does not finish/cancel auctions or mark loot delivered.\n" .. (stop and "Stop without an end bonus. Already-earned DKP is preserved." or "Current connected guild participants receive 10 end DKP. With no group, no end bonus is awarded."), readOnly = true, multiline = true, max = 600},
+        {label = "Recording", value = raid.data.label .. "\nHost: " .. self:DKPCharacterText(raid.data.owner) .. (reason and ("\n" .. reason) or ""), readOnly = true, multiline = true, displayHeight = reason and 86 or 48, max = 600},
+        {label = "Active guild auctions: " .. #checklist.auctions, value = #auctions > 0 and table.concat(auctions, "\n") or "No active auctions.", readOnly = true, multiline = true, displayHeight = math.max(32, #auctions * 32 + 12), emphasis = #auctions > 0, max = 1500},
+        {label = "Undelivered loot in this recording: " .. #checklist.pending, value = #pending > 0 and table.concat(pending, "\n\n") or "No pending deliveries.", readOnly = true, multiline = true, displayHeight = math.max(32, math.min(220, #pending * 58 + 12)), emphasis = #pending > 0, max = 2500},
+        {label = "Before finishing", value = "Ending recording does not finish/cancel auctions or mark loot delivered.\n" .. (stop and "Stop without an end bonus. Already-earned DKP is preserved." or "Current connected guild participants receive 10 end DKP. With no group, no end bonus is awarded."), readOnly = true, multiline = true, displayHeight = 96, max = 600},
     }, ownedBucket(function()
         if used then return false, "This action has already completed." end
         local ok, message = self:ValidateDKPEndRaidChecklist(raid.id, checklist.token)
@@ -1167,14 +1167,17 @@ end
 
 local function buildWorkspace(panel)
     panel.navigation = {}
-    for index, section in ipairs({ "Standings", "Auctions", "Raids", "Officer" }) do
+    for index, section in ipairs({ "Standings", "History", "Auctions", "Raids", "Officer" }) do
         local view = section
-        local control = button(panel, section, 76, function()
-            if view == "Officer" and not GD:CanConfigureDKP() then return end
-            if view == "Standings" then panel.section = nil else panel.section = view end
+        local function selectView()
+            if (view == "Officer" or view == "History") and not GD:CanConfigureDKP() then return end
+            if view == "Standings" or view == "History" then panel.section = nil else panel.section = view end
             if panel.workspace then panel.workspace.scroll:SetVerticalScroll(0) end
-            panel.historyMode = false; panel.search:SetText(""); GD:RefreshDKP()
-        end)
+            panel.scroll:SetVerticalScroll(0)
+            panel.historyMode = view == "History"; panel.search:SetText(""); GD:RefreshDKP()
+        end
+        local control = view == "History" and panel.history or button(panel, section, 76, selectView)
+        control:SetSize(76, 26); control:ClearAllPoints(); control:SetScript("OnClick", selectView)
         control:SetPoint("TOPLEFT", 16 + (index - 1) * 80, -130)
         panel.navigation[section] = control
     end
@@ -1186,6 +1189,16 @@ local function buildWorkspace(panel)
         b:SetPoint("TOPLEFT", (index - 1) * 100, 0); area.actions[index] = b
     end
     area.description = label(area, "GameFontHighlightSmall", 0, -38); area.description:SetHeight(44)
+    area.filters = {}
+    for index = 1, 4 do
+        local control = button(area, "", 90, function(self)
+            if not GD:CanConfigureDKP() then return end
+            if panel.officerView == "Adjustments" then panel.adjustmentFilter = self.category else panel.deliveryFilter = self.category end
+            area.scroll:SetVerticalScroll(0); GD:RefreshDKP()
+        end)
+        control:SetPoint("TOPLEFT", (index - 1) * 96, -64); control:Hide()
+        area.filters[index] = control
+    end
     area.live = CreateFrame("Frame", nil, area, "BackdropTemplate")
     area.live:SetPoint("TOPLEFT", 0, -36); area.live:SetPoint("TOPRIGHT", 0, -36); area.live:SetHeight(102)
     area.live:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8X8", edgeFile = "Interface/Buttons/WHITE8X8", edgeSize = 1 })
@@ -1221,16 +1234,18 @@ function GD:RefreshDKPWorkspace(panel)
     if panel.section == "Standings" then panel.section = nil end
     if panel.section == "Loot" then panel.section = "Officer"; panel.officerView = "Loot" end
     panel.navigation.Officer:SetShown(self:CanConfigureDKP())
+    panel.navigation.History:SetShown(self:CanConfigureDKP())
     if panel.section == "Officer" and not self:CanConfigureDKP() then panel.section = nil end
     local position = 0
-    for _, section in ipairs({ "Standings", "Auctions", "Raids", "Officer" }) do
+    for _, section in ipairs({ "Standings", "History", "Auctions", "Raids", "Officer" }) do
         local control = panel.navigation[section]
         if control:IsShown() then
             control:ClearAllPoints(); control:SetPoint("TOPLEFT", 16 + position * 80, -130)
             position = position + 1
         end
     end
-    for section, control in pairs(panel.navigation) do self:StyleButton(control, (panel.section or "Standings") == section and "primary" or nil) end
+    local selectedView = panel.section or (panel.historyMode and "History" or "Standings")
+    for section, control in pairs(panel.navigation) do self:StyleButton(control, selectedView == section and "primary" or nil) end
     local area = panel.workspace
     if not panel.section then
         area:Hide(); panel.nameHeader:Show(); panel.pointsHeader:Show(); panel.scroll:Show()
@@ -1243,16 +1258,22 @@ function GD:RefreshDKPWorkspace(panel)
     if section == "Officer" then
         actions = {
             { "Starting DKP", function() self:ShowDKPStartingGrantForm() end },
-            { "Record Loot", function() self:ShowDKPRecordLoot() end },
-            { officerLoot and "Adjustments" or "Loot History", function()
+            { "Adjustments", function()
                 if not self:CanConfigureDKP() then return end
-                panel.officerView = officerLoot and "Adjustments" or "Loot"
+                panel.officerView = "Adjustments"
+                panel.search:SetText(""); area.scroll:SetVerticalScroll(0); self:RefreshDKP()
+            end },
+            { "Loot History", function()
+                if not self:CanConfigureDKP() then return end
+                panel.officerView = "Loot"
                 panel.search:SetText(""); area.scroll:SetVerticalScroll(0); self:RefreshDKP()
             end },
             { "Master Loot", function() self:ShowDKPMasterLootSettings() end },
         }
     end
     area.live:Hide(); area.nextItem:Hide(); area.description:Show()
+    area.description:SetHeight(44)
+    for _, control in ipairs(area.filters) do control:Hide() end
     area.scroll:ClearAllPoints(); area.scroll:SetPoint("TOPLEFT", 0, -90); area.scroll:SetPoint("BOTTOMRIGHT", -20, 0)
     panel.title:SetText((self:IsDKPSoloTesting() and "SOLO TEST - DKP " or "DKP ") .. section); panel.searchLabel:SetText("Search " .. section:lower())
     if section == "Auctions" then
@@ -1309,17 +1330,20 @@ function GD:RefreshDKPWorkspace(panel)
         end
     elseif officerLoot then
         panel.title:SetText("DKP Officer - Loot History"); panel.searchLabel:SetText("Search loot history")
-        area.description:SetText("Purchases and auction winners share this loot ledger. Reversals retain the original purchase and record a refund separately.")
+        area.description:SetText("Item and recipient on the left. Delivery and purchase details on the right.")
         for _, r in ipairs(self:GetDKPAwardHistory(query)) do
             if r.loot then
                 local entry = r
                 local itemInfo = r.item and self:GetDKPItemAppearance(r.item, r.label)
                 local delivery = self:GetDKPLootDelivery(r.id)
-                rows[#rows + 1] = { title = (itemInfo and itemInfo.name or r.label or r.reason) .. " - " .. math.abs(r.amount) .. " DKP",
+                if not panel.deliveryFilter or panel.deliveryFilter == "All" or panel.deliveryFilter == delivery then
+                rows[#rows + 1] = { title = itemInfo and itemInfo.name or r.label or r.reason,
+                    amount = r.amount, height = 94,
                     itemInfo = itemInfo, color = itemInfo and { itemInfo.r, itemInfo.g, itemInfo.b }, detail = self:DKPCharacterText(r.member) .. " (" .. (r.spec or "MS") .. ") | " .. date("%b %d, %I:%M %p", r.ts)
                     .. "\n" .. deliveryText(delivery) .. " | By " .. self:DKPCharacterText(r.by), action = function() self:ShowDKPEntry(entry) end, button = "Details",
                     deliveryText = officer and delivery ~= "Refunded" and (delivery == "Delivered" and "Mark pending" or "Mark delivered") or nil,
                     deliveryAction = ownedBucket(function() report(self:SetDKPLootDelivery(entry.id, delivery ~= "Delivered")) end) }
+                end
             end
         end
     elseif section == "Raids" then
@@ -1358,17 +1382,34 @@ function GD:RefreshDKPWorkspace(panel)
         end
     elseif section == "Officer" then
         panel.title:SetText("DKP Officer - Adjustments"); panel.searchLabel:SetText("Search adjustments")
-        area.description:SetText("GM and rank-1 officer tools. Select a history entry to reverse it with a reason. Every character, including alts, has its own DKP and starting grant.")
-        for _, r in ipairs(self:GetDKPAwardHistory(query)) do
+        area.description:SetText("Review earnings, spending and corrections. Open Details to review or reverse an entry.")
+        for _, r in ipairs(self:GetDKPAwardHistory(query, panel.adjustmentFilter)) do
             local entry = r
-            rows[#rows + 1] = { title = self:DKPCharacterText(r.member) .. " " .. (r.amount > 0 and "+" or "") .. r.amount .. " DKP", detail = date("%b %d, %I:%M %p", r.ts) .. " | " .. self:DKPCharacterText(r.by) .. "\n" .. self:Display(r.reason),
+            local reversed = self:GetDKPBucket().dkpSystems["DKX:" .. r.id] ~= nil
+            rows[#rows + 1] = { title = self:DKPCharacterText(r.member), amount = r.amount, height = 94,
+                detail = self:Display(r.reason) .. (reversed and " | REVERSED" or r.reverses and " | CORRECTION" or "")
+                    .. "\n" .. date("%b %d, %I:%M %p", r.ts) .. " | By " .. self:DKPCharacterText(r.by),
                 action = function() self:ShowDKPEntry(entry) end, button = "Details" }
         end
     end
     for index, control in ipairs(area.actions) do
         local action = actions[index]; control:SetShown(action ~= nil)
         control.action = action and action[2] or nil
-        if action then control:SetText(action[1]); self:StyleButton(control, index == 1 and "primary" or nil) end
+        if action then
+            control:SetText(action[1])
+            local selected = section == "Officer" and (officerLoot and index == 3 or not officerLoot and index == 2)
+            self:StyleButton(control, (selected or section ~= "Officer" and index == 1) and "primary" or nil)
+        end
+    end
+    if section == "Officer" then
+        local categories = officerLoot and { "All", "Pending", "Delivered", "Refunded" } or { "All", "Earned", "Spent", "Corrections" }
+        local selected = (officerLoot and panel.deliveryFilter or panel.adjustmentFilter) or "All"
+        area.description:SetHeight(22)
+        for index, category in ipairs(categories) do
+            local control = area.filters[index]; control.category = category; control:SetText(category); control:Show()
+            self:StyleButton(control, category == selected and "primary" or nil)
+        end
+        area.scroll:ClearAllPoints(); area.scroll:SetPoint("TOPLEFT", 0, -104); area.scroll:SetPoint("BOTTOMRIGHT", -20, 0)
     end
     local counts = { Raids = "raids", Officer = officerLoot and "purchases" or "adjustments" }
     local summary = section == "Auctions" and (#self:GetDKPSystemRecords("DKU") .. " auctions saved")
@@ -1398,6 +1439,8 @@ function GD:RefreshDKPWorkspace(panel)
             row = CreateFrame("Frame", nil, area.content); row:SetHeight(78)
             row.background = row:CreateTexture(nil, "BACKGROUND"); row.background:SetAllPoints()
             row.title = label(row, "GameFontNormal", 8, -8); row.detail = label(row, "GameFontHighlightSmall", 8, -28)
+            row.amount = label(row, "GameFontNormal", 0, -8); row.amount:SetPoint("TOPRIGHT", -8, -8); row.amount:SetWidth(118); row.amount:SetJustifyH("RIGHT")
+            row.stripe = row:CreateTexture(nil, "ARTWORK"); row.stripe:SetPoint("TOPLEFT"); row.stripe:SetPoint("BOTTOMLEFT"); row.stripe:SetWidth(2)
             row.itemIcon = CreateFrame("Button", nil, row); row.itemIcon:SetSize(32, 32); row.itemIcon:SetPoint("LEFT", 8, 0)
             row.itemIcon.texture = row.itemIcon:CreateTexture(nil, "ARTWORK"); row.itemIcon.texture:SetAllPoints()
             itemTooltip(row.itemIcon, function() return row.itemLink or "" end)
@@ -1414,11 +1457,18 @@ function GD:RefreshDKPWorkspace(panel)
         row.itemIcon:SetShown(value.itemInfo ~= nil)
         if value.itemInfo then row.itemLink = value.itemInfo.link; row.itemIcon.texture:SetTexture(value.itemInfo.icon) end
         local reserved = value.deliveryText and 138 or value.action and 102 or 12
-        row.title:SetWidth(math.max(1, width - reserved - inset)); row.detail:SetWidth(math.max(1, width - reserved - inset)); row.detail:SetHeight(value.height and 18 or 40)
+        row.title:SetWidth(math.max(1, width - reserved - inset)); row.title:SetWordWrap(false)
+        row.detail:SetWidth(math.max(1, width - reserved - inset)); row.detail:SetHeight(value.amount and 54 or value.height and 18 or 40); row.detail:SetWordWrap(true)
+        row.amount:SetShown(value.amount ~= nil); row.stripe:SetShown(value.amount ~= nil)
+        if value.amount then
+            row.amount:SetText((value.amount > 0 and "+" or "") .. value.amount .. " DKP")
+            local tone = value.amount < 0 and { 1, 0.4, 0.4 } or { 0.35, 0.9, 0.6 }
+            row.amount:SetTextColor(unpack(tone)); row.stripe:SetColorTexture(unpack(tone))
+        end
         row.title:SetText(value.title); row.detail:SetText(value.detail); row.callback = value.action
         row.title:SetTextColor(unpack(value.color or colors.accent)); row.detail:SetTextColor(unpack(colors.text))
         row.action:SetShown(value.action ~= nil)
-        row.action:ClearAllPoints(); row.action:SetPoint(value.deliveryText and "TOPRIGHT" or "RIGHT", -8, value.deliveryText and -6 or 0)
+        row.action:ClearAllPoints(); row.action:SetPoint(value.amount and "TOPRIGHT" or value.deliveryText and "TOPRIGHT" or "RIGHT", -8, value.amount and -30 or value.deliveryText and -6 or 0)
         row.deliveryCallback = value.deliveryAction; row.delivery:SetShown(value.deliveryText ~= nil)
         if value.deliveryText then row.delivery:SetText(value.deliveryText); self:StyleButton(row.delivery) end
         if value.action then row.action:SetText(value.button or "Details"); self:StyleButton(row.action) end
@@ -1432,6 +1482,7 @@ function GD:RefreshDKPWorkspace(panel)
     area.empty:SetWidth(math.max(100, width - 16)); area.empty:SetHeight(52)
     area.empty:SetText(query ~= "" and "No matches. Clear the search to see all entries."
         or section == "Auctions" and self:GetDKPActiveAuction() and "No bids yet. Open Bid Window to place a bid."
+        or section == "Officer" and ((officerLoot and panel.deliveryFilter or panel.adjustmentFilter) or "All") ~= "All" and "No entries in this category. Select All to see the full history."
         or emptyText[section] or "No entries yet.")
     area.empty:SetShown(#rows == 0)
     self:StyleScrollFrame(area.scroll)
