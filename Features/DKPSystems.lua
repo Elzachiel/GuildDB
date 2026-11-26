@@ -302,7 +302,7 @@ local function receive(kind, recordID, ts, author, content, sender)
             if not request or r.data.revision > request.revision and r.data.withdraw == request.withdraw and r.data.pass == request.pass
                 and (request.withdraw or r.data.amount == request.amount and r.data.spec == request.spec) then
                 GD.dkpPendingBid = nil
-                GD.dkpBidStatus = r.data.pass and "Passed. You can still bid before bidding closes." or r.data.withdraw and "Bid withdrawn." or "Bid accepted."
+                GD.dkpBidStatus = r.data.pass and "Passed. You can still bid before bidding closes." or r.data.withdraw and "Bid withdrawn." or GD:FormatDKPBidConfirmation(r.data.amount, r.data.spec)
             end
         end
     end
@@ -423,6 +423,9 @@ function GD:CanBidDKPAuction(r, name)
     for _, member in ipairs(r.data.participants) do if key(member) == key(canonical) then return true end end
     return false, "You were not in the group when this auction started. Ask the host to restart it."
 end
+function GD:FormatDKPBidConfirmation(amount, spec)
+    return "Your " .. tostring(amount) .. " DKP bid was accepted (" .. tostring(spec or "MS") .. ")."
+end
 function GD:AcceptDKPBid(auctionID, member, amount, spec, withdraw, pass)
     if pass then withdraw = true end
     local r = self:GetDKPAuction(auctionID)
@@ -447,7 +450,7 @@ function GD:AcceptDKPBid(auctionID, member, amount, spec, withdraw, pass)
     if not withdraw and ends - GD:GetDKPTime() < 10 then ends = GD:GetDKPTime() + 10 end
     local revision = r.data.revision + 1
     local success, message = publish("DKJ", auctionID .. ":" .. revision, { auctionID, revision, canonical, withdraw and 0 or amount, spec or "MS", order + 1, ends, pass and "2" or withdraw and "1" or "0" })
-    return success, message or (pass and "Passed. You can still bid before bidding closes." or withdraw and "Bid withdrawn." or "Bid accepted.")
+    return success, message or (pass and "Passed. You can still bid before bidding closes." or withdraw and "Bid withdrawn." or self:FormatDKPBidConfirmation(amount, spec))
 end
 function GD:GetDKPPendingBid(auctionID)
     local request = self.dkpPendingBid
@@ -707,7 +710,7 @@ function GD:GetDKPRaidSummary(raidID)
     for _, link in ipairs(records("DKT")) do
         local loot = awards[link.data.loot]
         if link.data.raid == raidID and loot and loot.loot and loot.amount ~= 0 and key(loot.by) == key(link.by) then
-            summary.loot[#summary.loot + 1] = { item = loot.item, label = loot.label, member = loot.member, cost = math.abs(loot.amount),
+            summary.loot[#summary.loot + 1] = { id = loot.id, item = loot.item, label = loot.label, member = loot.member, cost = math.abs(loot.amount),
                 spec = loot.spec, refunded = get("DKX", loot.id) ~= nil, delivery = self:GetDKPLootDelivery(loot.id) }
         end
     end

@@ -692,6 +692,39 @@ function GD:ShowDKPRestore()
     end), "Review")
 end
 
+function GD:ShowDKPEndRaidConfirmation(raid, stop, reason, reminder)
+    if not raid or not self:IsDKPEnabled() or not self:CanConfigureDKP() or not stop and not isHost(raid) then return false end
+    local checklist = self:GetDKPEndRaidChecklist(raid.id)
+    if not checklist then return false end
+    local auctions, pending = {}, {}
+    for index, auction in ipairs(checklist.auctions) do
+        if index > 3 then auctions[#auctions + 1] = "More active auctions are listed in Auctions."; break end
+        auctions[#auctions + 1] = auction.data.label .. " [" .. self:GetDKPAuctionStatus(auction) .. "]"
+    end
+    for index, loot in ipairs(checklist.pending) do
+        if index > 5 then pending[#pending + 1] = "More pending items are listed in Officer > Loot History."; break end
+        pending[#pending + 1] = loot.label .. " -> " .. loot.member .. " (" .. loot.cost .. " DKP)"
+    end
+    local used = false
+    self.ShowInputForm(reminder and "DKP Raid Still Recording" or stop and "Stop Raid Recording" or "End DKP Raid", {
+        {label = "Recording", value = raid.data.label .. "\nHost: " .. self:DKPCharacterText(raid.data.owner) .. (reason and ("\n" .. reason) or ""), readOnly = true, multiline = true, max = 600},
+        {label = "Active guild auctions: " .. #checklist.auctions, value = #auctions > 0 and table.concat(auctions, "\n") or "None.", readOnly = true, multiline = true, max = 1500},
+        {label = "Undelivered loot in this recording: " .. #checklist.pending, value = #pending > 0 and table.concat(pending, "\n") or "None.", readOnly = true, multiline = true, max = 1500},
+        {label = "Before finishing", value = "Ending recording does not finish/cancel auctions or mark loot delivered.\n" .. (stop and "Stop without an end bonus. Already-earned DKP is preserved." or "Current connected guild participants receive 10 end DKP. With no group, no end bonus is awarded."), readOnly = true, multiline = true, max = 600},
+    }, ownedBucket(function()
+        if used then return false, "This action has already completed." end
+        local ok, message = self:ValidateDKPEndRaidChecklist(raid.id, checklist.token)
+        if not ok then return false, message end
+        local current = self:GetDKPActiveRaid()
+        if reminder and not self:GetDKPUnfinishedRaidReason(current) then return false, "The host has resumed recording. Open DKP > Raids to review it." end
+        if stop then ok, message = self:StopStaleDKPRecording(raid.id, "raid")
+        elseif not isHost(current) then return false, "Only the recording host can end this raid."
+        else ok, message = self:EndDKPRaid() end
+        if ok then used = true end
+        return ok, message
+    end), stop and "Stop Recording" or "End Raid")
+    return true
+end
 function GD:ShowDKPRecordedReward(preset)
     local raid = self:GetDKPActiveRaid()
     if not isHost(raid) then return false, "Only the recording host can record boss kills or attendance. Ask the host, or use a custom correction." end
@@ -716,7 +749,7 @@ function GD:ShowDKPRecordedReward(preset)
             return true
         end), "Review")
     elseif preset.event == "finish" then
-        confirm("End DKP Raid", "End " .. raid.data.label .. "?\nConnected guild participants currently grouped receive 10 DKP.\nIf you left the group, recording ends without an end bonus.", currentRecording(function() return self:EndDKPRaid() end), "End Raid")
+        self:ShowDKPEndRaidConfirmation(raid)
     else
         self.ShowInputForm("Recorded Attendance", {
             { label = "On-time attendance", value = "The recording grants on-time DKP when it starts.\nCheck Raids > Summary > Checkpoints for the original recipients.\nUse Custom raid award for a reviewed attendance correction.", readOnly = true, multiline = true, max = 500 },
@@ -729,15 +762,7 @@ function GD:ShowDKPRaidEndReminder(raid, reason)
     if not self:CanConfigureDKP() or self:IsDKPSoloTesting() then return end
     local host = isHost(raid)
     print("GuildDB: RAID NOT ENDED: " .. raid.data.label .. " | Host: " .. self:DKPCharacterText(raid.data.owner) .. ". " .. (reason or "Open DKP > Raids to review the recording."))
-    local action = host and "End the recording now?" or "Stop this unfinished recording now?"
-    confirm("DKP Raid Still Recording", "RAID NOT ENDED: " .. raid.data.label .. "\nHost: " .. self:DKPCharacterText(raid.data.owner) .. "\n" .. (reason or "The recording is still active.") .. "\n" .. action .. " Already-earned DKP is preserved; no end bonus will be awarded.\nCancel leaves recording active. Review it later in DKP > Raids.", ownedBucket(function()
-        local current = self:GetDKPActiveRaid()
-        if not current or current.id ~= raid.id then return false, "This recording is no longer active. Open DKP > Raids to review it." end
-        if not self:CanConfigureDKP() then return false, "Only officers and the GM can stop this recording." end
-        if not self:GetDKPUnfinishedRaidReason(current) then return false, "The host has resumed recording. Open DKP > Raids to review it." end
-        if host then return self:EndDKPRaid() end
-        return self:StopStaleDKPRecording(raid.id, "raid")
-    end), host and "End Recording" or "Stop Recording")
+    self:ShowDKPEndRaidConfirmation(raid, not host, reason, true)
 end
 
 function GD:ShowDKPStartRaid()
@@ -1303,14 +1328,14 @@ function GD:RefreshDKPWorkspace(panel)
             if not active then actions[#actions + 1] = { "Start Raid", function() self:ShowDKPStartRaid() end } end
             if isHost(active) then
                 actions[#actions + 1] = { "End Raid", function()
-                    confirm("End DKP Raid", "End this recording?\nConnected guild members currently in your raid or party receive 10 DKP.\nIf you have left the group, the recording ends without an end bonus.", ownedBucket(function() return self:EndDKPRaid() end), "End Raid")
+                    self:ShowDKPEndRaidConfirmation(active)
                 end }
                 actions[#actions + 1] = { "Stop Recording", function()
-                    confirm("Stop Raid Recording", "Stop recording without an end-of-raid bonus?\nAlready-earned points are preserved.", ownedBucket(function() return self:StopStaleDKPRecording(active.id, "raid") end), "Stop")
+                    self:ShowDKPEndRaidConfirmation(active, true)
                 end }
             elseif active then
                 actions[#actions + 1] = { "Stop Recording", function()
-                    confirm("Stop Raid Recording", "Stop this raid recording?\nAlready-earned points are preserved. No end-of-raid bonus is awarded.", ownedBucket(function() return self:StopStaleDKPRecording(active.id, "raid") end), "Stop")
+                    self:ShowDKPEndRaidConfirmation(active, true)
                 end }
             end
         end

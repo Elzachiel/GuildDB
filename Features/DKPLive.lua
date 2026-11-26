@@ -3,6 +3,9 @@ local _, GD = ...
 local function key(value) return tostring(value or ""):lower() end
 local function own() return GD:GetDKPGuildMember(GD:PlayerName()) or GD:PlayerName() end
 local function clock() return GetTime and GetTime() or GD:GetDKPTime() end
+local function plain(value)
+    return tostring(value or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|H.-|h(.-)|h", "%1"):gsub("[%c]", " ")
+end
 local function state()
     local bucket = GD:GetDKPBucket()
     if not GD.dkpLive or GD.dkpLive.bucket ~= bucket then
@@ -133,6 +136,47 @@ function GD:GetDKPPendingDeliveryCount()
     end
     return count
 end
+function GD:GetDKPEndRaidChecklist(raidID)
+    if not self:IsDKPEnabled() or not self:CanConfigureDKP() then return end
+    local summary = self:GetDKPRaidSummary(raidID)
+    if not summary then return end
+    local checklist = { auctions = {}, pending = {} }
+    local tokens = {raidID}
+    for _, auction in ipairs(self:GetDKPSystemRecords("DKU")) do
+        local status = self:GetDKPAuctionStatus(auction)
+        if status == "OPEN" or status == "PAUSED" or status == "REVIEW" then
+            checklist.auctions[#checklist.auctions + 1] = auction
+            tokens[#tokens + 1] = "auction:" .. auction.id .. ":" .. status
+        end
+    end
+    for _, loot in ipairs(summary.loot) do
+        if not loot.refunded and loot.delivery == "Pending" then
+            checklist.pending[#checklist.pending + 1] = loot
+            tokens[#tokens + 1] = "pending:" .. loot.id
+        end
+    end
+    table.sort(tokens); checklist.token = table.concat(tokens, "\n")
+    local lines = {"END-RAID CHECKLIST", "Active guild auctions: " .. #checklist.auctions,
+        "Undelivered loot linked to this recording: " .. #checklist.pending}
+    for index, auction in ipairs(checklist.auctions) do
+        if index > 3 then lines[#lines + 1] = "Additional active auctions are listed under Auctions."; break end
+        lines[#lines + 1] = "- " .. plain(auction.data.label) .. " [" .. self:GetDKPAuctionStatus(auction) .. "] | Host: " .. plain(auction.data.owner)
+    end
+    for index, loot in ipairs(checklist.pending) do
+        if index > 5 then lines[#lines + 1] = "More pending items are listed under Officer > Loot History."; break end
+        lines[#lines + 1] = "- Pending: " .. plain(loot.label) .. " -> " .. plain(loot.member) .. " (" .. loot.cost .. " DKP)"
+    end
+    lines[#lines + 1] = "Ending recording does not finish/cancel auctions or mark loot delivered."
+    checklist.text = table.concat(lines, "\n")
+    return checklist
+end
+function GD:ValidateDKPEndRaidChecklist(raidID, token)
+    local raid = self:GetDKPActiveRaid()
+    if not raid or raid.id ~= raidID or not self:IsDKPEnabled() or not self:CanConfigureDKP() then return false, "The recording or your permissions changed. Reopen the raid controls." end
+    local checklist = self:GetDKPEndRaidChecklist(raidID)
+    if not checklist or checklist.token ~= token then return false, "The auction or pending loot checklist changed. Close this window and choose End Raid or Stop Recording again to review it." end
+    return true
+end
 function GD:CheckDKPCountdownSound()
     local auction = self:IsDKPEnabled() and self:GetDKPActiveAuction()
     if not auction or self:GetDKPAuctionStatus(auction) ~= "OPEN" or not self:CanBidDKPAuction(auction, own()) then return end
@@ -164,9 +208,6 @@ function GD:GetDKPPersonalRaidRecap(raidID)
         end
     end
     return recap
-end
-local function plain(value)
-    return tostring(value or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|H.-|h(.-)|h", "%1"):gsub("[%c]", " ")
 end
 function GD:BuildDKPRaidReport(raidID)
     if not self:IsDKPEnabled() or not self:CanConfigureDKP() then return nil, "Only officers and the GM can export raid reports." end

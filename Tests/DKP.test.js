@@ -1196,7 +1196,7 @@ do
  local sentCount=#peer.sent;assert(not peer:SubmitDKPBid(auction,20,'MS'));assert(#peer.sent==sentCount)
  w:Hide();peer:ShowDKPAuctionPopup(auction);assert(w.feedback:GetText()=='Sending bid...' and not w.quick.enabled)
  local mark=#c.sent;deliver(c,request,'Novice One');assert(c:GetDKPAuctionLeader(c:GetDKPAuction(auction)).member=='Novice One-Realm')
- broadcast(c,mark,{peer},'Officer One');assert(peer.dkpBidStatus=='Bid accepted.' and w.quick.enabled)
+ broadcast(c,mark,{peer},'Officer One');assert(peer.dkpBidStatus=='Your 10 DKP bid was accepted (MS).' and w.quick.enabled)
  active=c;assert(c:SubmitDKPBid(auction,20,'MS'));broadcast(c,mark,{peer},'Officer One')
  active=peer;now=now+1;assert(peer:SubmitDKPBid(auction,30,'MS'));request=peer.sent[#peer.sent]
  mark=#c.sent;deliver(c,request,'Member One');assert(c:GetDKPAuctionLeader(c:GetDKPAuction(auction)).amount==20)
@@ -1434,7 +1434,7 @@ do
  local request=player.sent[#player.sent];local sent=#host.sent;deliver(host,request,'Member One')
  assert(#host.sent==sent+1 and host.sent[#host.sent][1]=='DKJ','Successful bids use one authoritative update, not a competing acknowledgement')
  flushLive();assert(#player:GetDKPAuction(auction).data.bids==2 and #viewer:GetDKPAuction(auction).data.bids==2)
- assert(player.dkpBidStatus=='Bid accepted.' and playerWindow.bidderHeader:GetText()=='BIDDERS (2)' and playerWindow.quickAmount==30)
+ assert(player.dkpBidStatus=='Your 20 DKP bid was accepted (MS).' and playerWindow.bidderHeader:GetText()=='BIDDERS (2)' and playerWindow.quickAmount==30)
  active=host;assert(host:AcceptDKPBid(auction,'Officer One',30,'MS'));flushLive()
  assert(playerWindow.quickAmount==40 and #wire.historyQueue==30)
  assert(viewer:GetDKPAuctionLeader(viewer:GetDKPAuction(auction)).amount==30)
@@ -1536,6 +1536,40 @@ do
  resumed:ShowDKPAlertSettings();assert(resumed.form.fields[5].value==false);assert(resumed.form.callback({true,false,false,false,true}));assert(resetCalls==2)
  raid=oldRaid
 end
+do
+ local oldRaid=raid;raid={'Officer One','Member One'}
+ local h=systemClient(1,'Officer One');active=h;assert(h:AwardDKP('Member One',500,'Checklist funds'));assert(h:AwardDKP('Officer One',500,'Checklist funds'))
+ local _,_,raidID=h:StartDKPRaid('Checklist raid');assert(raidID)
+ assert(h:RecordDKPLoot('Member One','19019',50,'MS'))
+ local loot=h:GetDKPRaidSummary(raidID).loot[1];assert(loot.id)
+ local _,_,auction=h:StartDKPAuction('19020',10,10,60)
+ local ok,message=h:SubmitDKPBid(auction,25,'OS');assert(ok and message=='Your 25 DKP bid was accepted (OS).')
+ local check=h:GetDKPEndRaidChecklist(raidID);assert(#check.auctions==1 and #check.pending==1)
+ assert(h:ShowDKPEndRaidConfirmation(h:GetDKPActiveRaid()));local form=h.form
+ assert(form.title=='End DKP Raid' and form.fields[2].label=='Active guild auctions: 1' and form.fields[3].label=='Undelivered loot in this recording: 1')
+ assert(form.fields[2].value:find('[OPEN]',1,true) and form.fields[3].value:find('Member One',1,true))
+ local earned=h:GetDKPBalance('Member One');assert(h:GetDKPActiveRaid() and h:GetDKPBalance('Member One')==earned)
+ assert(h:SetDKPLootDelivery(loot.id,true));assert(not form.callback() and h:GetDKPActiveRaid())
+ assert(h:SetDKPLootDelivery(loot.id,false));assert(h:SetDKPAuctionPaused(auction,true))
+ h:ShowDKPRecordedReward({event='finish'});form=h.form;assert(form.fields[2].value:find('[PAUSED]',1,true))
+ -- A changed raid, role or guild cannot reuse the old confirmation.
+ h.rank=2;assert(not form.callback());h.rank=1
+ local bucket=h.bucket;h.bucket={dkpConfig={enabled=true},dkpSystems={},dkpAwards={},dkpBalances={}};assert(not form.callback());h.bucket=bucket
+ local p=systemClient(2,'Member One');broadcast(h,0,{p},'Officer One');active=p
+ assert(not p:ShowDKPEndRaidConfirmation(p:GetDKPActiveRaid()) and not p:GetDKPEndRaidChecklist(raidID))
+ active=h;h:ShowDKPEndRaidConfirmation(h:GetDKPActiveRaid());form=h.form
+ assert(form.callback() and not h:GetDKPActiveRaid() and h:GetDKPBalance('Member One')==earned+10)
+ assert(h:GetDKPAuctionStatus(h:GetDKPAuction(auction))=='PAUSED' and h:GetDKPLootDelivery(loot.id)=='Pending')
+ assert(not form.callback() and h:GetDKPBalance('Member One')==earned+10)
+ assert(h:CancelDKPAuction(auction));now=now+1;local _,_,replacement=h:StartDKPRaid('Replacement recording');assert(replacement)
+ local second=h:GetDKPEndRaidChecklist(replacement);assert(#second.auctions==0 and #second.pending==0)
+ -- Old, unrelated pending deliveries do not become this recording's checklist.
+ assert(h:GetDKPPendingDeliveryCount()==1)
+ h:ShowDKPEndRaidConfirmation(h:GetDKPActiveRaid(),true);form=h.form
+ local balance=h:GetDKPBalance('Member One');assert(form.callback() and not h:GetDKPActiveRaid() and h:GetDKPBalance('Member One')==balance)
+ raid=oldRaid
+end
+print('Passed detailed bid acknowledgements and end-raid checklists: live/paused auctions, raid-scoped pending loot, cancel/review without writes, changed checklist/role/guild rejection, preserved auctions/delivery, one end bonus, and stop without bonus')
 print('Passed DKP comfort features: pause/resume freezes and persists time/bids/passes across clients/reload, stale snapshots rejected, expiry resumes once, winner emphasis, pending delivery/refund counts, clear searches, queue preview reordering and center reset')
 print('Passed live balance sync: awards/deductions/grants/raid adjustments ahead of background traffic, long encoded reasons/fragments, replay deduplication, standings and open bidding balances, history priority isolation')
 print('Passed live bid transport: single-message accepted deltas, FIFO ahead of sync/presence, reserved capacity, ordered large fragments, two bidder names and next-bid amounts update together for bidder and observer')
