@@ -20,7 +20,8 @@ local function characterKey(name) return tostring(name or ''):lower():gsub('%s',
 local roster, count = {}, 0
 GetNumGuildMembers = function(includeOffline)
     check(includeOffline == true, 'membership must include offline members')
-    return count
+    -- The API can also return online/mobile counts; zero must not become a base.
+    return count, 0, 0
 end
 GetGuildRosterInfo = function(i)
     local member = roster[i]

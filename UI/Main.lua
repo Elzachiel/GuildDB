@@ -241,7 +241,9 @@ local function pvpGuildRoster(characterKey, guild)
         end
         return true
     end
-    local count = tonumber(GetNumGuildMembers(true)) or 0
+    -- Keep only the total; additional API returns must not become tonumber's base.
+    local count = GetNumGuildMembers(true)
+    count = tonumber(count) or 0
     local complete = count > 0
     for index = 1, count do
         local name, _, _, _, _, _, _, _, _, _, classFile = GetGuildRosterInfo(index)
